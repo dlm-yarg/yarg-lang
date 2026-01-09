@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.13)
 
 set(CMAKE_C_STANDARD 11)
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
@@ -37,37 +37,67 @@ pico_sdk_init()
 endif()
 
 add_executable(cyarg 
+    common.h
+    print.h
+    chunk.h
     chunk.c
     main.c
+    memory.h
     memory.c
+    debug.h
     debug.c
+    value.h
     value.c
+    routine.h
     routine.c
+    vm.h
     vm.c
+    ast.h
     ast.c
+    parser.h
     parser.c
+    compiler.h
     compiler.c
+    scanner.h
     scanner.c
+    object.h
     object.c
+    table.h
     table.c
+    native.h
     native.c
+    builtin.h
     builtin.c
+    channel.h
     channel.c
+    yargtype.h
     yargtype.c
+    platform_hal.h
     platform_hal.c
-    sync_group.c)
+    sync_group.h
+    sync_group.c
+    files.h
+    )
 
 if (PICO_BOARD)
 target_sources(cyarg
     PRIVATE
+      pico_flash_fs.h
       files_littlefs.c
+      pico_lfs_hal.h
       pico_lfs_hal.c
         ../hostyarg/littlefs/lfs.c
         ../hostyarg/littlefs/lfs_util.c)
 else()
 target_sources(cyarg
     PRIVATE
-      files_stdlib.c)
+      files_stdlib.c
+      test-system/testBuiltin.h
+      test-system/testBuiltin.cpp
+      test-system/testSystem.h
+      test-system/testSystem.cpp
+      test-system/testIntrinsics.hpp
+      )
 endif()
 
 if (HOST_TYPE STREQUAL "Interactive")

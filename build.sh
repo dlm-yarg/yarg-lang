@@ -1,8 +1,8 @@
 #!/bin/bash
 
-VSCODEEXTENSION_VERSION=0.2.1
+VSCODEEXTENSION_VERSION=0.3.0
 
-mkdir bin
+mkdir -p bin
 cp tools/pico-reset bin/
 
 pushd hostyarg
@@ -30,7 +30,7 @@ popd
 
 cp cyarg/build/hosttest/cyarg bin/
 
-mkdir build
+mkdir -p build
 cp cyarg/build/pico/cyarg.uf2 build/yarg-lang.uf2
 
 ./bin/hostyarg format -fs build/yarg-lang.uf2
@@ -71,7 +71,18 @@ popd
 
 ./tools/build-specimen.sh
 
-pushd vscode-yarg
-vsce package
-mv yarg-lang-$VSCODEEXTENSION_VERSION.vsix ../build/
-popd
+if which vsce > /dev/null
+then
+    pushd vscode-yarg
+    vsce package
+    mv yarg-lang-$VSCODEEXTENSION_VERSION.vsix ../build/
+    popd
+fi
+
+if which xcodebuild > /dev/null
+then
+    pushd cyarg
+    cmake --preset xcode-host
+    cmake --build build/xcode-host
+    popd
+fi
