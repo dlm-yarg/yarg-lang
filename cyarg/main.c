@@ -14,16 +14,19 @@
 const char* defaultScript = "main.ya";
 
 static void repl() {
-    char line[1024];
+    char line[4096];
+    printf("> ");
     for (;;) {
-        printf("> ");
-
-        if (!fgets(line, sizeof(line), stdin)) {
-            printf("\n");
-            break;
+        if (fgets(line, sizeof(line), stdin) != 0) {
+            interpret(line);
+            printf("> ");
         }
-
-        interpret(line);
+        else {
+            int feofi = feof(stdin); // fgets returns null when pause/continue in lldb
+            if (feofi) { // only exit if EOF
+                break;
+            }
+        }
     }
 }
 

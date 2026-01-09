@@ -77,6 +77,11 @@ static int builtinInstruction(const char* name, Chunk* chunk, int offset) {
         case BUILTIN_UINT32: printf("uint32"); break;
         case BUILTIN_INT64: printf("int64"); break;
         case BUILTIN_UINT64: printf("uint64"); break;
+        case BUILTIN_TS_SET: printf("test_set"); break;
+        case BUILTIN_TS_READ: printf("test_read"); break;
+        case BUILTIN_TS_WRITE: printf("test_write"); break;
+        case BUILTIN_TS_INTERRUPT: printf("test_interrupt"); break;
+        case BUILTIN_TS_SYNC: printf("test_sync"); break;
         default: printf("<unknown %4d>", slot); break;
     }
     printf("\n");
@@ -271,7 +276,7 @@ void printValueStack(ObjRoutine* routine, const char* message) {
     size_t stackSize = routine->stackTopIndex;
     printf("%6s", message);
     printf("%3zu:", stackSize);
-    for (int i = stackSize - 1; i >= 0; i--) {
+    for (int i = (int)(stackSize - 1); i >= 0; i--) {
         ValueCell* slot = peekCell(routine, i);
         printf("[ ");
         printValue(slot->value);

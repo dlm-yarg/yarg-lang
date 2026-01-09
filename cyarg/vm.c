@@ -5,7 +5,11 @@
 #ifdef CYARG_PICO_TARGET
 #include <pico/multicore.h>
 #else
+<<<<<<< HEAD
 #include "testSystem.h"
+=======
+#include "test-system/testSystem.h"
+>>>>>>> origin/main
 #endif
 
 #include "common.h"
@@ -120,6 +124,10 @@ static void defineNative(const char* name, NativeFn function) {
 
 void initVM() {
     
+    // must be done before initRoutine as initRoutine does a realloc
+    platform_mutex_init(&vm.heap);
+    platform_mutex_init(&vm.env);
+
     // We have an Obj here not on the heap. hack up its init.
     vm.core0.obj.type = OBJ_ROUTINE;
     vm.core0.obj.isMarked = false;
@@ -140,9 +148,6 @@ void initVM() {
     vm.pinnedRoutineHandlers[7] = pinnedRoutine7;
     vm.pinnedRoutineHandlers[8] = pinnedRoutine8;
     vm.pinnedRoutineHandlers[9] = pinnedRoutine9;
-
-    platform_mutex_init(&vm.heap);
-    platform_mutex_init(&vm.env);
 
     vm.tempRootsTop = vm.tempRoots;
 
@@ -1034,7 +1039,12 @@ InterpretResult run(ObjRoutine* routine) {
                 if (is_positive_integer(assignment)) {
                     val = as_positive_integer(assignment);
                 } else if (is_stored_type(assignment_type)) {
+#ifdef CYARG_PICO_TARGET
                     val = (uintptr_t)storedAddressof(assignment);
+#else
+                    // this is a bug on a 64bit addressed image.
+                    val = (uint32_t)(uintptr_t)storedAddressof(assignment);
+#endif
                 }
 
 
@@ -1121,15 +1131,16 @@ InterpretResult run(ObjRoutine* routine) {
             }
             case OP_RETURN: {
                 Value result = pop(routine);
+                tempRootPush(result);
                 closeUpvalues(routine, frame->stackEntryIndex);
                 routine->frameCount--;
+                popFrame(routine, frame);
+                push(routine, result);
+                tempRootPop();
                 if (routine->frameCount == 0) {
                     returnFromRoutine(routine, result);
                     return INTERPRET_OK;
                 }
-                
-                popFrame(routine, frame);
-                push(routine, result);
                 frame = &routine->frames[routine->frameCount - 1];
                 break;
             }
