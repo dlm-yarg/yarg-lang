@@ -43,7 +43,7 @@ func interpreterAvailable(interpreter string) (ok bool) {
 	return ok
 }
 
-func cmdRunTests(interpreter string, test string) {
+func cmdRunTests(interpreter string, test string) (exitcode int) {
 
 	test = filepath.Clean(test)
 	interpreter = filepath.Clean(interpreter)
@@ -51,12 +51,12 @@ func cmdRunTests(interpreter string, test string) {
 	isDir, ok := testsAvailable(test)
 	if !ok {
 		fmt.Printf("Could not stat %v, nothing to test\n", test)
-		return
+		return 1
 	}
 	ok = interpreterAvailable(interpreter)
 	if !ok {
 		fmt.Printf("Could not stat %v, no interpreter to run\n", interpreter)
-		return
+		return 1
 	}
 
 	var grandtotal, grandpass int
@@ -90,6 +90,8 @@ func cmdRunTests(interpreter string, test string) {
 	fmt.Printf("Interpreter: %v\n", interpreter)
 	fmt.Printf("Tests: %v\n", test)
 	fmt.Printf("Total tests: %v, passed: %v\n", grandtotal, grandpass)
+
+	return grandtotal - grandpass
 }
 
 func testFriendlyName(testfile string) string {

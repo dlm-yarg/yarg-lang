@@ -2,9 +2,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef CYARG_PICO_TARGET
+#ifdef CYARG_PICO_SDK_TARGET
 #include <pico/multicore.h>
-#else
+#endif
+
+#ifdef CYARG_FEATURE_TEST_SYSTEM
 #include "test-system/testSystem.h"
 #endif
 
@@ -64,7 +66,7 @@ bool removePinnedRoutine(uintptr_t address) {
 #define FLAG_VALUE 0x79617267
 
 void vmCore1Entry() {
-#ifdef CYARG_PICO_TARGET
+#ifdef CYARG_PICO_SDK_TARGET
     multicore_fifo_push_blocking(FLAG_VALUE);
     uint32_t g = multicore_fifo_pop_blocking();
 
@@ -79,7 +81,7 @@ void vmCore1Entry() {
 }
 
 void runOnCore1(ObjRoutine* routine) {
-#ifdef CYARG_PICO_TARGET
+#ifdef CYARG_PICO_SDK_TARGET
     vm.core1 = routine;
 
     vm.core1->state = EXEC_RUNNING;
@@ -1035,19 +1037,20 @@ InterpretResult run(ObjRoutine* routine) {
                 if (is_positive_integer(assignment)) {
                     val = as_positive_integer(assignment);
                 } else if (is_stored_type(assignment_type)) {
-#ifdef CYARG_PICO_TARGET
+#if IS_32BIT
                     val = (uintptr_t)storedAddressof(assignment);
-#else
+#elif IS_64BIT
                     // this is a bug on a 64bit addressed image.
                     val = (uint32_t)(uintptr_t)storedAddressof(assignment);
 #endif
                 }
 
-
-#ifdef CYARG_PICO_TARGET
+#if defined (CYARG_SELF_HOSTED)
                 *reg = val;
-#else
+#elif defined(CYARG_OS_HOSTED)
+#if defined(CYARG_FEATURE_TEST_SYSTEM)
                 tsWrite((uint32_t)nominal_address, val);
+#endif
                 printf("poke 0x%08lx, 0x%08x\n", nominal_address, val);
 #endif
                 tempRootPop();

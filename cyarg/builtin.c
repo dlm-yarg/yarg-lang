@@ -9,13 +9,13 @@
 #include "routine.h"
 #include "vm.h"
 #include "debug.h"
-#include "files.h"
+#include "fs/fs.h"
 #include "compiler.h"
 #include "channel.h"
 #include "yargtype.h"
 #include "sync_group.h"
 
-#ifndef CYARG_PICO_TARGET
+#ifdef CYARG_FEATURE_TEST_SYSTEM
 #include "test-system/testSystem.h"
 #include "test-system/testBuiltin.h"
 #endif
@@ -410,12 +410,16 @@ bool peekBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         nominal_address = AS_ADDRESS(address);
     }
 
-#ifdef CYARG_PICO_TARGET
+#if defined(CYARG_SELF_HOSTED)
     volatile uint32_t* reg = (volatile uint32_t*) nominal_address;
     uint32_t res = *reg;
     *result = UI32_VAL(res);
-#else
+#elif defined(CYARG_OS_HOSTED)
+#ifdef CYARG_FEATURE_TEST_SYSTEM
     *result = UI32_VAL(tsRead((uint32_t)nominal_address));
+#else
+    *result = UI32_VAL(0);
+#endif
     printf("peek(%p) -> %x\n", (void*)nominal_address, AS_UI32(*result));
 #endif
     return true;
@@ -795,7 +799,7 @@ Value getBuiltin(uint8_t builtin) {
         case BUILTIN_UINT32: return OBJ_VAL(newNative(uint32Builtin));
         case BUILTIN_INT64: return OBJ_VAL(newNative(int64Builtin));
         case BUILTIN_UINT64: return OBJ_VAL(newNative(uint64Builtin));
-#ifdef CYARG_PICO_TARGET
+#ifndef CYARG_FEATURE_TEST_SYSTEM
         default: return NIL_VAL;
 #else
         default: return getTestSystemBuiltin(builtin);

@@ -3,24 +3,25 @@
     "configurePresets": [
         {
             "name": "host",
-            "displayName": "Host (default build for VS Code)",
+            "displayName": "Host (default build for use on host system)",
             "description": "Using defaults for your cmake install",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/${presetName}",
             "cacheVariables": {
-                "HOST_TYPE": "Interactive",
+                "YARG_DEVICE": "GENERIC_HOST",
                 "CMAKE_BUILD_TYPE": "Debug",
-                "CMAKE_TOOLCHAIN_FILE": ""
+                "CMAKE_TOOLCHAIN_FILE": "",
+                "CYARG_FEATURE_INTERACTIVE_TRACE": "TRUE"
             }
         },
         {
-            "name": "hosttest",
+            "name": "host-test",
             "displayName": "Host Test (for test pass)",
             "description": "Using defaults for your cmake install",
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/${presetName}",
             "cacheVariables": {
-                "HOST_TYPE": "Test",
+                "YARG_DEVICE": "GENERIC_HOST",
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_TOOLCHAIN_FILE": ""
             }
@@ -32,44 +33,32 @@
             "generator": "Xcode",
             "binaryDir": "${sourceDir}/build/${presetName}",
             "cacheVariables": {
-                "HOST_TYPE": "Test",
+                "YARG_DEVICE": "GENERIC_HOST",
                 "CMAKE_TOOLCHAIN_FILE": ""
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
             }
         },
         {
-            "name": "pico",
-            "displayName": "Pico (SDK 2.2.0, 14_2_Rel1 for Pico/RP2040)",
+            "name": "target-pico",
+            "displayName": "For Pico (RP2040, env setup required)",
             "description": "Using the Pico SDK ARM toolchain",
             "binaryDir": "${sourceDir}/build/${presetName}",
             "cacheVariables": {
-                "PICO_BOARD": "pico",
-                "PICO_SDK_PATH": "$env{HOME}/.pico-sdk/sdk/2.2.0",
-                "PICO_TOOLCHAIN_PATH": "$env{HOME}/.pico-sdk/toolchain/14_2_Rel1",
+                "YARG_DEVICE": "RASPBERRY_PI_PICO",
                 "CMAKE_BUILD_TYPE": "Release"
             } 
         },
         {
-            "name": "pico-debug",
-            "displayName": "Pico Debug (SDK 2.2.0, 14_2_Rel1 for Pico/RP2040)",
+            "name": "target-pico-debug",
+            "displayName": "For Pico Debug (RP2040, env setup required)",
             "description": "Using the Pico SDK ARM toolchain",
             "binaryDir": "${sourceDir}/build/${presetName}",
             "cacheVariables": {
-                "PICO_BOARD": "pico",
-                "PICO_SDK_PATH": "$env{HOME}/.pico-sdk/sdk/2.2.0",
-                "PICO_TOOLCHAIN_PATH": "$env{HOME}/.pico-sdk/toolchain/14_2_Rel1",
-                "CMAKE_BUILD_TYPE": "Debug"
-            } 
-        },
-        {
-            "name": "pico-interactive-debug",
-            "displayName": "Pico Interactive Debug (SDK 2.2.0, 14_2_Rel1 for Pico/RP2040)",
-            "description": "Using the Pico SDK ARM toolchain",
-            "binaryDir": "${sourceDir}/build/${presetName}",
-            "cacheVariables": {
-                "HOST_TYPE": "Interactive",
-                "PICO_BOARD": "pico",
-                "PICO_SDK_PATH": "$env{HOME}/.pico-sdk/sdk/2.2.0",
-                "PICO_TOOLCHAIN_PATH": "$env{HOME}/.pico-sdk/toolchain/14_2_Rel1",
+                "YARG_DEVICE": "RASPBERRY_PI_PICO",
                 "CMAKE_BUILD_TYPE": "Debug"
             } 
         }

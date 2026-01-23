@@ -1,0 +1,158 @@
+name: Core (inc Pico)
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-pico:
+    name: Pico (tools/build-target-pico.sh)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '>=1.21.4'
+          cache: false
+
+      - name: Cache ARM GNU Toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi
+          key: arm-toolchain-14.2.rel1-x86_64-arm-none-eabi
+
+      - name: Cache Pico SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/pico-sdk
+          key: pico-sdk-2.2.0
+
+      - name: Cache picotool
+        uses: actions/cache@v4
+        with:
+          path: ~/picotool
+          key: picotool-2.2.0-a4
+
+      - name: Fetch Raspberry Pi Pico SDK dependencies
+        run: |
+          if [ ! -d "$HOME/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi" ]; then
+            if [ ! -f "arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz" ]; then
+              wget https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz
+            fi
+          fi
+
+      - name: Install x86_64 Raspberry Pi Pico SDK dependencies
+        run: |
+          uname -m
+          if [ ! -d "$HOME/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi" ]; then
+            tar -xJf arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz -C $HOME
+          fi
+          echo "$HOME/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi/bin" >> $GITHUB_PATH
+
+      - name: Test Raspberry Pi Pico SDK dependencies
+        run: arm-none-eabi-gcc -v
+
+      - name: Set up Pico SDK
+        run: |
+          if [ ! -d "$HOME/pico-sdk" ]; then
+            cd $HOME
+            git clone --recurse-submodules https://github.com/raspberrypi/pico-sdk.git \
+              --branch 2.2.0 --single-branch --depth 1
+          fi
+          echo "PICO_SDK_PATH=$HOME/pico-sdk" >> $GITHUB_ENV
+
+      - name: Fetch picotool
+        run: |
+          if [ ! -d "$HOME/picotool" ]; then
+            cd $HOME
+            git clone https://github.com/raspberrypi/picotool.git \
+              --branch 2.2.0-a4 --single-branch --depth 1
+            cd picotool
+            mkdir build
+            cd build
+            cmake ..
+            cmake --build . --parallel $(nproc)
+          fi
+
+      - name: Install picotool
+        run: |
+          cd $HOME/picotool/build
+          sudo cmake --install .
+
+      - name: Run build script
+        run: ./tools/build-target-pico.sh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: yarg-target-pico-ubuntu
+          path: |
+            build/*.uf2
+            bin/hostyarg
+
+  build-host:
+    name: Host (tools/build-host.sh)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '>=1.21.4'
+          cache: false
+
+      - name: Build hostyarg
+        run: |
+          cd hostyarg
+          go build -o ../bin/hostyarg .
+      
+      - name: Setup GCC
+        run: |
+          gcc --version
+          sudo apt install -y gcc-14 g++-14
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 1
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 1
+          gcc --version
+
+      - name: Build host target
+        run: |
+          cd cyarg
+          cmake --preset host
+          cmake --build build/host --parallel $(nproc)
+
+      - name: Build host-test target
+        run: |
+          cd cyarg
+          cmake --preset host-test
+          cmake --build build/host-test --parallel $(nproc)
+
+      - name: Run test suite
+        run: ./bin/hostyarg runtests -tests "yarg/test" -interpreter "cyarg/build/host-test/cyarg"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: yarg-host-ubuntu
+          path: |
+            bin/hostyarg
+            cyarg/build/host-test/cyarg
+            cyarg/build/host/cyarg
