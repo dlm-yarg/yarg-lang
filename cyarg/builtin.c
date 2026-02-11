@@ -53,7 +53,7 @@ bool importBuiltin(ObjRoutine* routineContext, int argCount) {
     }
 
     Value val;
-    if (tableGet(&vm.imports, AS_STRING(peek(routineContext, 0)), &val)) {
+    if (tableGet(vm.imports, AS_STRING(peek(routineContext, 0)), &val)) {
         pop(routineContext);
         pop(routineContext);
         push(routineContext, NIL_VAL);
@@ -84,7 +84,7 @@ bool importBuiltin(ObjRoutine* routineContext, int argCount) {
         ObjClosure* closure = newClosure(function);
         push(routineContext, OBJ_VAL(closure));
 
-        tableSet(&vm.imports, AS_STRING(libstring), BOOL_VAL(true));
+        tableSet(vm.imports, AS_STRING(libstring), BOOL_VAL(true));
 
         tempRootPop();
         tempRootPop();

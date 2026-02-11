@@ -137,7 +137,7 @@ static void blackenObject(Obj* object) {
         case OBJ_CLASS: {
             ObjClass* klass = (ObjClass*)object;
             markObject((Obj*)klass->name);
-            markTable(&klass->methods);
+            markTable(klass->methods);
             break;
         }
         case OBJ_CLOSURE: {
@@ -157,7 +157,7 @@ static void blackenObject(Obj* object) {
         case OBJ_INSTANCE: {
             ObjInstance* instance = (ObjInstance*)object;
             markObject((Obj*)instance->klass);
-            markTable(&instance->fields);
+            markTable(instance->fields);
             break;
         }
         case OBJ_UPVALUE:
@@ -211,7 +211,7 @@ static void blackenObject(Obj* object) {
         }
         case OBJ_YARGTYPE_STRUCT: {
             ObjConcreteYargTypeStruct* type = (ObjConcreteYargTypeStruct*)object;
-            markTable(&type->field_names);
+            markTable(type->field_names);
             for (int i = 0; i < type->field_count; i++) {
                 ObjConcreteYargType* field_type = type->field_types[i];
                 markObject((Obj*)field_type);
@@ -436,7 +436,7 @@ static void freeObject(Obj* object) {
         case OBJ_BOUND_METHOD: FREE(ObjBoundMethod, object); break;
         case OBJ_CLASS: {
             ObjClass* klass = (ObjClass*)object;
-            freeTable(&klass->methods);
+            freeTable(klass->methods);
             FREE(ObjClass, object);
             break;
         }
@@ -454,7 +454,7 @@ static void freeObject(Obj* object) {
         }
         case OBJ_INSTANCE: {
             ObjInstance* instance = (ObjInstance*)object;
-            freeTable(&instance->fields);
+            freeTable(instance->fields);
             FREE(ObjInstance, object);
             break;
         }
@@ -506,7 +506,7 @@ static void freeObject(Obj* object) {
             ObjConcreteYargTypeStruct* t = (ObjConcreteYargTypeStruct*)object;
             FREE_ARRAY(ObjConcreteYargType*, t->field_types, t->field_count);
             FREE_ARRAY(size_t, t->field_indexes, t->field_count);
-            freeTable(&t->field_names);
+            freeTable(t->field_names);
             FREE(ObjConcreteYargTypeStruct, object);
             break;
         }
@@ -624,7 +624,7 @@ void collectGarbage() {
 
     markRoots();
     traceReferences();
-    tableRemoveWhite(&vm.strings);
+    tableRemoveWhite(vm.strings);
     sweep();
 
     size_t candidateGC = vm.bytesAllocated * GC_HEAP_GROW_FACTOR;

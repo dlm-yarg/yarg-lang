@@ -129,6 +129,7 @@ void initVM() {
     // must be done before initRoutine as initRoutine does a realloc
     platform_mutex_init(&vm.heap);
     platform_mutex_init(&vm.env);
+    initTable(vm.strings, sizeof vm.strings);
 
     // We have an Obj here not on the heap. hack up its init.
     vm.core0.obj.type = OBJ_ROUTINE;
@@ -162,8 +163,7 @@ void initVM() {
     vm.grayStack = NULL;
 
     initCellTable(&vm.globals);
-    initTable(&vm.strings);
-    initTable(&vm.imports);
+    initTable(vm.imports, sizeof vm.imports);
 
     vm.initString = NULL;
     vm.initString = copyString("init", 4);
@@ -178,8 +178,8 @@ void initVM() {
 
 void freeVM() {
     freeCellTable(&vm.globals);
-    freeTable(&vm.strings);
-    freeTable(&vm.imports);
+    freeTable(vm.strings);
+    freeTable(vm.imports);
     vm.initString = NULL;
     freeObjects();
 }
@@ -199,7 +199,7 @@ void markVMRoots() {
         markValue(*slot);
     }
 
-    markTable(&vm.imports);
+    markTable(vm.imports);
     markCellTable(&vm.globals);
     markObject((Obj*)vm.initString);
 }
@@ -239,7 +239,7 @@ static bool callValue(ObjRoutine* routine, Value callee, int argCount) {
                 target->value = OBJ_VAL(newInstance(klass));
                 target->cellType = NULL;
                 Value initializer;
-                if (tableGet(&klass->methods, vm.initString, &initializer)) {
+                if (tableGet(klass->methods, vm.initString, &initializer)) {
                     return callfn(routine, AS_CLOSURE(initializer), argCount);
                 } else if (argCount != 0) {
                     runtimeError(routine, "Expected 0 arguments but got %d.", argCount);
@@ -277,7 +277,7 @@ static bool callValue(ObjRoutine* routine, Value callee, int argCount) {
 static bool invokeFromClass(ObjRoutine* routine, ObjClass* klass, ObjString* name,
                             int argCount) {
     Value method;
-    if (!tableGet(&klass->methods, name, &method)) {
+    if (!tableGet(klass->methods, name, &method)) {
         runtimeError(routine, "Undefined property '%s'.", name->chars);
         return false;
     }
@@ -295,7 +295,7 @@ static bool invoke(ObjRoutine* routine, ObjString* name, int argCount) {
     ObjInstance* instance = AS_INSTANCE(receiver);
 
     Value value;
-    if (tableGet(&instance->fields, name, &value)) {
+    if (tableGet(instance->fields, name, &value)) {
         ValueCell* target = peekCell(routine, argCount);
 
         target->value = value;
@@ -308,7 +308,7 @@ static bool invoke(ObjRoutine* routine, ObjString* name, int argCount) {
 
 static bool bindMethod(ObjRoutine* routine, ObjClass* klass, ObjString* name) {
     Value method;
-    if (!tableGet(&klass->methods, name, &method)) {
+    if (!tableGet(klass->methods, name, &method)) {
         runtimeError(routine, "Undefined property '%s'.", name->chars);
         return false;
     }
@@ -355,7 +355,7 @@ static void closeUpvalues(ObjRoutine* routine, size_t last) {
 static void defineMethod(ObjRoutine* routine, ObjString* name) {
     Value method = peek(routine, 0);
     ObjClass* klass = AS_CLASS(peek(routine, 1));
-    tableSet(&klass->methods, name, method);
+    tableSet(klass->methods, name, method);
     pop(routine);
 }
 
@@ -783,7 +783,7 @@ runtimeError(routine, "Operands must both be numbers, integers or unsigned integ
                     ObjString* name = READ_STRING();
 
                     Value value;
-                    if (tableGet(&instance->fields, name, &value)) {
+                    if (tableGet(instance->fields, name, &value)) {
                         pop(routine); // Instance
                         push(routine, value);
                         break;
@@ -830,7 +830,7 @@ runtimeError(routine, "Operands must both be numbers, integers or unsigned integ
                 }
                 if (IS_INSTANCE(peek(routine, 1))) {
                     ObjInstance* instance = AS_INSTANCE(peek(routine, 1));
-                    tableSet(&instance->fields, READ_STRING(), peek(routine, 0));
+                    tableSet(instance->fields, READ_STRING(), peek(routine, 0));
                     Value value = pop(routine);
                     pop(routine);
                     push(routine, value);
@@ -1173,7 +1173,7 @@ runtimeError(routine, "Operands must both be numbers, integers or unsigned integ
                 }
 
                 ObjClass* subclass = AS_CLASS(peek(routine, 0));
-                tableAddAll(&AS_CLASS(superclass)->methods, &subclass->methods);
+                tableAddAll(AS_CLASS(superclass)->methods, subclass->methods);
                 pop(routine); // Subclass.
                 break;
             }

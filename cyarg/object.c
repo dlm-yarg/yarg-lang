@@ -79,7 +79,7 @@ ObjBoundMethod* newBoundMethod(Value reciever, ObjClosure* method) {
 ObjClass* newClass(ObjString* name) {
     ObjClass* klass = ALLOCATE_OBJ(ObjClass, OBJ_CLASS);
     klass->name = name;
-    initTable(&klass->methods);
+    initTable(klass->methods, sizeof (klass->methods));
     return klass;
 }
 
@@ -108,7 +108,7 @@ ObjFunction* newFunction() {
 ObjInstance* newInstance(ObjClass* klass) {
     ObjInstance* instance = ALLOCATE_OBJ(ObjInstance, OBJ_INSTANCE);
     instance->klass = klass;
-    initTable(&instance->fields);
+    initTable(instance->fields, sizeof instance->fields);
     return instance;
 }
 
@@ -307,7 +307,7 @@ ObjPackedStruct* newPackedStructAt(PackedValue location) {
 bool structFieldIndex(ObjConcreteYargType* type, ObjString* name, size_t* index) {
     ObjConcreteYargTypeStruct* structType = (ObjConcreteYargTypeStruct*)type;
     Value indexVal;
-    if (tableGet(&structType->field_names, name, &indexVal)) {
+    if (tableGet(structType->field_names, name, &indexVal)) {
         *index = AS_UI32(indexVal);
         return true;
     }
@@ -338,7 +338,7 @@ static ObjString* allocateString(char* chars, int length, uint32_t hash) {
     string->chars = chars;
     string->hash = hash;
     tempRootPush(OBJ_VAL(string));
-    tableSet(&vm.strings, string, NIL_VAL);
+    tableSet(vm.strings, string, NIL_VAL);
     tempRootPop();
     return string;
 }
@@ -354,7 +354,7 @@ static uint32_t hashString(const char* key, int length) {
 
 ObjString* takeString(char* chars, int length) {
     uint32_t hash = hashString(chars, length);
-    ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
+    ObjString* interned = tableFindString(vm.strings, chars, length, hash);
     if (interned != NULL) {
         FREE_ARRAY(char, chars, length + 1);
         return interned;
@@ -365,7 +365,7 @@ ObjString* takeString(char* chars, int length) {
 
 ObjString* copyString(const char* chars, int length) {
     uint32_t hash = hashString(chars, length);
-    ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
+    ObjString* interned = tableFindString(vm.strings, chars, length, hash);
     if (interned != NULL) return interned;
 
     char* heapChars = ALLOCATE(char, length + 1);
