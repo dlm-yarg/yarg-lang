@@ -125,7 +125,7 @@ Releases are made from pushes to main, which is a repeat of some of the CI tests
 use `tools/build-repo.sh` to build as many targets as your environment supports. It is assumed hosts will always build. if this script runs cleanly, so should both CI suites. Requires MacOS to target Xcode.
 
 
-[rel]: https://github.com/jhmcaleely/yarg-lang/releases
+[rel]: https://github.com/yarg-lang/yarg-lang/releases
 [picosdk]: https://www.raspberrypi.com/documentation/microcontrollers/c_sdk.html
 [pico1]: https://datasheets.raspberrypi.com/pico/pico-product-brief.pdf
 [golang]: https://go.dev
