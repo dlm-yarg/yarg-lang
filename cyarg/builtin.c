@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <inttypes.h>
 
 #include "common.h"
 #include "object.h"
@@ -52,7 +53,7 @@ bool importBuiltin(ObjRoutine* routineContext, int argCount) {
     }
 
     Value val;
-    if (tableGet(&vm.imports, AS_STRING(peek(routineContext, 0)), &val)) {
+    if (tableGet(vm.imports, AS_STRING(peek(routineContext, 0)), &val)) {
         pop(routineContext);
         pop(routineContext);
         push(routineContext, NIL_VAL);
@@ -83,7 +84,7 @@ bool importBuiltin(ObjRoutine* routineContext, int argCount) {
         ObjClosure* closure = newClosure(function);
         push(routineContext, OBJ_VAL(closure));
 
-        tableSet(&vm.imports, AS_STRING(libstring), BOOL_VAL(true));
+        tableSet(vm.imports, AS_STRING(libstring), BOOL_VAL(true));
 
         tempRootPop();
         tempRootPop();
@@ -511,6 +512,9 @@ bool newBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
             *result = defaultValue(typeToCreate);
             return true;
         }
+        case TypeInt: {
+            return true;
+        }
         case TypeString:
         case TypeClass:
         case TypeInstance:
@@ -552,6 +556,31 @@ bool uint64Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
     } else if (IS_I64(arg) && AS_I64(arg) >= 0) {
         *result = UI64_VAL(AS_I64(arg));
         return true;
+    } else if (IS_INT(arg)) {
+        Int *i = AS_INT(arg);
+        if (int_is_range(i, 0, UINT64_MAX) == INT_WITHIN)
+        {
+            *result = UI64_VAL(int_to_u64(i));
+            return true;
+        }
+    } else if (IS_STRING(arg)) {
+        char *end;
+        uint64_t i = strtoull(AS_CSTRING(arg), &end, 10);
+        if (*end == 0)
+        {
+            *result = UI64_VAL(i);
+            return true;
+        }
+    } else if (IS_DOUBLE(arg)) {
+        double f = AS_DOUBLE(arg);
+        if (f >= 0.0 && f <= UINT64_MAX)
+        {
+            *result = UI64_VAL((uint64_t) f);
+            return true;
+        }
+    } else if (IS_BOOL(arg)) {
+        *result = UI64_VAL(AS_BOOL(arg));
+        return true;
     }
     return false;
 }
@@ -582,9 +611,33 @@ bool int64Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
     } else if (IS_UI64(arg) && AS_UI64(arg) <= INT64_MAX) {
         *result = I64_VAL(AS_UI64(arg));
         return true;
-    } else {
-        return false;
+    } else if (IS_INT(arg)) {
+        Int *i = AS_INT(arg);
+        if (int_is_range(i, INT64_MIN, INT64_MAX) == INT_WITHIN)
+        {
+            *result = I64_VAL(int_to_i64(i));
+            return true;
+        }
+    } else if (IS_STRING(arg)) {
+        char *end;
+        int64_t i = strtoll(AS_CSTRING(arg), &end, 10);
+        if (*end == 0)
+        {
+            *result = I64_VAL(i);
+            return true;
+        }
+    } else if (IS_DOUBLE(arg)) {
+        double f = AS_DOUBLE(arg);
+        if (f >= INT16_MIN && f <= INT16_MAX)
+        {
+            *result = I64_VAL((int64_t) f);
+            return true;
+        }
+    } else if (IS_BOOL(arg)) {
+        *result = I64_VAL(AS_BOOL(arg));
+        return true;
     }
+    return false;
 }
 
 bool uint32Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
@@ -612,6 +665,31 @@ bool uint32Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
         return true;
     } else if (IS_UI64(arg) && AS_UI64(arg) <= UINT32_MAX) {
         *result = UI32_VAL((uint32_t)AS_UI64(arg));
+        return true;
+    } else if (IS_INT(arg)) {
+        Int *i = AS_INT(arg);
+        if (int_is_range(i, 0, UINT32_MAX) == INT_WITHIN)
+        {
+            *result = UI32_VAL(int_to_u32(i));
+            return true;
+        }
+    } else if (IS_STRING(arg)) {
+        char *end;
+        uint64_t i = strtoull(AS_CSTRING(arg), &end, 10);
+        if (*end == 0 && i <= UINT32_MAX)
+        {
+            *result = UI32_VAL((uint32_t) i);
+            return true;
+        }
+    } else if (IS_DOUBLE(arg)) {
+        double f = AS_DOUBLE(arg);
+        if (f >= 0.0 && f <= UINT32_MAX)
+        {
+            *result = UI32_VAL((uint32_t) f);
+            return true;
+        }
+    } else if (IS_BOOL(arg)) {
+        *result = UI32_VAL(AS_BOOL(arg));
         return true;
     }
     return false;
@@ -643,9 +721,40 @@ bool int32Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
     } else if (IS_UI64(arg) && AS_UI64(arg) <= INT32_MAX) {
         *result = I32_VAL((int32_t)AS_UI64(arg));
         return true;
-    } else {
-        return false;
+    } else if (IS_INT(arg)) {
+        Int *i = AS_INT(arg);
+        if (int_is_range(i, INT32_MIN, INT32_MAX) == INT_WITHIN)
+        {
+            *result = I32_VAL(int_to_i32(i));
+            return true;
+        }
+    } else if (IS_STRING(arg)) {
+        char *end;
+        int64_t i = strtoll(AS_CSTRING(arg), &end, 10);
+        if (*end == 0 && i >= INT32_MIN && i <= INT32_MAX)
+        {
+            *result = I32_VAL((int32_t) i);
+            return true;
+        }
+    } else if (IS_DOUBLE(arg)) {
+        double f = AS_DOUBLE(arg);
+        if (f >= INT32_MIN && f <= INT32_MAX)
+        {
+            *result = I32_VAL((int32_t) f);
+            return true;
+        }
+    } else if (IS_DOUBLE(arg)) {
+        double f = AS_DOUBLE(arg);
+        if (f >= INT32_MIN && f <= INT32_MAX)
+        {
+            *result = I32_VAL((int32_t) f);
+            return true;
+        }
+    } else if (IS_BOOL(arg)) {
+        *result = I32_VAL(AS_BOOL(arg));
+        return true;
     }
+    return false;
 }
 
 bool uint16Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
@@ -674,9 +783,33 @@ bool uint16Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
     } else if (IS_UI64(arg) && AS_UI64(arg) <= UINT16_MAX) {
         *result = UI16_VAL(AS_UI64(arg));
         return true;
-    } else {
-        return false;
+    } else if (IS_INT(arg)) {
+        Int *i = AS_INT(arg);
+        if (int_is_range(i, 0, UINT16_MAX) == INT_WITHIN)
+        {
+            *result = UI16_VAL((uint16_t) int_to_u32(i));
+            return true;
+        }
+    } else if (IS_STRING(arg)) {
+        char *end;
+        uint64_t i = strtoull(AS_CSTRING(arg), &end, 10);
+        if (*end == 0 && i <= UINT16_MAX)
+        {
+            *result = UI16_VAL((uint16_t) i);
+            return true;
+        }
+    } else if (IS_DOUBLE(arg)) {
+        double f = AS_DOUBLE(arg);
+        if (f >= 0.0 && f <= UINT16_MAX)
+        {
+            *result = UI16_VAL((uint16_t) f);
+            return true;
+        }
+    } else if (IS_BOOL(arg)) {
+        *result = UI16_VAL(AS_BOOL(arg));
+        return true;
     }
+    return false;
 }
 
 bool int16Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
@@ -705,9 +838,33 @@ bool int16Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
     } else if (IS_UI64(arg) && AS_UI64(arg) <= INT16_MAX) {
         *result = I16_VAL(AS_UI64(arg));
         return true;
-    } else {
-        return false;
+    } else if (IS_INT(arg)) {
+        Int *i = AS_INT(arg);
+        if (int_is_range(i, INT16_MIN, INT16_MAX) == INT_WITHIN)
+        {
+            *result = I16_VAL((int16_t) int_to_i32(i));
+            return true;
+        }
+    } else if (IS_STRING(arg)) {
+        char *end;
+        int64_t i = strtoll(AS_CSTRING(arg), &end, 10);
+        if (*end == 0 && i >= INT16_MIN && i <= INT16_MAX)
+        {
+            *result = I16_VAL((int16_t) i);
+            return true;
+        }
+    } else if (IS_DOUBLE(arg)) {
+        double f = AS_DOUBLE(arg);
+        if (f >= INT16_MIN && f <= INT16_MAX)
+        {
+            *result = I16_VAL((int16_t) f);
+            return true;
+        }
+    } else if (IS_BOOL(arg)) {
+        *result = I16_VAL(AS_BOOL(arg));
+        return true;
     }
+    return false;
 }
 
 bool uint8Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
@@ -736,9 +893,33 @@ bool uint8Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
     } else if (IS_UI64(arg) && AS_UI64(arg) <= UINT8_MAX) {
         *result = UI8_VAL(AS_UI64(arg));
         return true;
-    } else {
-        return false;
+    } else if (IS_INT(arg)) {
+        Int *i = AS_INT(arg);
+        if (int_is_range(i, 0, INT8_MAX) == INT_WITHIN)
+        {
+            *result = UI8_VAL((uint8_t) int_to_u32(i));
+            return true;
+        }
+    } else if (IS_STRING(arg)) {
+        char *end;
+        uint64_t i = strtoull(AS_CSTRING(arg), &end, 10);
+        if (*end == 0 && i <= UINT8_MAX)
+        {
+            *result = UI8_VAL((int8_t) i);
+            return true;
+        }
+    } else if (IS_DOUBLE(arg)) {
+        double f = AS_DOUBLE(arg);
+        if (f >= 0.0 && f <= UINT8_MAX)
+        {
+            *result = UI8_VAL((uint8_t) f);
+            return true;
+        }
+    } else if (IS_BOOL(arg)) {
+        *result = UI8_VAL(AS_BOOL(arg));
+        return true;
     }
+    return false;
 }
 
 bool int8Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
@@ -767,9 +948,193 @@ bool int8Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
     } else if (IS_UI64(arg) && AS_UI64(arg) <= INT8_MAX) {
         *result = I8_VAL(AS_UI64(arg));
         return true;
+    } else if (IS_INT(arg)) {
+        Int *i = AS_INT(arg);
+        if (int_is_range(i, INT8_MIN, INT8_MAX) == INT_WITHIN)
+        {
+            *result = I8_VAL((int8_t) int_to_i32(i));
+            return true;
+        }
+    } else if (IS_STRING(arg)) {
+        char *end;
+        int64_t i = strtoll(AS_CSTRING(arg), &end, 10);
+        if (*end == 0 && i >= INT8_MIN && i <= INT8_MAX)
+        {
+            *result = I8_VAL((int8_t) i);
+            return true;
+        }
+    } else if (IS_DOUBLE(arg)) {
+        double f = AS_DOUBLE(arg);
+        if (f >= INT8_MIN && f <= INT8_MAX)
+        {
+            *result = I8_VAL((int8_t) f);
+            return true;
+        }
+    } else if (IS_BOOL(arg)) {
+        *result = I8_VAL(AS_BOOL(arg));
+        return true;
+    }
+    return false;
+}
+
+bool intBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
+    Value arg = nativeArgument(routineContext, argCount, 0);
+    int64_t i;
+    if (IS_I8(arg)) {
+        i = AS_I8(arg);
+    } else if (IS_I16(arg)) {
+        i = AS_I16(arg);
+    } else if (IS_I32(arg)) {
+        i = AS_I32(arg);
+    } else if (IS_I64(arg)) {
+        i = AS_I64(arg);
+    } else if (IS_UI8(arg)) {
+        i = AS_UI8(arg);
+    } else if (IS_UI16(arg)) {
+        i = AS_UI16(arg);
+    } else if (IS_UI32(arg)) {
+        i = AS_UI32(arg);
+    } else if (IS_UI64(arg)) {
+        uint64_t i = AS_UI64(arg);
+        ObjInt *newObj = ALLOCATE_OBJ(ObjInt, OBJ_INT);
+        result->as.obj = &newObj->obj;
+        result->type = VAL_OBJ;
+        int_set_u(i, &newObj->bigInt);
+        return true;
+    } else if (IS_STRING(arg)) {
+        ObjInt *newObj = ALLOCATE_OBJ(ObjInt, OBJ_INT);
+        result->as.obj = &newObj->obj;
+        result->type = VAL_OBJ;
+        int_set_s(AS_CSTRING(arg), &newObj->bigInt);
+        return true;
+    } else if (IS_INT(arg)) {
+        ObjInt *newObj = ALLOCATE_OBJ(ObjInt, OBJ_INT);
+        result->as.obj = &newObj->obj;
+        result->type = VAL_OBJ;
+        int_set_t(AS_INT(arg), &newObj->bigInt);
+        return true;
+    } else if (IS_DOUBLE(arg)) { // todo  handle floats larger than int64
+        double f = AS_DOUBLE(arg);
+        char sb[310];
+        sprintf(sb, "%.0f", f);
+        ObjInt *newObj = ALLOCATE_OBJ(ObjInt, OBJ_INT);
+        result->as.obj = &newObj->obj;
+        result->type = VAL_OBJ;
+        int_set_s(sb, &newObj->bigInt);
+        return true;
+    } else if (IS_BOOL(arg)) {
+        i = AS_BOOL(arg);
     } else {
         return false;
     }
+    ObjInt *newObj = ALLOCATE_OBJ(ObjInt, OBJ_INT);
+    result->as.obj = &newObj->obj;
+    result->type = VAL_OBJ;
+    int_set_i(i, &newObj->bigInt);
+    return true;
+}
+
+bool floatBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
+    Value arg = nativeArgument(routineContext, argCount, 0);
+    double f;
+    if (IS_I8(arg)) {
+        f = AS_I8(arg);
+    } else if (IS_I16(arg)) {
+        f = AS_I16(arg);
+    } else if (IS_I32(arg)) {
+        f = AS_I32(arg);
+    } else if (IS_I64(arg)) {
+        f = AS_I64(arg);
+    } else if (IS_UI8(arg)) {
+        f = AS_UI8(arg);
+    } else if (IS_UI16(arg)) {
+        f = AS_UI16(arg);
+    } else if (IS_UI32(arg)) {
+        f = AS_UI32(arg);
+    } else if (IS_UI64(arg)) {
+        f = AS_UI64(arg);
+    } else if (IS_STRING(arg)) {
+        char const *string = AS_CSTRING(arg);
+        f = strtod(string, 0);
+    } else if (IS_DOUBLE(arg)) {
+        f = AS_DOUBLE(arg);
+    } else if (IS_INT(arg)) {
+        char sb[311];
+        Int *i = AS_INT(arg);
+        char const *s = int_to_s(i, sb, 311);
+        f = strtod(s, 0);
+    } else if (IS_BOOL(arg)) {
+        f = AS_BOOL(arg);
+    } else {
+        return false;
+    }
+    *result = DOUBLE_VAL(f);
+    return true;
+}
+
+bool stringBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
+    Value arg = nativeArgument(routineContext, argCount, 0);
+    int64_t i;
+    if (IS_I8(arg)) {
+        i = AS_I8(arg);
+    } else if (IS_I16(arg)) {
+        i = AS_I16(arg);
+    } else if (IS_I32(arg)) {
+        i = AS_I32(arg);
+    } else if (IS_I64(arg)) {
+        i = AS_I64(arg);
+    } else if (IS_UI8(arg)) {
+        i = AS_UI8(arg);
+    } else if (IS_UI16(arg)) {
+        i = AS_UI16(arg);
+    } else if (IS_UI32(arg)) {
+        i = AS_UI32(arg);
+    } else if (IS_UI64(arg)) {
+        uint64_t i = AS_UI64(arg);
+        char sb[22];
+        int l = sprintf(sb, "%" PRIu64, i);
+        ObjString* string = copyString(sb, l);
+        result->as.obj = &string->obj;
+        result->type = VAL_OBJ;
+        return true;
+    } else if (IS_STRING(arg)) {
+        ObjString *string = AS_STRING(arg);
+        result->as.obj = &string->obj;
+        result->type = VAL_OBJ;
+        return true;
+    } else if (IS_INT(arg)) {
+        char sb[311];
+        Int *i = AS_INT(arg);
+        char const *s = int_to_s(i, sb, 311);
+//        char const *s = int_for_bc(i);
+        int len = (int)strlen(s);
+        ObjString* string = copyString(s, len);
+        result->as.obj = &string->obj;
+        result->type = VAL_OBJ;
+        return true;
+    } else if (IS_DOUBLE(arg)) {
+        char sb[22];
+        double f = AS_DOUBLE(arg);
+        int l = sprintf(sb, "%#g", f);
+        ObjString* string = copyString(sb, l);
+        result->as.obj = &string->obj;
+        result->type = VAL_OBJ;
+        return true;
+    } else if (IS_BOOL(arg)) {
+        char const *s = AS_BOOL(arg) ? "true" : "false";
+        ObjString* string = copyString(s, (int) strlen(s));
+        result->as.obj = &string->obj;
+        result->type = VAL_OBJ;
+        return true;
+    } else {
+        return false;
+    }
+    char sb[22];
+    int l = sprintf(sb, "%" PRId64, i);
+    ObjString* string = copyString(sb, l);
+    result->as.obj = &string->obj;
+    result->type = VAL_OBJ;
+    return true;
 }
 
 Value getBuiltin(uint8_t builtin) {
@@ -799,6 +1164,9 @@ Value getBuiltin(uint8_t builtin) {
         case BUILTIN_UINT32: return OBJ_VAL(newNative(uint32Builtin));
         case BUILTIN_INT64: return OBJ_VAL(newNative(int64Builtin));
         case BUILTIN_UINT64: return OBJ_VAL(newNative(uint64Builtin));
+        case BUILTIN_INT: return OBJ_VAL(newNative(intBuiltin));
+        case BUILTIN_MFLOAT64: return OBJ_VAL(newNative(floatBuiltin));
+        case BUILTIN_STRING: return OBJ_VAL(newNative(stringBuiltin));
 #ifndef CYARG_FEATURE_TEST_SYSTEM
         default: return NIL_VAL;
 #else

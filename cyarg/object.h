@@ -47,6 +47,8 @@ typedef struct ObjConcreteYargTypePointer ObjConcreteYargTypePointer;
 #define AS_POINTER(value)      ((ObjPackedPointer*)AS_OBJ(value))
 #define AS_STRUCT(value)       ((ObjPackedStruct*)AS_OBJ(value))
 #define AS_SYNCGROUP(value)    ((ObjSyncGroup*)AS_OBJ(value))
+#define AS_INTOBJ(value)       ((ObjInt*)AS_OBJ(value))
+#define AS_INT(value)          (&((ObjInt*)AS_OBJ(value))->bigInt)
 
 typedef enum {
     OBJ_BOUND_METHOD,
@@ -103,7 +105,8 @@ typedef enum {
     OBJ_EXPR_SUPER,
     OBJ_EXPR_TYPE,
     OBJ_EXPR_TYPE_STRUCT,
-    OBJ_EXPR_TYPE_ARRAY
+    OBJ_EXPR_TYPE_ARRAY,
+    OBJ_INT
 } ObjType;
 
 struct Obj {
@@ -146,6 +149,11 @@ struct ObjString {
     uint32_t hash;
 };
 
+typedef struct {
+    Obj obj;
+    Int bigInt;
+} ObjInt;
+
 typedef struct ObjUpvalue {
     Obj obj;
     ValueCell* contents;
@@ -164,13 +172,13 @@ typedef struct {
 typedef struct {
     Obj obj;
     ObjString* name;
-    ValueTable methods;
+    ValueTable methods[8];
 } ObjClass;
 
 typedef struct {
     Obj obj;
     ObjClass* klass;
-    ValueTable fields;
+    ValueTable fields[8];
 } ObjInstance;
 
 typedef struct {
@@ -216,6 +224,7 @@ ObjBlob* newBlob(size_t size);
 ObjPackedUniformArray* newPackedUniformArray(ObjConcreteYargTypeArray* type);
 ObjString* takeString(char* chars, int length);
 ObjString* copyString(const char* chars, int length);
+ObjString* copyStringWithEscapes(const char* chars, int length);
 ObjUpvalue* newUpvalue(ValueCell* slot, size_t stackOffset);
 
 PackedValue arrayElement(PackedValue array, size_t index);
