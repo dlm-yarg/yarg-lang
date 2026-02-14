@@ -4,16 +4,26 @@
 #include "common.h"
 #include "value.h"
 
-typedef int ValueTable;
+typedef struct {
+    ObjString* key;
+    Value value;
+} Entry;
 
-void initTable(ValueTable [], int sizeInChars);
-void freeTable(ValueTable []);
-bool tableGet(ValueTable [], ObjString* key, Value* value);
-bool tableSet(ValueTable [], ObjString* key, Value value); // Value const *?
-void tableAddAll(ValueTable *from, ValueTable []);
-ObjString* tableFindString(ValueTable [], const char* chars, int length, uint32_t hash);
-void tableRemoveWhite(ValueTable []);
-void markTable(ValueTable []);
+typedef struct {
+    int count;
+    int capacity;
+    Entry* entries;
+} ValueTable;
+
+void initTable(ValueTable* table);
+void freeTable(ValueTable* table);
+bool tableGet(ValueTable* table, ObjString* key, Value* value);
+bool tableSet(ValueTable* table, ObjString* key, Value value);
+bool tableDelete(ValueTable* table, ObjString* key);
+void tableAddAll(ValueTable* from, ValueTable* to);
+ObjString* tableFindString(ValueTable* table, const char* chars, int length, uint32_t hash);
+void tableRemoveWhite(ValueTable* table);
+void markTable(ValueTable* table);
 
 typedef struct {
     ObjString* key;

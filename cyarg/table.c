@@ -1,6 +1,5 @@
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 
 #include "memory.h"
 #include "object.h"
@@ -8,243 +7,149 @@
 #include "value.h"
 #include "yargtype.h"
 
-#define TABLE_MAX_LOAD 3 / 4
+#define TABLE_MAX_LOAD 0.75
 
-typedef struct TableEntry
-{
-    struct TableEntry *next_;
-    ObjString* key_;
-    Value value_; // todo should be optional Value, ValueCell or nothing
-} TableEntry;
-
-typedef struct TableBlock
-{
-    struct TableBlock *next_;
-    TableEntry entries[];
-} TableBlock;
-
-typedef struct Table
-{
-    int size_;
-    TableBlock *blockList;
-    TableEntry *free_;
-    int listsSize_; // only needed for speed optimisation
-    TableEntry *lists[];
-} Table;
-
-static void expand(Table *table);
-static TableEntry* findEntry(Table *table, ObjString const *key);
-static TableEntry* findOrCreateEntry(Table *table, ObjString const *key);
-
-void initTable(int self[], int size)
-{
-    Table *table = (Table *) self;
-    assert(size >= sizeof (Table) + sizeof table->lists[0]);
-    memset(table, 0, size);
-    table->size_ = size;
-    table->listsSize_ = (size - sizeof (Table)) / sizeof table->lists[0];
-    table->free_ = 0;
-    table->blockList = 0;
+void initTable(ValueTable* table) {
+    table->count = 0;
+    table->capacity = 0;
+    table->entries = NULL;
 }
 
-void freeTable(int self[]) {
-    Table *table = (Table *) self;
+void freeTable(ValueTable* table) {
+    FREE_ARRAY(Entry, table->entries, table->capacity);
+    initTable(table);
+}
 
-    TableBlock *tableBlock = table->blockList;
-    while (tableBlock != 0)
-    {
-        TableBlock *next = tableBlock->next_;
-        reallocate(tableBlock, sizeof (TableBlock) +  sizeof (TableEntry) * (table->listsSize_ + 1), 0);
-        tableBlock = next;
+static Entry* findEntry(Entry* entries, int capacity, ObjString* key) {
+    uint32_t index = key->hash & (capacity - 1);
+    Entry* tombstone = NULL;
+
+    for (;;) {
+        Entry* entry = &entries[index];
+        if (entry->key == NULL) {
+            if (IS_NIL(entry->value)) {
+                // Empty entry.
+                return tombstone != NULL ? tombstone : entry;
+            } else {
+                // We found a tombstone.
+                if (tombstone == NULL) tombstone = entry;
+            }
+        } else if (entry->key == key) {
+            // We found the key.
+            return entry;
+        }
+
+        index = (index + 1) & (capacity - 1);
     }
-    initTable(self, table->size_);
 }
 
-bool tableGet(int self[], ObjString* key, Value* value)
-{
-    Table *table = (Table *) self;
+bool tableGet(ValueTable* table, ObjString* key, Value* value) {
+    if (table->count == 0) return false;
 
-    TableEntry* entry = findEntry(table, key);
-    if (entry == NULL) return false;
+    Entry* entry = findEntry(table->entries, table->capacity, key);
+    if (entry->key == NULL) return false;
 
-    *value = entry->value_;
+    *value = entry->value;
     return true;
 }
 
-bool tableSet(int self[], ObjString* key, Value value)
-{
-    Table *table = (Table *) self;
+static void adjustCapacity(ValueTable* table, int capacity) {
+    Entry* entries = ALLOCATE(Entry, capacity);
+    for (int i = 0; i < capacity; i++) {
+        entries[i].key = NULL;
+        entries[i].value = NIL_VAL;
+    }
 
-    TableEntry* entry = findOrCreateEntry(table, key);
-    bool isNewKey = entry->key_ == NULL;
+    table->count = 0;
+    for (int i = 0; i < table->capacity; i++) {
+        Entry* entry = &table->entries[i];
+        if (entry->key == NULL) continue;
 
-    entry->key_ = key;
-    entry->value_ = value;
+        Entry* dest = findEntry(entries, capacity, entry->key);
+        dest->key = entry->key;
+        dest->value = entry->value;
+        table->count++;
+    }
+
+    FREE_ARRAY(Entry, table->entries, table->capacity);
+    table->entries = entries;
+    table->capacity = capacity;
+}
+
+bool tableSet(ValueTable* table, ObjString* key, Value value) {
+    if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
+        int capacity = GROW_CAPACITY(table->capacity);
+        adjustCapacity(table, capacity);
+    }
+
+    Entry* entry = findEntry(table->entries, table->capacity, key);
+    bool isNewKey = entry->key == NULL;
+    if (isNewKey && IS_NIL(entry->value)) table->count++;
+
+    entry->key = key;
+    entry->value = value;
     return isNewKey;
 }
 
-//bool tableDelete(int self[], ObjString* key)
-//{
-//    Table *table = (Table *) self;
-//
-//    int i = key->hash % table->listsSize_;
-//
-//    TableEntry **preceder = &table->lists[i];
-//    TableEntry *r = table->lists[i];
-//
-//    while (r != 0 && strcmp(key->chars, r->key_->chars) != 0)
-//    {
-//        preceder = &r->next_;
-//        r = r->next_;
-//    }
-//
-//    if (r == 0)
-//    {
-//        return false;
-//    }
-//
-//    *preceder = r->next_;
-//    r->next_ = table->free_;
-//    table->free_ = r;
-//
-//    return true;
-//}
+bool tableDelete(ValueTable* table, ObjString* key) {
+    if (table->count == 0) return false;
 
-void tableAddAll(int sFrom[], int sTo[])
-{
-    Table *from = (Table *) sFrom;
+    // Find the entry.
+    Entry* entry = findEntry(table->entries, table->capacity, key);
+    if (entry->key == NULL) return false;
 
-    for (int i = 0; i < from->listsSize_; i++)
-    {
-        TableEntry *r = from->lists[i];
+    // Place a tombstone in the entry.
+    entry->key = NULL;
+    entry->value = BOOL_VAL(true);
+    return true;
+}
 
-        while (r != 0)
-        {
-            tableSet(sTo, r->key_, r->value_);
-            r = r->next_;
+void tableAddAll(ValueTable* from, ValueTable* to) {
+    for (int i = 0; i < from->capacity; i++) {
+        Entry* entry = &from->entries[i];
+        if (entry->key != NULL) {
+            tableSet(to, entry->key, entry->value);
         }
     }
 }
 
-ObjString* tableFindString(int self[], const char *chars, int length, uint32_t hash)
-{
-    Table *table = (Table *) self;
-    int i = hash % table->listsSize_;
+ObjString* tableFindString(ValueTable* table, const char* chars, int length, uint32_t hash) {
+    if (table->count == 0) return NULL;
 
-    TableEntry *r = table->lists[i];
+    uint32_t index = hash & (table->capacity - 1);
+    for (;;) {
+        Entry* entry = &table->entries[index];
+        if (entry->key == NULL) {
+            // Stop if we find an empty non-tombstone entry.
+            if (IS_NIL(entry->value)) return NULL;
+        } else if (entry->key->length == length &&
+                   entry->key->hash == hash &&
+                   memcmp(entry->key->chars, chars, length) == 0) {
+            // We found it.
+            return entry->key;
+        }
 
-    while (r != 0 && (length != r->key_->length || memcmp(chars, r->key_->chars, length) != 0))
-    {
-        r = r->next_;
-    }
-    if (r != 0)
-    {
-        return r->key_;
-    }
-    else
-    {
-        return 0;
+        index = (index + 1) & (table->capacity - 1);
     }
 }
 
-void tableRemoveWhite(int self[])
-{
-    Table *table = (Table *) self;
-
-    for (int i = 0; i < table->listsSize_; i++)
-    {
-        TableEntry *r = table->lists[i];
-        TableEntry **preceding = &table->lists[i];
-        while (r != 0)
-        {
-            if (!r->key_->obj.isMarked)
-            {
-                TableEntry *next = r->next_;
-                *preceding = next;
-                r->next_ = table->free_;
-                table->free_ = r;
-                r = next;
-            }
-            else
-            {
-                preceding = &r->next_;
-                r = r->next_;
-            }
+void tableRemoveWhite(ValueTable* table) {
+    for (int i = 0; i < table->capacity; i++) {
+        Entry* entry = &table->entries[i];
+        if (entry->key != NULL && !entry->key->obj.isMarked) {
+            tableDelete(table, entry->key);
         }
     }
 }
 
-void markTable(int self[])
-{
-    Table *table = (Table *) self;
-
-    for (int i = 0; i < table->listsSize_; i++)
-    {
-        TableEntry *r = table->lists[i];
-
-        while (r != 0)
-        {
-            markValue(r->value_);
-            r = r->next_;
+void markTable(ValueTable* table) {
+    for (int i = 0; i < table->capacity; i++) {
+        Entry* entry = &table->entries[i];
+        if (entry->key != NULL) {
+            markObject((Obj*)entry->key);
+            markValue(entry->value);
         }
     }
-}
-
-static void expand(Table *table)
-{
-    TableBlock *list = table->blockList;
-    table->blockList = (TableBlock *) reallocate(NULL, 0, sizeof (TableBlock) +  sizeof (TableEntry) * (table->listsSize_ + 1)); // ensure there are at lease two TableEntrys
-    table->blockList->next_ = list;
-    table->free_ = table->blockList->entries;
-
-    TableEntry *te = table->free_;
-    for (int i = 0; i < table->listsSize_; i++)
-    {
-        te->next_ = te + 1;
-        te = te->next_;
-    }
-    te->next_ = 0;
-}
-
-static TableEntry* findEntry(Table *table, ObjString const *key)
-{
-    int i = key->hash % table->listsSize_;
-
-    TableEntry *r = table->lists[i];
-
-    while (r != 0 && (key->length != r->key_->length || memcmp(key->chars, r->key_->chars, key->length) != 0))
-    {
-        r = r->next_;
-    }
-    return r;
-}
-
-static TableEntry* findOrCreateEntry(Table *table, ObjString const *key)
-{
-    int i = key->hash % table->listsSize_;
-
-    TableEntry *r = table->lists[i];
-
-    while (r != 0 && r->key_ != key)
-    {
-        r = r->next_;
-    }
-    if (r == 0)
-    {
-        if (table->free_ == 0)
-        {
-            expand(table);
-        }
-        assert(table->free_ != 0); // todo - Panic
-        r = table->free_;
-        table->free_ = r->next_;
-
-        r->next_ = table->lists[i];
-        table->lists[i] = r;
-
-        r->key_ = 0;
-    }
-    return r;
 }
 
 void initCellTable(ValueCellTable* table) {

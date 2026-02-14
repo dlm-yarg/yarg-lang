@@ -23,9 +23,9 @@ typedef struct {
     platform_mutex env;
     
     ValueCellTable globals;
-    ValueTable strings[100];
+    ValueTable strings;
     ObjString* initString;
-    ValueTable imports[20];
+    ValueTable imports;
 
     platform_mutex heap;
 
