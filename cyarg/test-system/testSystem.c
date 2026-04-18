@@ -340,7 +340,8 @@ void write(uint32_t address, uint32_t value)
                 break;
             }
         }
-        assert(i == ts->memory_.n_); // create new memory cell
+        extend(&ts->memory_, sizeof ts->memory_.i_[0]);
+        ts->memory_.i_[ts->memory_.n_++] = (struct TsMemoryItem){address, value};
         pthread_mutex_unlock(&ts->memoryMutex_);
     }
 
@@ -546,7 +547,7 @@ void testIntrinsicsExpectRead(uint32_t address, uint32_t value)
     }
 }
 
-void TestIntrinsicsExpectReadAnyValue(uint32_t address)
+void testIntrinsicsExpectReadAnyValue(uint32_t address)
 {
     TestSystem *ts = self();
     {
@@ -633,4 +634,16 @@ bool testIntrinsicsTriggerInterruptNamed(char const *s)
         return false;
     }
     return true;
+}
+
+void extend(void *collection, size_t itemSize)
+{
+    TsInterrupts *c = (TsInterrupts *)collection;
+
+    if (c->n_ == c->e_)
+    {
+        int newSize = c->e_ + 4;
+        c->i_ = reallocate(c->i_, c->e_ * itemSize, newSize * itemSize);
+        c->e_ = newSize;
+    }
 }

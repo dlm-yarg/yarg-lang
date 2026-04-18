@@ -126,8 +126,8 @@ bool interruptBuiltin(ObjRoutine *routineContext, int argCount, Value *result) {
         }
         else if (IS_STRING(arg0))
         {
-            ObjString *name = (ObjString *)AS_OBJ(arg0);
-            ok = testIntrinsicsTriggerInterruptName(string(name->chars, name->length));
+            char *name = AS_CSTRING(arg0);
+            ok = testIntrinsicsTriggerInterruptNamed(name);
         }
     }
     if (!ok)
@@ -142,23 +142,22 @@ bool syncBuiltin(ObjRoutine *routineContext, int argCount, Value *result)
     TsLog *log = testIntrinsicsSync();
 
     Obj emptyString;
-    ObjConcreteYargType *array{newYargArrayTypeFromType(OBJ_VAL(&emptyString))};
-    ObjConcreteYargTypeArray *arrayAsArray{reinterpret_cast<ObjConcreteYargTypeArray *>(array)};
-    arrayAsArray->cardinality = log.size();
-    ObjPackedUniformArray* result_array{newPackedUniformArray(arrayAsArray)};
+    ObjConcreteYargType *array = newYargArrayTypeFromType(OBJ_VAL(&emptyString));
+    ObjConcreteYargTypeArray *arrayAsArray = (ObjConcreteYargTypeArray *)array;
+    arrayAsArray->cardinality = log->n_;
+    ObjPackedUniformArray* result_array = newPackedUniformArray(arrayAsArray);
 
-    size_t index{0};
-    for (auto const &i : log)
+    for (size_t i = 0; i < log->n_; i++)
     {
-        println("{}", i); // until log gets coppied to *result
-        ObjString *s{copyString(&i[0], static_cast<int>(i.size()))};
-        PackedValue p{arrayElement(result_array->store, index)};
+//        printf("%s\n", log->i_[i]); // until log gets coppied to *result
+        ObjString *s = copyString(log->i_[i], (int)strlen(log->i_[i]));
+        reallocate(log->i_[i], (int)strlen(log->i_[i]) + 1, 0);
+        PackedValue p = arrayElement(result_array->store, i);
         assignToPackedValue(p, OBJ_VAL(s));
-        index++;
     }
 
     *result = OBJ_VAL(result_array);
-    log.clear();
-    
+    log->n_ = 0;
+
     return true;
 }
