@@ -1,27 +1,19 @@
 //
-//  testBuiltin.cpp
+//  testBuiltin.c
 //  xcode-yarg
 //
 //  Created by dlm on 12/12/2025.
 //
 
 #include "testBuiltin.h"
+#include "testIntrinsics.h"
 
-extern "C" {
 #include "../chunk.h"
 #include "../object.h"
 #include "../routine.h"
 #include "../yargtype.h"
 #include "../object.h"
 #include "../memory.h"
-}
-
-#include "testIntrinsics.hpp"
-#include <map>
-#include <vector>
-#include <print>
-
-using namespace std;
 
 static bool setBuiltin(ObjRoutine *, int, Value *);
 static bool readBuiltin(ObjRoutine *, int, Value *);
@@ -53,7 +45,7 @@ bool setBuiltin(ObjRoutine *routineContext, int argCount, Value* result)
             uint32_t address = AS_UI32(arg0);
             uint32_t value = AS_UI32(arg1);
             
-            TestIntrinsics::setMemory(address, value);
+            testIntrinsicsSetMemory(address, value);
             ok = true;
         }
     }
@@ -72,7 +64,7 @@ bool readBuiltin(ObjRoutine *routineContext, int argCount, Value *result) {
         uint32_t address = AS_UI32(arg0);
         if (argCount == 1 && !IS_OBJ(arg0))
         {
-            TestIntrinsics::expectReadAnyValue(address);
+            testIntrinsicsExpectReadAnyValue(address);
             ok = true;
         }
         else if (argCount == 2)
@@ -81,7 +73,7 @@ bool readBuiltin(ObjRoutine *routineContext, int argCount, Value *result) {
             if (!IS_OBJ(arg0) && ! IS_OBJ(arg1))
             {
                 uint32_t value = AS_UI32(arg1);
-                TestIntrinsics::expectRead(address, value);
+                testIntrinsicsExpectRead(address, value);
                 ok = true;
             }
         }
@@ -101,7 +93,7 @@ bool writeBuiltin(ObjRoutine *routineContext, int argCount, Value *result) {
         uint32_t address = AS_UI32(arg0);
         if (argCount == 1 && !IS_OBJ(arg0))
         {
-            TestIntrinsics::expectWriteAnyValue(address);
+            testIntrinsicsExpectWriteAnyValue(address);
             ok = true;
         }
         else if (argCount == 2)
@@ -110,7 +102,7 @@ bool writeBuiltin(ObjRoutine *routineContext, int argCount, Value *result) {
             if (!IS_OBJ(arg0) && ! IS_OBJ(arg1))
             {
                 uint32_t value = AS_UI32(arg1);
-                TestIntrinsics::expectWrite(address, value);
+                testIntrinsicsExpectWrite(address, value);
                 ok = true;
             }
         }
@@ -130,12 +122,12 @@ bool interruptBuiltin(ObjRoutine *routineContext, int argCount, Value *result) {
         if (is_positive_integer32(arg0))
         {
             uint32_t interruptNumber = as_positive_integer32(arg0);
-            ok = TestIntrinsics::triggerInterrupt(interruptNumber);
+            ok = testIntrinsicsTriggerInterrupt(interruptNumber);
         }
         else if (IS_STRING(arg0))
         {
             ObjString *name = (ObjString *)AS_OBJ(arg0);
-            ok = TestIntrinsics::triggerInterrupt(string(name->chars, name->length));
+            ok = testIntrinsicsTriggerInterruptName(string(name->chars, name->length));
         }
     }
     if (!ok)
@@ -147,8 +139,8 @@ bool interruptBuiltin(ObjRoutine *routineContext, int argCount, Value *result) {
 
 bool syncBuiltin(ObjRoutine *routineContext, int argCount, Value *result)
 {
-    vector<string> &log = TestIntrinsics::sync();
-        
+    TsLog *log = testIntrinsicsSync();
+
     Obj emptyString;
     ObjConcreteYargType *array{newYargArrayTypeFromType(OBJ_VAL(&emptyString))};
     ObjConcreteYargTypeArray *arrayAsArray{reinterpret_cast<ObjConcreteYargTypeArray *>(array)};
@@ -158,7 +150,7 @@ bool syncBuiltin(ObjRoutine *routineContext, int argCount, Value *result)
     size_t index{0};
     for (auto const &i : log)
     {
-//        println("{}", i); // until log gets coppied to *result
+        println("{}", i); // until log gets coppied to *result
         ObjString *s{copyString(&i[0], static_cast<int>(i.size()))};
         PackedValue p{arrayElement(result_array->store, index)};
         assignToPackedValue(p, OBJ_VAL(s));
