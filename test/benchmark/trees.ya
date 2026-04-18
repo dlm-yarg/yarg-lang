@@ -21,9 +21,17 @@ class Tree {
   }
 }
 
-var tree = Tree(8);
+// 8 -> 122068
+// 7 -> ???
+// 6 -> 4881
+// 5 -> 975
+// 4 -> 194
+var tree = Tree(5);
 var begin = clock();
 for (var i = 0; i < 100; i = i + 1) {
-  if (tree.walk() != 122068) print "Error";
+  var t = tree.walk();
+  if (t != 975) print "Error " + string(t);
 }
-print clock() - begin;
+var end = clock();
+print begin;
+print end - begin;

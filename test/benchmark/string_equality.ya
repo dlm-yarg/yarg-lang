@@ -207,13 +207,8 @@ while (i < 100000) {
   a6 == a1; a6 == a2; a6 == a3; a6 == a4; a6 == a5; a6 == a6; a6 == a7; a6 == a8;
   a7 == a1; a7 == a2; a7 == a3; a7 == a4; a7 == a5; a7 == a6; a7 == a7; a7 == a8;
   a8 == a1; a8 == a2; a8 == a3; a8 == a4; a8 == a5; a8 == a6; a8 == a7; a8 == a8;
-
 }
 
 var elapsed = clock() - begin;
-print "loop";
-print loopTime;
-print "elapsed";
-print elapsed;
-print "equals";
-print elapsed - loopTime;
+print "loopStart:" + string(loopStart) + " loopTime:" + string(loopTime) + " elapsed:" + string(elapsed);
+print "equals:" + string(elapsed - loopTime);

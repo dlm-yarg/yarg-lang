@@ -2,7 +2,7 @@ fun da(cheese) {
     fun do(a)
     {
         print a;
-        struct { int32 i; mfloat64 f; } z;
+        struct { int i; mfloat64 f; } z;
         z.f = 6.7;
         z.i = 99876545642134;
         return z;
