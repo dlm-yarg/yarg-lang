@@ -488,7 +488,9 @@ static void printStruct(FILE* op, ObjPackedStruct* st) {
 }
 
 void fprintObject(FILE* op, Value value) {
-    switch (OBJ_TYPE(value)) {
+    if (value.as.obj != 0)
+    {
+        switch (OBJ_TYPE(value)) {
         case OBJ_BOUND_METHOD:
             printFunction(op, AS_BOUND_METHOD(value)->method->function);
             break;
@@ -556,6 +558,9 @@ void fprintObject(FILE* op, Value value) {
         default:
             FPRINTMSG(op, "<implementation object %d>", OBJ_TYPE(value));
             break;
+        }
+    } else {
+        FPRINTMSG(op, "<nil>");
     }
 }
 

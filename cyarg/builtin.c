@@ -925,7 +925,11 @@ bool intBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
 bool stringBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     Value arg = nativeArgument(routineContext, argCount, 0);
     int64_t i;
-    if (IS_I8(arg)) {
+    if (IS_NIL(arg)) {
+        result->as.obj = (Obj *)copyString("<nil>", 5);
+        result->type = VAL_OBJ;
+        return true;
+    } else if (IS_I8(arg)) {
         i = AS_I8(arg);
     } else if (IS_I16(arg)) {
         i = AS_I16(arg);

@@ -143,19 +143,26 @@ bool syncBuiltin(ObjRoutine *routineContext, int argCount, Value *result)
 
     Obj emptyString;
     ObjConcreteYargType *array = newYargArrayTypeFromType(OBJ_VAL(&emptyString));
+    tempRootPush(OBJ_VAL(array));
+
     ObjConcreteYargTypeArray *arrayAsArray = (ObjConcreteYargTypeArray *)array;
     arrayAsArray->cardinality = log->n_;
     ObjPackedUniformArray* result_array = newPackedUniformArray(arrayAsArray);
+    tempRootPop(); // array
+    tempRootPush(OBJ_VAL(result_array));
 
     for (size_t i = 0; i < log->n_; i++)
     {
 //        printf("%s\n", log->i_[i]); // until log gets coppied to *result
         ObjString *s = copyString(log->i_[i], (int)strlen(log->i_[i]));
+        tempRootPush(OBJ_VAL(s));
         reallocate(log->i_[i], (int)strlen(log->i_[i]) + 1, 0);
         PackedValue p = arrayElement(result_array->store, i);
         assignToPackedValue(p, OBJ_VAL(s));
+        tempRootPop(); // s
     }
 
+    tempRootPop(); // array
     *result = OBJ_VAL(result_array);
     log->n_ = 0;
 

@@ -1011,8 +1011,9 @@ InterpretResult run(ObjRoutine* routine) {
             case OP_BITAND:      BINARY_UINT_OP(routine, &); break;
             case OP_BITXOR:      BINARY_UINT_OP(routine, ^); break;
             case OP_ADD: {
+                Value vp0 = peek(routine, 0), vp1 = peek(routine, 1);
                 promote(&peekCell(routine, 1)->value, &peekCell(routine, 0)->value);
-
+                Value v0 = peek(routine, 0), v1 = peek(routine, 1);
                 if (IS_I32(peek(routine, 0)) && IS_I32(peek(routine, 1))) {
                     int32_t b = AS_I32(pop(routine));
                     int32_t a = AS_I32(pop(routine));

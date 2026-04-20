@@ -1,0 +1,92 @@
+
+fun setup_interrupt(number) {
+    var name = "handler" + string(number);
+    var chan = make_channel();
+    var p = uint32(1) << uint32(number - 1);
+
+    fun handler() {
+        print name;
+        send(chan, p);
+    }
+
+    var handler_routine = make_routine(handler, true);
+    var handler_address = pin(handler_routine);
+    irq_add_shared_handler(number, handler_address, 1);
+
+    return [handler_address, chan];
+}
+
+var interrupts = new(any[8]);
+
+for (var i = 0; i < len(interrupts); i = i + 1)
+{
+    interrupts[i] = setup_interrupt(1 + i);
+}
+
+test_interrupt("TIMER_IRQ_1");
+test_interrupt(2);
+test_interrupt(3);
+test_interrupt(4);
+test_interrupt(5);
+test_interrupt(6);
+test_interrupt(7);
+test_interrupt(5);
+test_interrupt("PIO0_IRQ_1");
+
+var results = new(any[1000]);
+var result = len(results) - 1;
+var uint32 t = 0;
+while (result >= 0)
+{
+    var peekC = new(any[len(interrupts)]);
+    var countRx = 0;
+    for (var i = 0; i < len(interrupts); i = 1 + i)
+    {
+        var ready = cpeek(interrupts[i][1]);
+        peekC[i] = ready;
+        if (ready != nil)
+        {
+            countRx = 1 + countRx;
+        }
+    }
+
+    for (var i = 0; i < len(interrupts); i = 1 + i)
+    {
+        if (peekC[i] != nil)
+        {
+            var m = receive(interrupts[i][1]);
+            t = t + m;
+        }
+    }
+
+    if (countRx == 0)
+    {
+        t = t - 1;
+        for (var b = 0; b < len(interrupts); b = 1 + b)
+        {
+            if (t & 1 == 1)
+            {
+                test_interrupt(b + 1);
+            }
+            t = t >> 1;
+        }
+        results[result] = test_sync();
+        result = result - 1;
+    }
+    else
+    {
+        print "t:" + string(t) + " crx:" + string(countRx);
+        print peekC;
+    }
+}
+
+for (var i = 0; i < len(interrupts); i = i + 1)
+{
+    irq_remove_handler(1, interrupts[i][0]);
+}
+
+for (var i = len(results) - 1; i >= 0; i = i - 1)
+{
+    print results[i];
+}
+

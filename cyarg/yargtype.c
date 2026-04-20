@@ -72,7 +72,8 @@ size_t arrayElementOffset(ObjConcreteYargTypeArray* arrayType, size_t index) {
 }
 
 size_t arrayElementSize(ObjConcreteYargTypeArray* arrayType) {
-    return yt_sizeof_type_storage(arrayElementType(arrayType));
+    Value t = arrayElementType(arrayType);
+    return yt_sizeof_type_storage(t);
 }
 
 ObjConcreteYargType* newYargStructType(size_t fieldCount) {

@@ -250,7 +250,7 @@ void runtimeError(ObjRoutine* routine, const char* format, ...) {
     for (int i = routine->frameCount - 1; i >= 0; i--) {
         CallFrame* frame = &routine->frames[i];
         ObjFunction* function = frame->closure->function;
-        size_t instruction = frame->ip - function->chunk.code - 1;
+        size_t instruction = frame->ip - function->chunk.code;
         PRINTERR("[line %d] in ",
                  function->chunk.lines[instruction]);
         if (function->name == NULL) {
@@ -265,6 +265,11 @@ void runtimeError(ObjRoutine* routine, const char* format, ...) {
 }
 
 static ValueCell* slot(ObjRoutine* routine, size_t index) {
+if (index > 65535)
+{
+    index += 0;
+}
+
     size_t sliceIndex = index / SLICE_MAX;
 
     return &routine->stackSlices[sliceIndex]->elements[index % SLICE_MAX];

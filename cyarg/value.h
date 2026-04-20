@@ -69,7 +69,7 @@ typedef struct {
 #define IS_I64(value)      ((value).type == VAL_I64)
 #define IS_ADDRESS(value)  ((value).type == VAL_ADDRESS)
 #define IS_OBJ(value)      ((value).type == VAL_OBJ)
-#define IS_INT(value)      ((value).type == VAL_OBJ && (value).as.obj->type == OBJ_INT)
+#define IS_INT(value)      ((value).type == VAL_OBJ && (value).as.obj != 0 && (value).as.obj->type == OBJ_INT)
 
 #define AS_OBJ(value)      ((value).as.obj)
 #define AS_BOOL(value)     ((value).as.boolean)
