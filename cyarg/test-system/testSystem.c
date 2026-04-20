@@ -255,7 +255,7 @@ void *simulateInterrupt(void *indexAsP) // thread entry
         {
             return 0;
         }
-        /////
+
         {
             assert(pthread_mutex_lock(ts->handlers_.triggerOrDoneMutex_) == 0);
             int e;
@@ -748,21 +748,8 @@ bool testIntrinsicsTriggerInterrupt(uint32_t intId)
     TestSystem *ts = self();
     {
         assert(pthread_mutex_lock(&ts->scheduled_.mutex_) == 0);
-//        bool found = false;
-//        for (int i = 0; i < ts->scheduled_.n_; i++)
-//        {
-//            if (ts->scheduled_.i_[i] == intId)
-//            {
-//                found = true;
-//            }
-//        }
-//        
-//        if (!found)
-//        {
-            extend(&ts->scheduled_, sizeof ts->scheduled_.i_[0]);
-
-            ts->scheduled_.i_[ts->scheduled_.n_++] = intId;
-//        }
+        extend(&ts->scheduled_, sizeof ts->scheduled_.i_[0]);
+        ts->scheduled_.i_[ts->scheduled_.n_++] = intId;
         pthread_mutex_unlock(&ts->scheduled_.mutex_);
     }
     return true;
