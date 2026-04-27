@@ -77,18 +77,14 @@ void markPackedContainer(PackedValue packedContainer) {
 void markPackedValue(PackedValue value) {
     if (value.storedValue == NULL) return;
     if (value.storedType == NULL) {
-        PackedValueStore aligned;
-        memcpy(&aligned, (char *)value.storedValue, sizeof aligned);
-        markValue(aligned.asValue);
+        markValue(value.storedValue->asValue);
         return;
     } else if (type_packs_as_container(value.storedType)) {
         markPackedContainer(value);
         return;
     } else if (type_packs_as_obj(value.storedType)) {
         markObject((Obj*)value.storedType);
-        PackedValueStore aligned;
-        memcpy(&aligned, (char *)value.storedValue, sizeof aligned);
-        markObject(aligned.as.obj);
+        markObject(value.storedValue->as.obj);
         return;
     }
 }
@@ -96,20 +92,20 @@ void markPackedValue(PackedValue value) {
 void initialisePackedValue(PackedValue packedValue) {
 
     if (packedValue.storedType == NULL) {
-        memcpy(packedValue.storedValue, &NIL_VAL, sizeof (Value));
+        packedValue.storedValue->asValue = NIL_VAL;
     } else {
         switch (packedValue.storedType->yt) {
-            case TypeAny: memcpy((char *)packedValue.storedValue, &NIL_VAL, sizeof (Value)); break;
-            case TypeBool: memcpy((char *)packedValue.storedValue, &BOOL_VAL(false), sizeof (Value)); break; break;
-            case TypeDouble: memcpy((char *)packedValue.storedValue, &DOUBLE_VAL(0.0), sizeof (Value)); break;
-            case TypeInt8: memcpy((char *)packedValue.storedValue, &(int8_t){0}, sizeof (int8_t)); break;
-            case TypeUint8: memcpy((char *)packedValue.storedValue, &(uint8_t){0}, sizeof (uint8_t)); break;
-            case TypeInt16: memcpy((char *)packedValue.storedValue, &(int16_t){0}, sizeof (int16_t)); break;
-            case TypeUint16: memcpy((char *)packedValue.storedValue, &(uint16_t){0}, sizeof (uint16_t)); break;
-            case TypeInt32: memcpy((char *)packedValue.storedValue, &(int32_t){0}, sizeof (int32_t)); break;
-            case TypeUint32: memcpy((char *)packedValue.storedValue, &(uint32_t){0}, sizeof (uint32_t)); break;
-            case TypeInt64: memcpy((char *)packedValue.storedValue, &(int64_t){0}, sizeof (int64_t)); break;
-            case TypeUint64: memcpy((char *)packedValue.storedValue, &(uint64_t){0}, sizeof (uint64_t)); break;
+            case TypeAny: packedValue.storedValue->asValue = NIL_VAL; break;
+            case TypeBool: packedValue.storedValue->asValue = BOOL_VAL(false); break;
+            case TypeDouble: packedValue.storedValue->asValue = DOUBLE_VAL(0); break;
+            case TypeInt8: packedValue.storedValue->as.i8 = 0; break;
+            case TypeUint8: packedValue.storedValue->as.ui8 = 0; break;
+            case TypeInt16: packedValue.storedValue->as.i16 = 0; break;
+            case TypeUint16: packedValue.storedValue->as.ui16 = 0; break;
+            case TypeInt32: packedValue.storedValue->as.i32 = 0; break;
+            case TypeUint32: packedValue.storedValue->as.ui32 = 0; break;
+            case TypeInt64: packedValue.storedValue->as.i64 = 0; break;
+            case TypeUint64: packedValue.storedValue->as.ui64 = 0; break;
             case TypeArray: {
                 ObjConcreteYargTypeArray* at = (ObjConcreteYargTypeArray*)packedValue.storedType;
                 if (at->cardinality > 0) {
@@ -138,7 +134,7 @@ void initialisePackedValue(PackedValue packedValue) {
             case TypeChannel:
             case TypeMap:
             case TypeYargType: {
-                memcpy((char *)packedValue.storedValue, &(Obj *){0}, sizeof (Obj *));
+                packedValue.storedValue->as.obj = NULL;
                 break;
             }
         }
@@ -146,22 +142,21 @@ void initialisePackedValue(PackedValue packedValue) {
 }
 
 Value unpackValue(PackedValue packedValue) {
-    Value v;
     if (packedValue.storedType == NULL) {
-        return *(Value *)memcpy(&v, packedValue.storedValue, sizeof (Value));
+        return packedValue.storedValue->asValue;
     } else {
         switch (packedValue.storedType->yt) {
             case TypeAny: return packedValue.storedValue->asValue;
-            case TypeBool: return *(Value *)memcpy(&v, (char *)packedValue.storedValue, sizeof (Value));
-            case TypeDouble: return *(Value *)memcpy(&v, (char *)packedValue.storedValue, sizeof (Value));
-            case TypeInt8: return I8_VAL(*(int8_t *)memcpy(&v, (char *)packedValue.storedValue, sizeof (int8_t)));
-            case TypeUint8: return UI8_VAL(*(uint8_t *)memcpy(&v, (char *)packedValue.storedValue, sizeof (uint8_t)));
-            case TypeInt16: return I16_VAL(*(int16_t *)memcpy(&v, (char *)packedValue.storedValue, sizeof (int16_t)));
-            case TypeUint16: return UI16_VAL(*(uint16_t *)memcpy(&v, (char *)packedValue.storedValue, sizeof (uint16_t)));
-            case TypeInt32: return I32_VAL(*(int32_t *)memcpy(&v, (char *)packedValue.storedValue, sizeof (int32_t)));
-            case TypeUint32: return UI32_VAL(*(uint32_t *)memcpy(&v, (char *)packedValue.storedValue, sizeof (uint32_t)));
-            case TypeInt64: return I64_VAL(*(int64_t *)memcpy(&v, (char *)packedValue.storedValue, sizeof (int64_t)));
-            case TypeUint64: return UI64_VAL(*(uint64_t *)memcpy(&v, (char *)packedValue.storedValue, sizeof (uint64_t)));
+            case TypeBool: return packedValue.storedValue->asValue;
+            case TypeDouble: return packedValue.storedValue->asValue;
+            case TypeInt8: return I8_VAL(packedValue.storedValue->as.i8);
+            case TypeUint8: return UI8_VAL(packedValue.storedValue->as.ui8);
+            case TypeInt16: return I16_VAL(packedValue.storedValue->as.i16);
+            case TypeUint16: return UI16_VAL(packedValue.storedValue->as.ui16);
+            case TypeInt32: return I32_VAL(packedValue.storedValue->as.i32);
+            case TypeUint32: return UI32_VAL(packedValue.storedValue->as.ui32);
+            case TypeInt64: return I64_VAL(packedValue.storedValue->as.i64);
+            case TypeUint64: return UI64_VAL(packedValue.storedValue->as.ui64);
             case TypeStruct: {
                 return OBJ_VAL(newPackedStructAt(packedValue));
             }
@@ -169,9 +164,7 @@ Value unpackValue(PackedValue packedValue) {
                 return OBJ_VAL(newPackedUniformArrayAt(packedValue));
             }
             case TypeInt: {
-                PackedValueStore s;
-                memcpy(&s, (char *)packedValue.storedValue, sizeof *packedValue.storedValue);
-                if (s.as.obj) {
+                if (packedValue.storedValue->as.obj) {
                     return OBJ_VAL(packedValue.storedValue->as.obj);
                 } else {
                     return defaultIntValue();
@@ -201,17 +194,17 @@ static void packValue(PackedValue packedStorageTarget, Value value) {
         packedStorageTarget.storedValue->asValue = value;
     } else {
         switch (packedStorageTarget.storedType->yt) {
-        case TypeAny: packedStorageTarget.storedValue->asValue = value; break;
-        case TypeBool: memcpy((char *)packedStorageTarget.storedValue, &value, sizeof(Value)); break;
-        case TypeDouble: memcpy((char *)packedStorageTarget.storedValue, &value, sizeof(Value)); break;
-        case TypeInt8: memcpy((char *)packedStorageTarget.storedValue, &value.as.i8, sizeof value.as.i8); break;
-        case TypeUint8: memcpy((char *)packedStorageTarget.storedValue, &value.as.ui8, sizeof value.as.ui8); break;
-        case TypeInt16: memcpy((char *)packedStorageTarget.storedValue, &value.as.i16, sizeof value.as.i16); break;
-        case TypeUint16: memcpy((char *)packedStorageTarget.storedValue, &value.as.ui16, sizeof value.as.ui16); break;
-        case TypeInt32: memcpy((char *)packedStorageTarget.storedValue, &value.as.i32, sizeof value.as.i32); break;
-        case TypeUint32: memcpy((char *)packedStorageTarget.storedValue, &value.as.ui32, sizeof value.as.ui32); break;
-            case TypeInt64: memcpy((char *)packedStorageTarget.storedValue, &value.as.i64, sizeof value.as.i64);
-        case TypeUint64: memcpy((char *)packedStorageTarget.storedValue, &value.as.ui64, sizeof value.as.ui64);
+            case TypeAny: packedStorageTarget.storedValue->asValue = value; break;
+            case TypeBool: packedStorageTarget.storedValue->asValue = value; break;
+            case TypeDouble: packedStorageTarget.storedValue->asValue = value; break;
+            case TypeInt8: packedStorageTarget.storedValue->as.i8 = AS_I8(value); break;
+            case TypeUint8: packedStorageTarget.storedValue->as.ui8 = AS_UI8(value); break;
+            case TypeInt16: packedStorageTarget.storedValue->as.i16 = AS_I16(value); break;
+            case TypeUint16: packedStorageTarget.storedValue->as.ui16 = AS_UI16(value); break;
+            case TypeInt32: packedStorageTarget.storedValue->as.i32 = AS_I32(value); break;
+            case TypeUint32: packedStorageTarget.storedValue->as.ui32 = AS_UI32(value); break;
+            case TypeInt64: packedStorageTarget.storedValue->as.i64 = AS_I64(value); break;
+            case TypeUint64: packedStorageTarget.storedValue->as.ui64 = AS_UI64(value); break;
             case TypePointer:
             case TypeString:
             case TypeClass:
@@ -222,7 +215,7 @@ static void packValue(PackedValue packedStorageTarget, Value value) {
             case TypeYargType:
             case TypeInt:
             case TypeMap: {
-                memcpy(packedStorageTarget.storedValue, &AS_OBJ(value), sizeof value.as.obj);
+                packedStorageTarget.storedValue->as.obj = AS_OBJ(value);
                 break;
             }
             case TypeStruct:
@@ -244,7 +237,7 @@ bool assignToPackedValue(PackedValue lhs, Value rhsValue) {
 
     if (lhs.storedType == NULL) {
         noLongerLiteralInt(&rhsValue);
-        memcpy(lhs.storedValue, &rhsValue, sizeof rhsValue);
+        lhs.storedValue->asValue = rhsValue;
         return true;
     } else {
         Value promoted;
@@ -479,4 +472,3 @@ PackedValueStore* storedAddressof(Value value) {
     }
     return NULL;
 }
-

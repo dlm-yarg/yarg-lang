@@ -672,16 +672,6 @@ void freeObjects() {
     Obj* object = vm.objects;
     while (object != NULL) {
         Obj* next = object->next;
-//        printf("%p\n", object);
-//        if (object->type == OBJ_PACKEDPOINTER) {
-//            ObjPackedPointer* ptr = (ObjPackedPointer*) object;
-//            printf("%p\ttype\n%p\tdes\n", ptr->type, ptr->destination);
-//        }
-//        object = next;
-//    }
-//    object = vm.objects;
-//    while (object != NULL) {
-//        Obj* next = object->next;
         freeObject(object);
         object = next;
     }
