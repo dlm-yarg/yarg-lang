@@ -148,9 +148,8 @@ typedef struct {
 static void fileSet(void *, int, size_t i);
 static void fileExtend(void *, int, size_t);
 static void flattenConstants(int funIndex, Chunk const *, FlatFiles *);
-static void markDuplicates(FlatFiles *);
+static void removecapturedNames(FlatFiles *);
 static void calcStringAndIntOffsets(FlatFiles *);
-static void flattenCode(FlatFiles *);
 static void flattenLines(FlatFiles *);
 static int pack(char const *, FlatFiles *, FILE *);
 
@@ -174,12 +173,12 @@ int packScript(char const *sourceFileName, struct ObjFunction const *scriptFn, b
     f.funsFile_.totalCodeLength_ = 0;
     flattenConstants(0, &scriptFn->chunk, &f);
 
+#if 0
     // todo remove non escapee i.e. non global, non returned method/property
-    markDuplicates(&f);
+    removecapturedNames(&f);
+#endif
 
     calcStringAndIntOffsets(&f);
-
-    flattenCode(&f);
 
     if (includeLines) {
         flattenLines(&f);
@@ -445,10 +444,19 @@ void flattenConstants(int chunkIndex, Chunk const *chunk, FlatFiles *f) {
                break;
             }
             case OBJ_STRING: {
-                fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_S, .index_ = f->stringsFile_.n_ };
-                fileExtend(&f->stringsFile_, 16, sizeof *f->stringsFile_.i_);
                 ObjString *from = AS_STRING(*v);
-                f->stringsFile_.i_[f->stringsFile_.n_++] = from;
+                int sI = 0;
+                for (; sI < f->stringsFile_.n_;sI++) {
+                    if (f->stringsFile_.i_[sI] == from) {
+                        fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_S, .index_ = sI };
+                        break;
+                    }
+                }
+                if (sI == f->stringsFile_.n_) {
+                    fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_S, .index_ = f->stringsFile_.n_ };
+                    fileExtend(&f->stringsFile_, 16, sizeof *f->stringsFile_.i_);
+                    f->stringsFile_.i_[f->stringsFile_.n_++] = from;
+                }
                break;
             }
             default:
@@ -463,58 +471,63 @@ void flattenConstants(int chunkIndex, Chunk const *chunk, FlatFiles *f) {
     int endSubs = f->funsFile_.n_;
     for (int i = startSubs; i < endSubs; i++) {
         DP(char nn[21];
-        int len = f->funsFile_.i_[i].f_->fName->length;
-        len = len > 20 ? 20 : len;
-        memcpy(nn, f->funsFile_.i_[i].f_->fName->chars, len);
-        nn[len] = 0;
-        printf("%s:%d\n", nn, i));
+           int len = f->funsFile_.i_[i].f_->fName->length;
+           len = len > 20 ? 20 : len;
+           memcpy(nn, f->funsFile_.i_[i].f_->fName->chars, len);
+           nn[len] = 0;
+           printf("%s:%d\n", nn, i));
         flattenConstants(i, &f->funsFile_.i_[i].f_->chunk, f);
     }
 }
 
-void markDuplicates(FlatFiles *f) {
-    DP(for (int funI = 0; funI < f->funsFile_.n_; funI++) {
-        struct Fun *fun = &f->funsFile_.i_[funI];
-        struct ConstTypesAndOffsets *ctao = &fun->chunk_.constTypesAndOffsets_;
-        for (int constI = 0; constI < ctao->numConsts_; constI++) {
-            ConstItem *ci = &ctao->i_[constI];
-        }
-    });
-}
-
-void calcStringAndIntOffsets(FlatFiles *f) {
-    int sOffset = 0;
-    int iOffset = 0;
+#if 0
+void removecapturedNames(FlatFiles *f) {
     for (int funI = 0; funI < f->funsFile_.n_; funI++) {
         struct Fun *fun = &f->funsFile_.i_[funI];
         struct ConstTypesAndOffsets *ctao = &fun->chunk_.constTypesAndOffsets_;
         for (int constI = 0; constI < ctao->numConsts_; constI++) {
             ConstItem *ci = &ctao->i_[constI];
-            switch (ci->type_) {
-            case PACK_CONST_TYPE_S:
-                ci->offset_ = sOffset;
-                sOffset += f->stringsFile_.i_[ci->index_]->length + 1;
-                break;
-            case PACK_CONST_TYPE_I:
-                ci->offset_ = iOffset;
-                Int *from = &f->intsFile_.i_[ci->index_]->bigInt;
-                int len = (int)((char *) from->w_ - (char *) from);
-                assert(len == 4);
-                len += sizeof (uint16_t) * (from->d_ + from->d_ % 2);
-                iOffset += len;
-                break;
-            default:
-                // no need to determine offsets and total length for doubles and functions
-                break;
-            }
         }
     }
-    f->stringsFile_.totalStringLength_ = sOffset;
-    f->intsFile_.totalIntsLength_ = iOffset;
-    DP(printf("int:%d string:%d\n", f->intsFile_.totalIntsLength_, f->stringsFile_.totalStringLength_));
 }
+#endif
 
-static void flattenCode(FlatFiles *f) {
+void calcStringAndIntOffsets(FlatFiles *f) {
+    int sOffset = 0;
+    for (int sI = 0; sI < f->stringsFile_.n_; sI++) {
+        for (int fI = 0; fI < f->funsFile_.n_; fI++) {
+            struct ConstTypesAndOffsets *ctao = &f->funsFile_.i_[fI].chunk_.constTypesAndOffsets_;
+            for (int constI = 0; constI < ctao->numConsts_; constI++) {
+                ConstItem *ci = &ctao->i_[constI];
+                if (ci->type_ == PACK_CONST_TYPE_S && ci->index_ == sI) {
+                    ci->offset_ = sOffset; // don’t break as there may be duplicate strings
+                }
+            }
+        }
+        sOffset += f->stringsFile_.i_[sI]->length + 1;
+    }
+    f->stringsFile_.totalStringLength_ = sOffset;
+
+    int iOffset = 0;
+    for (int iI = 0; iI < f->intsFile_.n_; iI++) {
+        for (int fI = 0; fI < f->funsFile_.n_; fI++) {
+            struct ConstTypesAndOffsets *ctao = &f->funsFile_.i_[fI].chunk_.constTypesAndOffsets_;
+            for (int constI = 0; constI < ctao->numConsts_; constI++) {
+                ConstItem *ci = &ctao->i_[constI];
+                if (ci->type_ == PACK_CONST_TYPE_I && ci->index_ == iI) {
+                    ci->offset_ = iOffset; // don’t break as there may be duplicate ints
+                }
+            }
+        }
+        Int *from = &f->intsFile_.i_[iI]->bigInt;
+        int len = (int)((char *) from->w_ - (char *) from);
+        assert(len == 4);
+        len += sizeof (uint16_t) * (from->d_ + from->d_ % 2);
+        iOffset += len;
+    }
+    f->intsFile_.totalIntsLength_ = iOffset;
+
+    DP(printf("int:%d string:%d\n", f->intsFile_.totalIntsLength_, f->stringsFile_.totalStringLength_));
 }
 
 void flattenLines(FlatFiles *f) {
@@ -628,52 +641,29 @@ int pack(char const *sourceFileName, FlatFiles *f, FILE *file) {
     }
 
     DP(ints__ = offset__);
-    for (int funI = 0; funI < f->funsFile_.n_; funI++) {
-        struct Fun *fun = &f->funsFile_.i_[funI];
-        struct ConstTypesAndOffsets *ctao = &fun->chunk_.constTypesAndOffsets_;
-        for (int constI = 0; constI < ctao->numConsts_; constI++) {
-            ConstItem *ci = &ctao->i_[constI];
-            switch (ci->type_) {
-            case PACK_CONST_TYPE_I:
-                DP(assert(offset__ - ints__ == ci->offset_));
-                Int *bigInt = &f->intsFile_.i_[ci->index_]->bigInt;
-                IntConcrete254 t;
-                int_set_t(bigInt, int_init_concrete254(&t));
-                t.m_ = t.d_ + t.d_ % 2;
-                written = fwrite__(&t, sizeof (Int) + sizeof (uint16_t) * t.m_, 1, file);
-                if (written != 1) return EX_SOFTWARE;
-                break;
-            default:
-                break;
-            }
-        }
+    for (int iI = 0; iI < f->intsFile_.n_; iI++) {
+        Int *bigInt = &f->intsFile_.i_[iI]->bigInt;
+        IntConcrete254 t;
+        int_set_t(bigInt, int_init_concrete254(&t));
+        t.m_ = t.d_ + t.d_ % 2;
+        written = fwrite__(&t, sizeof (Int) + sizeof (uint16_t) * t.m_, 1, file);
+        if (written != 1) return EX_SOFTWARE;
     }
+    DP(assert(offset__ - ints__ == f->intsFile_.totalIntsLength_));
 
     DP(strings__ = offset__);
-    for (int funI = 0; funI < f->funsFile_.n_; funI++) {
-        struct Fun *fun = &f->funsFile_.i_[funI];
-        struct ConstTypesAndOffsets *ctao = &fun->chunk_.constTypesAndOffsets_;
-        for (int constI = 0; constI < ctao->numConsts_; constI++) {
-            ConstItem *ci = &ctao->i_[constI];
-            ObjString *s;
-            char nullChar = 0;
-            switch (ci->type_) {
-            case PACK_CONST_TYPE_S:
-                DP(assert(offset__ - strings__ == ci->offset_));
-                s = f->stringsFile_.i_[ci->index_];
-                written = fwrite__(s->chars, s->length, 1, file);
-                if (written != 1) return EX_SOFTWARE;
-                written = fwrite__(&nullChar, 1, 1, file);
-                if (written != 1) return EX_SOFTWARE;
-                DP(char sb[100];
-                memcpy(sb, s->chars, s->length); sb[s->length] = '\0';
-                printf("%s, %u, %u\n", sb, offset__ - strings__ - s->length - 1, offset__ - s->length - 1));
-                break;
-            default:
-                break;
-            }
-        }
+    for (int sI = 0; sI < f->stringsFile_.n_; sI++) {
+        ObjString *s = f->stringsFile_.i_[sI];
+        written = fwrite__(s->chars, s->length, 1, file);
+        if (written != 1) return EX_SOFTWARE;
+        char nullChar = 0;
+        written = fwrite__(&nullChar, 1, 1, file);
+        if (written != 1) return EX_SOFTWARE;
+        DP(char sb[100];
+           memcpy(sb, s->chars, s->length); sb[s->length] = '\0';
+           printf("%s, %u, %u\n", sb, offset__ - strings__ - s->length - 1, offset__ - s->length - 1));
     }
+    DP(assert(offset__ - strings__ == f->stringsFile_.totalStringLength_));
 
     DP(code__ = offset__);
     for (int i = 0; i < f->funsFile_.n_; i++) {
