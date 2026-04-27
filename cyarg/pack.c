@@ -8,6 +8,12 @@
 #include <sysexits.h>
 #include <assert.h>
 
+#if defined(DEBUG_PACK)
+#define DP(DPA) do { DPA; } while (0)
+#else
+#define DP(DPA)
+#endif
+
 #define PACKAGE_MAGIC_LEN 6
 
 static int8_t const magic[PACKAGE_MAGIC_LEN] = {0x79, 0x0a, 0x72, 0x67, 0xff, 0x42};
@@ -33,18 +39,18 @@ static int16_t const version = 0x2601;
 // x1       code length for chunk0 2
 // x1       0 2
 // x1       0 2
-// x4       const offsets indexs -- K0*4 - type(1):index/offset(3)
-// x4 K1    num consts in chunk0 2
+// x8       consts -- K0*4 - type(1):index/offset(3)
+// x8 K1    num consts in chunk0 2
 // x1       code length for chunk0 2
 // x1       arity 2
 // x1       num upvalues 2
-// x4       const indexs -- K1*4
+// x4       consts -- K1*4
 // …
 // x4 Km    num consts in chunk0 2
 // x1       code length for chunk0 2
 // x1       arity 2
 // x1       num upvalues 2
-// x4       const indexs -- Km*4
+// x4       consts -- Km*4
 // x4   ints *1 -- these could be shrunk by two or four bytes each, but would not then be xip
 // x1   strings *1
 // x1   function arities(M-1)*1
@@ -52,6 +58,7 @@ static int16_t const version = 0x2601;
 // x1   code offsets for lines L*3
 // x1   function names (M)x16 -- included if (L > 0) debug/error reporting, truncated if over 15 chars
 
+#if defined(DEBUG_PACK)
 uint32_t chunks__ = 0;
 uint32_t ints__ = 0;
 uint32_t strings__ = 0;
@@ -59,6 +66,7 @@ uint32_t code__ = 0;
 uint32_t lines__ = 0;
 uint32_t names__ = 0;
 uint32_t end__ = 0;
+#endif
 
 typedef struct {
     uint8_t magic_[PACKAGE_MAGIC_LEN];  // 79 0a 72 67 ff 42 "y\x0arg\xffB"
@@ -82,7 +90,8 @@ enum { PACK_CONST_TYPE_S, PACK_CONST_TYPE_I, PACK_CONST_TYPE_D, PACK_CONST_TYPE_
 
 typedef struct {
     uint8_t type_;
-    uint32_t indexOrOffset_; // offset for s and i, index for d and f
+    uint32_t index_; // index for d and f
+    uint32_t offset_; // offset for s and i - calculated after duplicates removed
 } ConstItem;
 
 // if const were sorted by type ConstItem::type_ and FlatChunk::numConsts_ could be replaced by
@@ -101,32 +110,20 @@ typedef struct {
 typedef struct {
     uint32_t n_;
     uint32_t extent_;
-    struct {
-        ObjString *s_;
-        int chunkIndex_; // index:const used to update chunksFile when deleting duplicate stringss
-        int constNumber_;
-    } *i_;
-    int totalStringLength_; // including sourceFileName and postfix nulls
+        ObjString **i_;
+    int totalStringLength_;
 } StringsFile;
 
 typedef struct {
     uint32_t n_;
     uint32_t extent_;
-    struct DoublesFile_I {
-        double d_;
-        int chunkIndex_; // index:const used to update chunksFile when deleting duplicate floats
-        int constNumber_;
-    } *i_;
+    double *i_;
 } DoublesFile;
 
 typedef struct {
     uint32_t n_;
     uint32_t extent_;
-    struct {
-        ObjInt *i_;
-        int chunkIndex_; // index:const used to update chunksFile when deleting duplicate ints
-        int constNumber_;
-    } *i_;
+    ObjInt **i_;
     int totalIntsLength_;
 } IntsFile;
 
@@ -151,6 +148,8 @@ typedef struct {
 static void fileSet(void *, int, size_t i);
 static void fileExtend(void *, int, size_t);
 static void flattenConstants(int funIndex, Chunk const *, FlatFiles *);
+static void markDuplicates(FlatFiles *);
+static void calcStringAndIntOffsets(FlatFiles *);
 static void flattenCode(FlatFiles *);
 static void flattenLines(FlatFiles *);
 static int pack(char const *, FlatFiles *, FILE *);
@@ -174,10 +173,11 @@ int packScript(char const *sourceFileName, struct ObjFunction const *scriptFn, b
     f.funsFile_.i_[0].f_ = scriptFn;
     f.funsFile_.totalCodeLength_ = 0;
     flattenConstants(0, &scriptFn->chunk, &f);
-    int numFuns = f.funsFile_.n_;
 
-    // todo remove duplicates
-    // todo remove non global, non returned method/property
+    // todo remove non escapee i.e. non global, non returned method/property
+    markDuplicates(&f);
+
+    calcStringAndIntOffsets(&f);
 
     flattenCode(&f);
 
@@ -232,15 +232,9 @@ struct ObjFunction *loadPackage(char const *path) {
     assert((long)body % 8 == 0);
 
     size_t bodyLen = fread(body, 1, h.bodyLength_, file);
-    assert(bodyLen <= h.bodyLength_); // todo why is h.bodyLength_ too long?
+    assert(bodyLen == h.bodyLength_);
 
     double *doubles = (double *)body;
-
-    for (int i = 0; i < h.numDoubles_; i++) {
-        if (i < 7) {
-            printf("float@%ld:%f\n", (uint8_t *)&doubles[i] - (uint8_t *)doubles, doubles[i]);
-        }
-    }
 
     typedef uint8_t Uint24[3];
     typedef struct {
@@ -257,31 +251,25 @@ struct ObjFunction *loadPackage(char const *path) {
 
     uint8_t const *next = body + h.numDoubles_ * sizeof (double);
 
-    chunks__ = next - body;
+    DP(chunks__ = (uint32_t)(next - body));
     for (int i = 0; i < h.numChunks_; i++) {
         chunks[i] = (PackedChunk const *)next;
         next += 8 + 4 * chunks[i]->numConsts_;
     }
     uint8_t const *intFile = next;
 
-    ints__ = next - body;
+    DP(ints__ = (uint32_t)(next - body));
     for (int i = 0; i < h.numInts_; i++) {
         Int const *thisInt = (Int const *)next;
-        if (i < 11) {
-            printf("int@%ld:", (uint8_t *)thisInt - intFile); int_print(thisInt); printf("\n");
-        }
         next += sizeof (Int) + sizeof (uint16_t) * thisInt->m_;
     }
     uint8_t const *stringFile = next;
 
-    strings__ = next - body;
+    DP(strings__ = (uint32_t)(next - body));
     for (int i = 0; i < h.numStrings_; i++) {
         char const *thisString = (char const *)next;
-        if (i < 13) {
-            printf("string@%ld:\"%s\"\n", (uint8_t *)thisString - stringFile, thisString);
-        }
         next += strlen(thisString) + 1;
-//        printf("%s, %u, %u\n", thisString, (uint32_t)((next - body) - strings__), (uint32_t)(next - body));
+        DP(printf("%s, %u, %u\n", thisString, (uint32_t)((next - body) - strings__), (uint32_t)(next - body)));
     }
 
     ObjFunction *currentFunction;
@@ -292,7 +280,7 @@ struct ObjFunction *loadPackage(char const *path) {
     }
 
     uint8_t const *startOfCode = next;
-    code__ = next - body;
+    DP(code__ = (uint32_t)(next - body));
     for (int i = 0; i < h.numChunks_; i++) {
         currentFunction = functions[i];
         initDynamicValueArray(&currentFunction->chunk.constants);
@@ -304,8 +292,8 @@ struct ObjFunction *loadPackage(char const *path) {
         next += chunks[i]->codeLength_;
     }
 
-    lines__ = next - body;
-//    printf("line, offset\n");
+    DP(lines__ = (uint32_t)(next - body));
+    DP(printf("line, offset\n"));
     for (int i = 0; i < h.numLines_; i++) {
         int offset = 0;
         memcpy(&offset, next, 3);
@@ -315,7 +303,7 @@ struct ObjFunction *loadPackage(char const *path) {
                 size_t start = cf->chunk.code - startOfCode;
                 size_t end = start + cf->chunk.count;
                 if (offset >= start && offset < end) {
-//                   printf("%d, %d, %d\n", i + 1, offset, offset - (int)start);
+                    DP(printf("%d, %d, %d\n", i + 1, offset, offset - (int)start));
                     if (cf->chunk.numLines == cf->chunk.lineCapacity) {
                         int capacity = cf->chunk.lineCapacity;
                         int newCapacity = capacity + 16;
@@ -330,32 +318,34 @@ struct ObjFunction *loadPackage(char const *path) {
         next += 3;
     }
 
-    names__ = next - body;
+    DP(names__ = (uint32_t)(next - body));
     if (h.numLines_ > 0) {
         for (int i = 0; i < h.numChunks_; i++) {
-            functions[i]->fName = copyString((char *)next, (int)strlen((char *)next)); // should be able to shallow copy
+            functions[i]->fName = copyString((char *)next, (int)strlen((char *)next)); // todo - mark as xip
             next += 16;
         }
     }
 
-    end__ = next - body;
+    DP(end__ = (uint32_t)(next - body));
     assert(h.numChunks_ >= 1);
     for (int i = 0; i < h.numChunks_; i++) {
-        printf("Chunk:%d code@%p numConsts:%d\n", i, next, (int)chunks[i]->numConsts_);
         currentFunction = functions[i];
+        DP(printf("Chunk:%d code@%p numConsts:%d\n", i, currentFunction->chunk.code, (int)chunks[i]->numConsts_));
         for (int c = 0; c < chunks[i]->numConsts_; c++) {
             uint32_t index = 0;
             memcpy(&index, chunks[i]->typedIndexs[c].constOffset_, 3);
             uint8_t type = chunks[i]->typedIndexs[c].type_;
+#if defined (DEBUG_PACK)
             static const char *typesName[] = {"string", "int", "float", "fun"};
             printf("%d %s@%u", (int)c, typesName[type], index);
+#endif
             switch (type) {
             case PACK_CONST_TYPE_S: {
-                char const *thisString = (char const *)&stringFile[index];
-                ObjString *obj = copyString(thisString, (int)strlen(thisString)); // should be able to shallow copy
+                char *thisString = (char *)&stringFile[index];
+                ObjString *obj = copyString(thisString, (int)strlen(thisString)); // mark as xip
                 Value value = OBJ_VAL(obj);
                 appendToDynamicValueArray(&currentFunction->chunk.constants, value);
-                printf(":\"%s\"", thisString);
+                DP(printf(":\"%s\"", thisString));
                 break;
             }
             case PACK_CONST_TYPE_I: {
@@ -364,15 +354,15 @@ struct ObjFunction *loadPackage(char const *path) {
                 memcpy(&obj->bigInt, thisInt, sizeof (Int) + thisInt->m_ * sizeof (uint16_t)); // should be able to shallow copy
                 Value value = OBJ_VAL(obj);
                 appendToDynamicValueArray(&currentFunction->chunk.constants, value);
-                printf(":");
-                int_print(thisInt);
+                DP(printf(":");
+                int_print(thisInt));
                 break;
             }
             case PACK_CONST_TYPE_D: {
                 double thisFloat = doubles[index];
                 Value value = DOUBLE_VAL(thisFloat);
                 appendToDynamicValueArray(&currentFunction->chunk.constants, value); // should be able to shallow copy
-                printf(":%f", thisFloat);
+                DP(printf(":%f", thisFloat));
                 break;
             }
             case PACK_CONST_TYPE_F: {
@@ -385,14 +375,14 @@ struct ObjFunction *loadPackage(char const *path) {
                     len = len > 20 ? 20 : len;
                     memcpy(name, thisFun->fName->chars, len);
                     name[len] = '\0';
-                    printf(":%s", name);
+                    DP(printf(":%s", name));
                 } else {
-                    printf(":<no name>");
+                    DP(printf(":<no name>"));
                 }
                 break;
             }
             }
-            printf("\n");
+            DP(printf("\n"));
         }
     }
 
@@ -405,21 +395,16 @@ exit:
         currentFunction = 0;
     }
 
-//   free(buffer); // todo leak for the moment until we can have the buffer owned by functions[0] - perhaps add it as the last chun const?
-    printf("chunks__:%u\nints__:%u\nstrings__:%u\ncode__:%u\nlines__:%u\nnames__:%u\nend__:%u\n",
-           chunks__, ints__, strings__, code__, lines__, names__, end__);
+// todo leak for the moment until we can have the body owned by currentFunction or vm
+//    free(body);
+
+    DP(printf("chunks__:%u\nints__:%u\nstrings__:%u\ncode__:%u\nlines__:%u\nnames__:%u\nend__:%u\n", chunks__, ints__, strings__, code__, lines__, names__, end__));
 
     if (r == EX_OK)
         return currentFunction;
     else
         return 0;
 }
-
-/////  todo  file and sort strings first
-//////            mark constants as used when parsing byte code
-//////            methods + properties of returned struct or class, global var names, 1st level function names are exported, op_const are not
-///////            returned includes copied to var parameters
-//////            remove non-global consts
 
 void flattenConstants(int chunkIndex, Chunk const *chunk, FlatFiles *f) {
     int startSubs = f->funsFile_.n_;
@@ -441,42 +426,29 @@ void flattenConstants(int chunkIndex, Chunk const *chunk, FlatFiles *f) {
     for (int i = 0; i < constCount; i++) {
         Value *v = &chunk->constants.values[i];
         if (IS_DOUBLE(*v)) {
-            fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_D, .indexOrOffset_ = f->doublesFile_.n_ };
+            fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_D, .index_ = f->doublesFile_.n_ };
             fileExtend(&f->doublesFile_, 4, sizeof *f->doublesFile_.i_);
-            f->doublesFile_.i_[f->doublesFile_.n_].d_ = AS_DOUBLE(*v);
-            f->doublesFile_.i_[f->doublesFile_.n_].chunkIndex_ =  chunkIndex;
-            f->doublesFile_.i_[f->doublesFile_.n_++].constNumber_ =  i;
+            f->doublesFile_.i_[f->doublesFile_.n_++] = AS_DOUBLE(*v);
         } else if (IS_OBJ(*v)) {
             switch (AS_OBJ(*v)->type) {
             case OBJ_FUNCTION: {
-                fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_F, .indexOrOffset_ = f->funsFile_.n_ };
+                fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_F, .index_ = f->funsFile_.n_ };
                 fileExtend(&f->funsFile_, 4, sizeof *f->funsFile_.i_);
                 fc = &f->funsFile_.i_[chunkIndex].chunk_; // fc invalidated by fileExtend() above
                 f->funsFile_.i_[f->funsFile_.n_++].f_ = AS_FUNCTION(*v);
                 break;
             }
             case OBJ_INT: {
-                fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_I, .indexOrOffset_ = f->intsFile_.totalIntsLength_ };
+                fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_I, .index_ = f->intsFile_.n_ };
                 fileExtend(&f->intsFile_, 16, sizeof *f->intsFile_.i_);
-                f->intsFile_.i_[f->intsFile_.n_].i_ = AS_INTOBJ(*v);
-                f->intsFile_.i_[f->intsFile_.n_].chunkIndex_ =  chunkIndex;
-                f->intsFile_.i_[f->intsFile_.n_++].constNumber_ =  i;
-                Int *from = AS_INT(*v);
-                int len = (int)((char *) from->w_ - (char *) from);
-                assert(len % 4 == 0);
-                len += sizeof (uint16_t) * (from->d_ + from->d_ % 2);
-                f->intsFile_.totalIntsLength_ += len;
+                f->intsFile_.i_[f->intsFile_.n_++] = AS_INTOBJ(*v);
                break;
             }
             case OBJ_STRING: {
-                fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_S, .indexOrOffset_ = f->stringsFile_.totalStringLength_ };
+                fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_S, .index_ = f->stringsFile_.n_ };
                 fileExtend(&f->stringsFile_, 16, sizeof *f->stringsFile_.i_);
                 ObjString *from = AS_STRING(*v);
-                f->stringsFile_.i_[f->stringsFile_.n_].s_ = from;
-                f->stringsFile_.i_[f->stringsFile_.n_].chunkIndex_ =  chunkIndex;
-                f->stringsFile_.i_[f->stringsFile_.n_++].constNumber_ =  i;
-                int len = from->length;
-                f->stringsFile_.totalStringLength_ += len + 1;
+                f->stringsFile_.i_[f->stringsFile_.n_++] = from;
                break;
             }
             default:
@@ -490,22 +462,62 @@ void flattenConstants(int chunkIndex, Chunk const *chunk, FlatFiles *f) {
 
     int endSubs = f->funsFile_.n_;
     for (int i = startSubs; i < endSubs; i++) {
-        char nn[21];
+        DP(char nn[21];
         int len = f->funsFile_.i_[i].f_->fName->length;
         len = len > 20 ? 20 : len;
         memcpy(nn, f->funsFile_.i_[i].f_->fName->chars, len);
         nn[len] = 0;
-        printf("%s\n", nn);
+        printf("%s:%d\n", nn, i));
         flattenConstants(i, &f->funsFile_.i_[i].f_->chunk, f);
     }
 }
 
-static void flattenCode(FlatFiles *f) {
+void markDuplicates(FlatFiles *f) {
+    DP(for (int funI = 0; funI < f->funsFile_.n_; funI++) {
+        struct Fun *fun = &f->funsFile_.i_[funI];
+        struct ConstTypesAndOffsets *ctao = &fun->chunk_.constTypesAndOffsets_;
+        for (int constI = 0; constI < ctao->numConsts_; constI++) {
+            ConstItem *ci = &ctao->i_[constI];
+        }
+    });
+}
 
+void calcStringAndIntOffsets(FlatFiles *f) {
+    int sOffset = 0;
+    int iOffset = 0;
+    for (int funI = 0; funI < f->funsFile_.n_; funI++) {
+        struct Fun *fun = &f->funsFile_.i_[funI];
+        struct ConstTypesAndOffsets *ctao = &fun->chunk_.constTypesAndOffsets_;
+        for (int constI = 0; constI < ctao->numConsts_; constI++) {
+            ConstItem *ci = &ctao->i_[constI];
+            switch (ci->type_) {
+            case PACK_CONST_TYPE_S:
+                ci->offset_ = sOffset;
+                sOffset += f->stringsFile_.i_[ci->index_]->length + 1;
+                break;
+            case PACK_CONST_TYPE_I:
+                ci->offset_ = iOffset;
+                Int *from = &f->intsFile_.i_[ci->index_]->bigInt;
+                int len = (int)((char *) from->w_ - (char *) from);
+                assert(len == 4);
+                len += sizeof (uint16_t) * (from->d_ + from->d_ % 2);
+                iOffset += len;
+                break;
+            default:
+                // no need to determine offsets and total length for doubles and functions
+                break;
+            }
+        }
+    }
+    f->stringsFile_.totalStringLength_ = sOffset;
+    f->intsFile_.totalIntsLength_ = iOffset;
+    DP(printf("int:%d string:%d\n", f->intsFile_.totalIntsLength_, f->stringsFile_.totalStringLength_));
+}
+
+static void flattenCode(FlatFiles *f) {
 }
 
 void flattenLines(FlatFiles *f) {
-
     for (int c = 0; c < f->funsFile_.n_; c++) {
         FlatChunk *cf = &f->funsFile_.i_[c].chunk_;
         Chunk const *chunk = &f->funsFile_.i_[c].f_->chunk;
@@ -531,12 +543,16 @@ void flattenLines(FlatFiles *f) {
     }
 }
 
+#if defined(DEBUG_PACK)
 uint32_t offset__ = 0;
 size_t fwrite__(const void *__ptr, size_t __size, size_t __nitems, FILE *__stream) {
     size_t w = fwrite(__ptr, __size, __nitems, __stream);
     offset__ += (uint32_t)(__size * w);
     return w;
 }
+#else
+#define fwrite__(P__, S__, N__, F__) fwrite(P__, S__, N__, F__)
+#endif // !DEBUGGING_PACK
 
 int pack(char const *sourceFileName, FlatFiles *f, FILE *file) {
 
@@ -570,14 +586,14 @@ int pack(char const *sourceFileName, FlatFiles *f, FILE *file) {
     size_t written = fwrite__(&h, sizeof h, 1, file);
     if (written != 1) return EX_SOFTWARE;
 
-    offset__ = 0;
+    DP(offset__ = 0);
     for (int i = 0; i < f->doublesFile_.n_; i++) {
-        struct DoublesFile_I *di = &f->doublesFile_.i_[i];
-        written = fwrite__(&di->d_, sizeof (double), 1, file);
+        double *d = &f->doublesFile_.i_[i];
+        written = fwrite__(d, sizeof (double), 1, file);
         if (written != 1) return EX_SOFTWARE;
     }
 
-    chunks__ = offset__;
+    DP(chunks__ = offset__);
     for (int i = 0; i < f->funsFile_.n_; i++) {
         FlatChunk *fc = &f->funsFile_.i_[i].chunk_;
         uint16_t arity, numUpvalues;
@@ -602,57 +618,85 @@ int pack(char const *sourceFileName, FlatFiles *f, FILE *file) {
             assert(ci->type_ >= 0 && ci->type_ <= 3);
             written = fwrite__(&ci->type_, sizeof (char), 1, file);
             if (written != 1) return EX_SOFTWARE;
-            written = fwrite__(&ci->indexOrOffset_, sizeof (char), 3, file);
+            uint32_t indexOrOffset = ci->type_ == PACK_CONST_TYPE_S || ci->type_ == PACK_CONST_TYPE_I ? ci->offset_ : ci->index_;
+            written = fwrite__(&indexOrOffset, sizeof (char), 3, file);
             if (written != 3) return EX_SOFTWARE;
+            DP(if (ci->type_ == PACK_CONST_TYPE_S) {
+                printf("%s, %d\n", f->stringsFile_.i_[ci->index_]->chars, ci->offset_);
+            });
         }
     }
 
-    ints__ += offset__;
-    for (int i = 0; i < f->intsFile_.n_; i++) {
-        Int *bigInt = &f->intsFile_.i_[i].i_->bigInt;
-        IntConcrete254 t;
-        int_set_t(bigInt, int_init_concrete254(&t));
-        t.m_ = t.d_ + t.d_ % 2;
-        written = fwrite__(&t, sizeof (Int) + sizeof (uint16_t) * t.m_, 1, file);
-        if (written != 1) return EX_SOFTWARE;
+    DP(ints__ = offset__);
+    for (int funI = 0; funI < f->funsFile_.n_; funI++) {
+        struct Fun *fun = &f->funsFile_.i_[funI];
+        struct ConstTypesAndOffsets *ctao = &fun->chunk_.constTypesAndOffsets_;
+        for (int constI = 0; constI < ctao->numConsts_; constI++) {
+            ConstItem *ci = &ctao->i_[constI];
+            switch (ci->type_) {
+            case PACK_CONST_TYPE_I:
+                DP(assert(offset__ - ints__ == ci->offset_));
+                Int *bigInt = &f->intsFile_.i_[ci->index_]->bigInt;
+                IntConcrete254 t;
+                int_set_t(bigInt, int_init_concrete254(&t));
+                t.m_ = t.d_ + t.d_ % 2;
+                written = fwrite__(&t, sizeof (Int) + sizeof (uint16_t) * t.m_, 1, file);
+                if (written != 1) return EX_SOFTWARE;
+                break;
+            default:
+                break;
+            }
+        }
     }
 
-    strings__ += offset__;
-    size_t sourceFileNameLen = strlen(sourceFileName);
-    char const *nullChar = &sourceFileName[sourceFileNameLen];
-    for (int i = 0; i < f->stringsFile_.n_; i++) {
-        ObjString *s = f->stringsFile_.i_[i].s_;
-        written = fwrite__(s->chars, s->length, 1, file);
-        if (written != 1) return EX_SOFTWARE;
-        written = fwrite__(nullChar, 1, 1, file);
-        if (written != 1) return EX_SOFTWARE;
-//        char sb[100];
-//        memcpy(sb, s->chars, s->length); sb[s->length] = '\0';
-//        printf("%s, %u, %u\n", sb, offset__ - strings__, offset__);
+    DP(strings__ = offset__);
+    for (int funI = 0; funI < f->funsFile_.n_; funI++) {
+        struct Fun *fun = &f->funsFile_.i_[funI];
+        struct ConstTypesAndOffsets *ctao = &fun->chunk_.constTypesAndOffsets_;
+        for (int constI = 0; constI < ctao->numConsts_; constI++) {
+            ConstItem *ci = &ctao->i_[constI];
+            ObjString *s;
+            char nullChar = 0;
+            switch (ci->type_) {
+            case PACK_CONST_TYPE_S:
+                DP(assert(offset__ - strings__ == ci->offset_));
+                s = f->stringsFile_.i_[ci->index_];
+                written = fwrite__(s->chars, s->length, 1, file);
+                if (written != 1) return EX_SOFTWARE;
+                written = fwrite__(&nullChar, 1, 1, file);
+                if (written != 1) return EX_SOFTWARE;
+                DP(char sb[100];
+                memcpy(sb, s->chars, s->length); sb[s->length] = '\0';
+                printf("%s, %u, %u\n", sb, offset__ - strings__ - s->length - 1, offset__ - s->length - 1));
+                break;
+            default:
+                break;
+            }
+        }
     }
 
-    code__ += offset__;
+    DP(code__ = offset__);
     for (int i = 0; i < f->funsFile_.n_; i++) {
         FlatChunk *fc = &f->funsFile_.i_[i].chunk_;
         written = fwrite__(fc->code_, fc->codeLength_, 1, file);
         if (written != 1) return EX_SOFTWARE;
     }
 
-    lines__ += offset__;
+    DP(lines__ = offset__);
     for (int i = 0; i < f->linesFile_.n_; i++) {
         uint32_t offset = f->linesFile_.i_[i];
         written = fwrite__(&offset, sizeof (char), 3, file);
         if (written != 3) return EX_SOFTWARE;
     }
 
-    names__ += offset__;
+    DP(names__ = offset__);
     if (f->linesFile_.n_ > 0) {
         for (int i = 0; i < f->funsFile_.n_; i++) {
             char const *name;
             int len;
             if (i == 0) {
                 name = sourceFileName;
-                len = (int)sourceFileNameLen;
+                len = (int) strlen(sourceFileName);
             } else {
                 name = f->funsFile_.i_[i].f_->fName->chars;
                 len = f->funsFile_.i_[i].f_->fName->length;
@@ -661,15 +705,15 @@ int pack(char const *sourceFileName, FlatFiles *f, FILE *file) {
             written = fwrite__(name, sizeof (char), len, file);
             if (written != len) return EX_SOFTWARE;
             for (; len < 16; len++) {
-                written = fwrite__(nullChar, sizeof (char), 1, file);
+                char nullChar = 0;
+                written = fwrite__(&nullChar, sizeof (char), 1, file);
                 if (written != 1) return EX_SOFTWARE;
             }
-            printf("%s\n", name);
+            DP(printf("%s\n", name));
         }
     }
-    end__ += offset__;
-    printf("chunks__:%u\nints__:%u\nstrings__:%u\ncode__:%u\nlines__:%u\nnames__:%u\nend__:%u\n",
-           chunks__, ints__, strings__, code__, lines__, names__, end__);
+    DP(end__ = offset__);
+    DP(printf("chunks__:%u\nints__:%u\nstrings__:%u\ncode__:%u\nlines__:%u\nnames__:%u\nend__:%u\n", chunks__, ints__, strings__, code__, lines__, names__, end__));
 
     return EX_OK;
 }
