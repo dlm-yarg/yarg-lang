@@ -80,7 +80,7 @@ int main(int argc, const char* argv[]) {
     vmHost.argv = argv;
     vmHost.exitCode = EX_OK;
     if (libPath) {
-        vm.libraryPath = copyString(libPath, strlen(libPath));
+        vm.libraryPath = copyString(libPath, (int)strlen(libPath));
     }
     
     int returnCode = EX_OK;
@@ -104,3 +104,4 @@ int main(int argc, const char* argv[]) {
     return returnCode;
 }
 #endif
+

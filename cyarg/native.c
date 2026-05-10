@@ -41,9 +41,9 @@ bool irq_add_shared_handlerNative(ObjRoutine* routine, int argCount, Value* resu
 
     unsigned int num = as_positive_integer32(numVal);
     uintptr_t isrRoutine = AS_ADDRESS(address);
-    unsigned int prio = as_positive_integer32(prioVal);
 
 #if defined(CYARG_PICO_SDK_TARGET)
+    unsigned int prio = as_positive_integer32(prioVal);
     irq_add_shared_handler(num, (irq_handler_t) isrRoutine, prio);
 #elif defined(CYARG_FEATURE_TEST_SYSTEM)
     tsAddInterruptHandler(num, (void *) isrRoutine);
@@ -123,16 +123,16 @@ bool stdin_getsNative(ObjRoutine* routine, int argCount, Value* result) {
     }
 
     char buffer[4096];
-    if (fgets(buffer, sizeof(buffer), stdin) == NULL) {
+    while (fgets(buffer, sizeof(buffer), stdin) == NULL) {
         *result = NIL_VAL;
-        return true;
+//        return true;
     }
     size_t length = strlen(buffer);
     if (length > 0 && buffer[length - 1] == '\n') {
         buffer[length - 1] = '\0';
         length--;
     }
-    *result = OBJ_VAL(copyString(buffer, length));
+    *result = OBJ_VAL(copyString(buffer, (int) length));
     return true;
 }
 
@@ -190,7 +190,7 @@ bool host_argnNative(ObjRoutine* routine, int argCount, Value* result) {
         return false;
     }
 
-    *result = OBJ_VAL(copyString(vmHost.argv[index], strlen(vmHost.argv[index])));
+    *result = OBJ_VAL(copyString(vmHost.argv[index], (int) strlen(vmHost.argv[index])));
     return true;
 }
 

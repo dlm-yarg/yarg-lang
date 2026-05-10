@@ -11,18 +11,45 @@ import (
 	"github.com/yarg-lang/yarg-lang/hostyarg"
 	"github.com/yarg-lang/yarg-lang/hostyarg/internal/deviceimage"
 	"github.com/yarg-lang/yarg-lang/hostyarg/internal/devicerunner"
+	"github.com/yarg-lang/yarg-lang/hostyarg/internal/deviceutil"
 	"github.com/yarg-lang/yarg-lang/hostyarg/internal/hostrunner"
 	"mellium.im/sysexit"
 )
 
 func exitWithUsageError(usagenote string) {
-	fmt.Println(usagenote)
+	fmt.Fprintln(os.Stderr, usagenote)
+	fmt.Fprintln(os.Stderr, "Use 'yarg help' for more information.")
 	os.Exit(int(sysexit.ErrUsage))
 }
 
 func exitWithError(errnote string) {
-	fmt.Println(errnote)
+	fmt.Fprintln(os.Stderr, errnote)
 	os.Exit(1)
+}
+
+func DefaultYargRunner(suppliedPort, suppliedInterpreter, suppliedLib string) (runner hostyarg.YargRunner, err error) {
+
+	if suppliedPort == "" && suppliedInterpreter == "" {
+		port, ok := deviceutil.DefaultPort()
+		if !ok {
+			return nil, fmt.Errorf("failed to find default device port")
+		}
+		runner = &devicerunner.DeviceRunner{Port: port}
+		return runner, nil
+	} else if suppliedPort != "" && suppliedInterpreter != "" {
+		return nil, fmt.Errorf("cannot specify both device port and local interpreter")
+	} else if suppliedInterpreter != "" {
+		runner = &hostrunner.HostRunner{Compiler: hostrunner.Compiler{Interpreter: suppliedInterpreter}, LibPath: suppliedLib}
+		return runner, nil
+	} else if suppliedPort != "" {
+		port, ok := deviceutil.PicoPortFor(suppliedPort)
+		if !ok {
+			return nil, fmt.Errorf("failed to find specified device port")
+		}
+		runner = &devicerunner.DeviceRunner{Port: port}
+		return runner, nil
+	}
+	return nil, fmt.Errorf("invalid configuration")
 }
 
 func dispatchSubCommand(args []string) {
@@ -33,6 +60,29 @@ func dispatchSubCommand(args []string) {
 
 	flags := flag.NewFlagSet(args[0], flag.ExitOnError)
 	switch args[0] {
+	case "help":
+		fmt.Println("yarg is a tool for working with Yarg sources, device images and devices running Yarg.")
+		fmt.Println("Usage: yarg [-v] <command> [options]")
+		fmt.Println("Commands:")
+		fmt.Println("  help - show this help message")
+		fmt.Println("  runtests - run tests on the host")
+		fmt.Println("  format - format a device image with a littlefs filesystem")
+		fmt.Println("  ls - list contents of a directory in a littlefs filesystem")
+		fmt.Println("  fsinfo - print information about a littlefs filesystem")
+		fmt.Println("  cp - copy a file to or from a littlefs filesystem")
+		fmt.Println("  mkdir - create a directory in a littlefs filesystem")
+		fmt.Println("  devices - list connected devices")
+		fmt.Println("  resetdevice - reset the connected device")
+		fmt.Println("  flashdevice - flash a binary to the connected device")
+		fmt.Println("  compile - compile a Yarg source file, reporting errors if any")
+		fmt.Println("  run - run a Yarg source file on the connected device")
+		fmt.Println("  repl - start a REPL connected to the device")
+		fmt.Println("device commands can specify:")
+		fmt.Println("  a connected device (which is the default if found) with: ")
+		fmt.Println("     --port serialportname")
+		fmt.Println("  or a host based yarg system with:")
+		fmt.Println("     --interpreter path/to/cyarg --lib path/to/libraries")
+		os.Exit(0)
 	case "format":
 		formatFSFS := flags.String("image", "", "image containing filesystem to format")
 		formatCreate := flags.Bool("create", false, "create image if it doesn't exist")
@@ -94,19 +144,6 @@ func dispatchSubCommand(args []string) {
 		if err != nil {
 			exitWithError(err.Error())
 		}
-	case "runtests":
-		testRunInterpreter := flags.String("interpreter", "cyarg", "default interpreter")
-		testRunTests := flags.String("tests", "", "default tests")
-		testRunLib := flags.String("lib", "", "library to include in test runs")
-		flags.Parse(args[1:])
-
-		err, failedtests := hostyarg.CmdRunTests(*testRunInterpreter, *testRunLib, *testRunTests)
-		if err != nil {
-			exitWithError(err.Error())
-		}
-		if failedtests > 0 {
-			os.Exit(1)
-		}
 	case "resetdevice":
 		flags.Parse(args[1:])
 
@@ -135,8 +172,10 @@ func dispatchSubCommand(args []string) {
 			exitWithUsageError("expect source to compile")
 		}
 
-		result := hostrunner.CmdCompile(*compileSource, *compileInterpreter)
-		if !result {
+		runner := &hostrunner.Compiler{Interpreter: *compileInterpreter}
+
+		err := runner.CmdCompile(*compileSource)
+		if err != nil {
 			exitWithError("compile failed")
 		}
 	case "run":
@@ -152,32 +191,70 @@ func dispatchSubCommand(args []string) {
 			exitWithUsageError("expect source to run")
 		}
 
-		runner, err := hostyarg.DefaultYargRunner(*devicePort, *localRunInterpreter, *localLib)
+		runner, err := DefaultYargRunner(*devicePort, *localRunInterpreter, *localLib)
 		if err != nil {
 			exitWithError(err.Error())
 		}
 
-		err = runner.Run(positionals[0])
+		err = runner.RunInteractively(positionals[0])
 		if err != nil {
 			exitWithError(err.Error())
 		}
-
-	case "test":
-		testRunInterpreter := flags.String("interpreter", "cyarg", "default interpreter")
-		testRunSource := flags.String("source", "", "source of test to run")
-		testRunLib := flags.String("lib", "", "library to include in test runs")
+	case "repl":
+		devicePort := flags.String("port", "", "serial port to use as device console")
+		localRunInterpreter := flags.String("interpreter", "", "default interpreter")
+		localLib := flags.String("lib", "", "library to include")
 		flags.Parse(args[1:])
 
-		err, failedtests := hostyarg.CmdRunTests(*testRunInterpreter, *testRunLib, *testRunSource)
+		runner, err := DefaultYargRunner(*devicePort, *localRunInterpreter, *localLib)
 		if err != nil {
 			exitWithError(err.Error())
 		}
-		if failedtests > 0 {
+
+		err = runner.REPL()
+		if err != nil {
+			exitWithError(err.Error())
+		}
+	case "runtests":
+		testRunInterpreter := flags.String("interpreter", "cyarg", "default interpreter")
+		testRunLib := flags.String("lib", "", "library to include in test runs")
+		devicePort := flags.String("port", "", "serial port to use as device console")
+
+		testHostSource := flags.String("tests", "", "host source of test to run")
+		testDeviceSource := flags.String("device-source", "", "device source of test to run")
+
+		flags.Parse(args[1:])
+
+		runner, err := DefaultYargRunner(*devicePort, *testRunInterpreter, *testRunLib)
+		if err != nil {
+			exitWithError(err.Error())
+		}
+
+		if *testHostSource == "" {
+			exitWithUsageError("expect host source for expect-test")
+		}
+
+		failedtestcount := 0
+		if r, ok := runner.(*hostrunner.HostRunner); ok {
+			if *testDeviceSource != "" {
+				exitWithUsageError("device source specified but runner is host based")
+			}
+			err, failedtestcount = r.CmdExpectTest(*testHostSource)
+		} else {
+			err = fmt.Errorf("unknown runner type")
+		}
+
+		if err != nil {
+			exitWithError(err.Error())
+		}
+		if failedtestcount > 0 {
 			os.Exit(1)
 		}
 	case "devices":
+		deviceInterpreter := flags.String("interpreter", "", "default interpreter")
+		deviceLib := flags.String("lib", "", "library to include in test runs")
 		flags.Parse(args[1:])
-		hostyarg.CmdListDevices()
+		hostyarg.CmdListDevices(*deviceInterpreter, *deviceLib)
 	default:
 		exitWithUsageError("unknown command")
 	}

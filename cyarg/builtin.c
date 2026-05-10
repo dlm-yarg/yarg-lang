@@ -278,7 +278,7 @@ bool makeRoutineBuiltin(ObjRoutine* routineContext, int argCount, Value* result)
     }
 
     ObjClosure* closure = AS_CLOSURE(nativeArgument(routineContext, argCount, 0));
-    bool isISR = AS_BOOL(nativeArgument(routineContext, argCount, 1));
+    [[maybe_unused]] bool isISR = AS_BOOL(nativeArgument(routineContext, argCount, 1));
 
     ObjRoutine* routine = newRoutine();
 
@@ -456,7 +456,7 @@ bool pinBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
 bool newBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
 
     Value typeToCreate = NIL_VAL;
-    if (   argCount == 1
+    if (argCount == 1
         && IS_YARGTYPE(nativeArgument(routineContext, argCount, 0))) {
         typeToCreate = nativeArgument(routineContext, argCount, 0);
     }
@@ -922,6 +922,52 @@ bool intBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     return true;
 }
 
+bool floatBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
+    Value arg = nativeArgument(routineContext, argCount, 0);
+    double f;
+    if (IS_I8(arg)) {
+        f = AS_I8(arg);
+    } else if (IS_I16(arg)) {
+        f = AS_I16(arg);
+    } else if (IS_I32(arg)) {
+        f = AS_I32(arg);
+    } else if (IS_I64(arg)) {
+        f = AS_I64(arg);
+    } else if (IS_UI8(arg)) {
+        f = AS_UI8(arg);
+    } else if (IS_UI16(arg)) {
+        f = AS_UI16(arg);
+    } else if (IS_UI32(arg)) {
+        f = AS_UI32(arg);
+    } else if (IS_UI64(arg)) {
+        f = AS_UI64(arg);
+    } else if (IS_STRING(arg))  {
+        char *end;
+        f = strtod(AS_CSTRING(arg), &end);
+        if (*end != 0)
+        {
+            return false;
+        }
+    } else if (IS_INT(arg)) {
+        char sb[INT_STRLEN_FOR_INT254];
+        Int *i = AS_INT(arg);
+        char const *s = int_to_s(i, sb, INT_STRLEN_FOR_INT254);
+        char *end;
+        f = strtod(s, &end);
+        if (*end != 0)
+        {
+            return false;
+        }
+    } else if (IS_DOUBLE(arg)) {
+        f = AS_DOUBLE(arg);
+    } else {
+        return false;
+    }
+    result->as.dbl = f;
+    result->type = VAL_DOUBLE;
+    return true;
+}
+
 bool stringBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     Value arg = nativeArgument(routineContext, argCount, 0);
     int64_t i;
@@ -942,7 +988,7 @@ bool stringBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     } else if (IS_UI64(arg)) {
         uint64_t i = AS_UI64(arg);
         char sb[22];
-        int l = sprintf(sb, "%" PRIu64, i);
+        int l = snprintf(sb, 22, "%" PRIu64, i);
         ObjString* string = copyString(sb, l);
         result->as.obj = &string->obj;
         result->type = VAL_OBJ;
@@ -964,7 +1010,7 @@ bool stringBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     } else if (IS_DOUBLE(arg)) {
         char sb[22];
         double f = AS_DOUBLE(arg);
-        int l = sprintf(sb, "%#g", f);
+        int l = snprintf(sb, 22, "%#g", f);
         ObjString* string = copyString(sb, l);
         result->as.obj = &string->obj;
         result->type = VAL_OBJ;
@@ -973,7 +1019,7 @@ bool stringBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         return false;
     }
     char sb[22];
-    int l = sprintf(sb, "%" PRId64, i);
+    int l = snprintf(sb, 22, "%" PRId64, i);
     ObjString* string = copyString(sb, l);
     result->as.obj = &string->obj;
     result->type = VAL_OBJ;
@@ -1007,6 +1053,7 @@ Value getBuiltin(uint8_t builtin) {
         case BUILTIN_INT64: return OBJ_VAL(newNative(int64Builtin));
         case BUILTIN_UINT64: return OBJ_VAL(newNative(uint64Builtin));
         case BUILTIN_INT: return OBJ_VAL(newNative(intBuiltin));
+        case BUILTIN_MFLOAT64: return OBJ_VAL(newNative(floatBuiltin));
         case BUILTIN_STRING: return OBJ_VAL(newNative(stringBuiltin));
 #ifndef CYARG_FEATURE_TEST_SYSTEM
         default: return NIL_VAL;

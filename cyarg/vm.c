@@ -27,6 +27,7 @@ VM vm;
 
 static void binaryIntOp(ObjRoutine* routine, char const *c);
 static void binaryIntBoolOp(ObjRoutine* routine, char const *c);
+static void unaryIntOp(ObjRoutine* routine, int op);
 
 void vmPinnedRoutineHandler(size_t handler) {
     ObjRoutine* routine = vm.pinnedRoutines[handler];
@@ -520,20 +521,6 @@ static void concatenate(ObjRoutine* routine) {
     push(routine, OBJ_VAL(result));
 }
 
-static void makeConcreteTypeConst(ObjRoutine* routine) {
-    if (IS_NIL(peek(routine, 0))) {
-        pop(routine);
-        ObjConcreteYargType* typeObject = newYargTypeFromType(TypeAny);
-        typeObject->isConst = true;
-        push(routine, OBJ_VAL(typeObject));
-        return;
-    } else {
-        ObjConcreteYargType* typeObj = (ObjConcreteYargType*) AS_OBJ(peek(routine, 0));
-        typeObj->isConst = true;
-        return;
-    }
-}
-
 static void promote(Value *left, Value *right)
 {
     assert(left != 0 && right != 0);
@@ -676,7 +663,7 @@ InterpretResult run(ObjRoutine* routine) {
         } else if (IS_INT(peek(routine, 0)) && IS_INT(peek(routine, 1))) { \
             binaryIntOp(routine, #op); \
         } else { \
-            runtimeError(routine, "Operands must both be numbers, integers or unsigned integers."); \
+            runtimeError(routine, #op " Operands %d %d must both be numbers, integers or unsigned integers.", peek(routine, 0).type, peek(routine, 1).type); \
             return INTERPRET_RUNTIME_ERROR; \
         } \
     } while (false)
@@ -721,7 +708,7 @@ InterpretResult run(ObjRoutine* routine) {
         } else if (IS_INT(peek(routine, 0)) && IS_INT(peek(routine, 1))) { \
             binaryIntBoolOp(routine, #op); \
         } else { \
-            runtimeError(routine, "Operands must both be numbers, integers or unsigned integers."); \
+            runtimeError(routine, #op " Operands %d %d must both be numbers, integers or unsigned integers.", peek(routine, 0).type, peek(routine, 1).type); \
             return INTERPRET_RUNTIME_ERROR; \
         } \
     } while (false)
@@ -749,14 +736,16 @@ InterpretResult run(ObjRoutine* routine) {
             uint64_t c = a op b; \
             push(routine, UI64_VAL(c)); \
         } else { \
-            runtimeError(routine, "Operands must be unsigned integers."); \
+            runtimeError(routine, #op " Operands %d %d must be unsigned integers.", peek(routine, 0).type, peek(routine, 1).type); \
             return INTERPRET_RUNTIME_ERROR; \
         } \
     } while (false)
 
     for (;;) {
-        if (routine->state == EXEC_ERROR) return INTERPRET_RUNTIME_ERROR;
-
+        if (routine->state == EXEC_ERROR) {
+            runtimeError(routine, "Error");
+            return INTERPRET_RUNTIME_ERROR;
+        }
         if (routine->traceExecution) {
             PRINTERR("[%p]", routine);
             printValueStack(routine, "          ");
@@ -906,6 +895,7 @@ InterpretResult run(ObjRoutine* routine) {
                     }
 
                     if (!bindMethod(routine, instance->klass, name)) {
+                        runtimeError(routine, "Error");
                         return INTERPRET_RUNTIME_ERROR;
                     }
                 } else if (IS_STRUCT(peek(routine, 0))) {
@@ -987,6 +977,7 @@ InterpretResult run(ObjRoutine* routine) {
                 ObjClass* superclass = AS_CLASS(pop(routine));
 
                 if (!bindMethod(routine, superclass, name)) {
+                    runtimeError(routine, "Error");
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -1149,8 +1140,7 @@ InterpretResult run(ObjRoutine* routine) {
                 } else if (IS_I64(peek(routine, 0))) {
                     push(routine, I64_VAL(-AS_I64(pop(routine))));
                 } else if (IS_INT(peek(routine, 0))) {
-                    Int *b = AS_INT(peek(routine, 0));
-                    int_neg(b);
+                    unaryIntOp(routine, OP_NEGATE);
                 } else {
                     runtimeError(routine, "Operand must be a number or integer.");
                     return INTERPRET_RUNTIME_ERROR;
@@ -1190,7 +1180,9 @@ InterpretResult run(ObjRoutine* routine) {
                 {
                     nominal_address = int_to_u64(AS_INT(location));
                 }
+#if defined (CYARG_SELF_HOSTED)
                 volatile uint32_t* reg = (volatile uint32_t*) nominal_address;
+#endif
 
                 uint32_t val = 0;
 
@@ -1326,12 +1318,14 @@ InterpretResult run(ObjRoutine* routine) {
                 break;
             case OP_ELEMENT: {
                 if (!derefElement(routine)) {
+                    runtimeError(routine, "Error");
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
             }
             case OP_SET_ELEMENT: {
                 if (!setElement(routine)) {
+                    runtimeError(routine, "Error");
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -1358,13 +1352,6 @@ InterpretResult run(ObjRoutine* routine) {
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 push(routine, OBJ_VAL(typeObj));
-                break;
-            }
-            case OP_TYPE_MODIFIER: {
-                uint8_t typeCode = READ_BYTE();
-                switch (typeCode) {
-                    case TYPE_MODIFIER_CONST: makeConcreteTypeConst(routine); break;
-                }
                 break;
             }
             case OP_TYPE_STRUCT: {
@@ -1482,7 +1469,7 @@ typedef void (*bindBootstrapFunction)(ObjString* script);
 static void bindBootstrapCode(const char* name, size_t nameLength, 
                               const uint8_t code[], size_t codeLength, 
                               ObjString* script, size_t constantIndex) {
-    vm.bootFunction.name = copyString(name, nameLength);
+    vm.bootFunction.name = copyString(name, (int)nameLength);
 
     for (size_t i = 0; i < codeLength; i++) {
         writeChunk(&vm.bootFunction.chunk, code[i], 0);
@@ -1550,6 +1537,31 @@ InterpretResult compileScript(ObjString* script, Value* result) {
     return runResult;
 }
 
+void unaryIntOp(ObjRoutine* routine, int op) {
+    Int* a = AS_INT(peek(routine, 0));
+    int s = 0;
+    switch (op) {
+        case OP_NEGATE:
+            s = a->m_;
+            break;
+        default:
+            assert(!"UnaryIntOp");
+    }
+    if (s > 254) s = 254;
+    s += s % 2;
+    ObjInt *r = (ObjInt *)allocateObject(sizeof (ObjInt) + s * sizeof (uint16_t), OBJ_INT);
+    r->bigInt.m_ = s;
+    int_set_t(a, &r->bigInt);
+    switch (op) {
+        case OP_NEGATE:
+            int_neg(&r->bigInt);
+            break;
+        default:
+            assert(!"IntUnaryOp");  
+    }
+    pop(routine);
+    push(routine, OBJ_VAL(r));
+}
 
 void binaryIntOp(ObjRoutine* routine, char const *c)
 {

@@ -393,6 +393,7 @@ static ObjExpr* builtin(bool canAssign) {
         case TOKEN_TS_INTERRUPT: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_TS_INTERRUPT, 1);
         case TOKEN_TS_SYNC: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_TS_SYNC, 1);
         case TOKEN_INT: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_INT, 1);
+        case TOKEN_MACHINE_FLOAT64: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_MFLOAT64, 1);
         case TOKEN_TYPE_STRING: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_STRING, 1);
         default: return NULL; // Unreachable.
     } 
@@ -631,92 +632,85 @@ static ObjExpr* number(bool canAssign) {
     ObjExprNumber* val = NULL;
 
     if (radix == 10) {
-        int expAdd = 0;
-        enum {NUMBER_NO_DOT_OR_MSB, NUMBER_DOT, NUMBER_MSB, NUMBER_DOT_AND_MSB, NUMBER_END} state = NUMBER_NO_DOT_OR_MSB;
+        // N == [0-9]
+        // N+ (int)
+        // N+.N+ (float)
+        // N+[eE]N+ (float)
+        // N+.N*[eE]N+ (float)
+        // N+[eE]-N+ (float)
+        // N+.N*[eE]-N+ (float)
+        enum {NUMBER_START, NUMBER_ZERO, NUMBER_MSB, NUMBER_DOT, NUMBER_DOT_AND_MSB, NUMBER_FRAC, NUMBER_E, NUMBER_EN, NUMBER_EXPONENT} state = NUMBER_START;
         const char *number = number_start;
-        char *heapChars_start = ALLOCATE(char, number_len + 1);
-        char *heapChars = heapChars_start;
-        while (state != NUMBER_END)
-        {
-            switch (*number)
-            {
+        const char *msb = number;
+        while (number < number_start + number_len) {
+            switch (*number) {
             case '0':
-                if (state == NUMBER_DOT)
-                {
-                    expAdd--;
-                }
-                else if (state == NUMBER_MSB || state == NUMBER_DOT_AND_MSB)
-                {
-                    if (state == NUMBER_MSB)
-                    {
-                        expAdd++;
-                    }
-                    *heapChars++ = *number;
+                if (state == NUMBER_START) {
+                    state = NUMBER_ZERO;
+                } else if (state == NUMBER_DOT || state == NUMBER_DOT_AND_MSB) {
+                    state = NUMBER_FRAC;
+                } else if (state == NUMBER_E || state == NUMBER_EN) {
+                    state = NUMBER_EXPONENT;
                 }
                 break;
             case '.':
-                if (state == NUMBER_NO_DOT_OR_MSB)
-                {
+                if (state == NUMBER_START || state == NUMBER_ZERO) {
                     state = NUMBER_DOT;
-                }
-                else if (state == NUMBER_MSB)
-                {
+                } else if (state == NUMBER_MSB) {
                     state = NUMBER_DOT_AND_MSB;
+                } else {
+                    errorAtCurrent("Only one decimal point allowed");
+                    return 0;
                 }
                 break;
-            case 'e': case 'E': 
-                {
-                    state = NUMBER_END;
-                    *heapChars = '\0';
-                    char *end;
-                    long value = strtol(number, &end, 10);
-                    assert(end == heapChars_start + number_len);
-                    assert(value <= INT_MAX && value >= INT_MIN);
-                    expAdd += (int) value;
-                    assert(expAdd <= 10000 && expAdd >= -10000);
+            case 'e': case 'E':
+                if (state == NUMBER_ZERO || state == NUMBER_MSB || state == NUMBER_DOT || state == NUMBER_DOT_AND_MSB || state == NUMBER_FRAC) {
+                    state = NUMBER_E;
+                }  else {
+                    errorAtCurrent("Only one E|e allowed");
+                    return 0;
+                }
+                break;
+            case '-':
+                if (state == NUMBER_E) {
+                    state = NUMBER_EN;
+                } else {
+                    errorAtCurrent("- only allowed after e or E");
+                    return 0;
                 }
                 break;
             default:
-                if (state == NUMBER_NO_DOT_OR_MSB)
-                {
+                if (state == NUMBER_START || state == NUMBER_ZERO) {
                     state = NUMBER_MSB;
+                    msb = number;
+                } else if (state == NUMBER_DOT ||state == NUMBER_DOT_AND_MSB) {
+                    state = NUMBER_FRAC;
+                } else if (state == NUMBER_E || state == NUMBER_EN) {
+                    state = NUMBER_EXPONENT;
                 }
-                else if (state == NUMBER_DOT)
-                {
-                    state = NUMBER_DOT_AND_MSB;
-                    expAdd--;
-                }
-                else if (state == NUMBER_MSB)
-                {
-                    expAdd++;
-                }
-                *heapChars++ = *number;
                 break;
             }
 
-            if (++number >= number_start + number_len)
-            {
-                *heapChars = '\0';
-                if (state == NUMBER_NO_DOT_OR_MSB) // zero
-                {
-                    val = newExprNumberFromCint(0);
-                }
-                else if (state == NUMBER_MSB) // int
-                {
-                    val = newExprNumberInt((int)(heapChars - heapChars_start));
-                    int_set_s(heapChars_start, &val->bigInt);
-                }
-                else // double NUMBER_END xEy|0.Ey -- NUMBER_DOT 0. -- NUMBER_DOT_AND_MSB .y|x.y|x.
-                {
-                    char *end;
-                    val = newExprNumberDouble(strtod(number_start, &end));
-                    assert(end - number_start == number_len);
-                }
-                state = NUMBER_END;
-            }
+            number++;
         }
-
-        FREE(char, heapChars_start);
+        if (state == NUMBER_ZERO || state == NUMBER_MSB) {
+            char *heapChars = ALLOCATE(char, number_len + 1);
+            heapChars[number - msb] = '\0';
+            memcpy(heapChars, msb, number - msb);
+            val = newExprNumberInt((int)(msb - number_start + number_len));
+            int_set_s(heapChars, &val->bigInt);
+            FREE(char, heapChars);
+        } else if (state == NUMBER_DOT_AND_MSB || state == NUMBER_FRAC || state == NUMBER_EXPONENT) {
+            char *end;
+            val = newExprNumberDouble(strtod(number_start, &end));
+            if (end - number_start != number_len) {
+                errorAtCurrent("misformed float literal");
+                return 0;
+            }
+        } else {
+            errorAtCurrent("misformed number");
+            return 0;
+        }
     } else {
         uint64_t value = strtoNum(number_start, number_len, radix);
         int decimalDigits;
@@ -745,12 +739,17 @@ static ObjExpr* address(bool canAssign) {
     return (ObjExpr*) val;
 }
 
+static ObjExpr* reserved(bool canAssign) {
+    error("Can't use reserved word as expression.");
+    return NULL;
+}
+
 static AstParseRule rules[] = {
     [TOKEN_LEFT_PAREN]           = {grouping,  call,   PREC_CALL},
     [TOKEN_RIGHT_PAREN]          = {NULL,      NULL,   PREC_NONE},
     [TOKEN_LEFT_BRACE]           = {NULL,      NULL,   PREC_NONE},
     [TOKEN_RIGHT_BRACE]          = {NULL,      NULL,   PREC_NONE},
-    [TOKEN_LEFT_SQUARE_BRACKET]  = {collectioninit, deref,  PREC_DEREF},
+    [TOKEN_LEFT_SQUARE_BRACKET]  = {collectioninit, deref, PREC_DEREF},
     [TOKEN_RIGHT_SQUARE_BRACKET] = {NULL,      NULL,   PREC_NONE},
     [TOKEN_COMMA]                = {NULL,      NULL,   PREC_NONE},
     [TOKEN_DOT]                  = {NULL,      dot,    PREC_CALL},
@@ -780,9 +779,11 @@ static AstParseRule rules[] = {
     [TOKEN_AND]                  = {NULL,      and_,   PREC_AND},
     [TOKEN_ANY]                  = {type,      NULL,   PREC_NONE},
     [TOKEN_BOOL]                 = {type,      NULL,   PREC_NONE},
+    [TOKEN_BREAK]                = {reserved,  reserved, PREC_NONE},
     [TOKEN_CLASS]                = {NULL,      NULL,   PREC_NONE},
     [TOKEN_COMPILE]              = {builtin,   NULL,   PREC_NONE},
-    [TOKEN_CONST]                = {NULL,      NULL,   PREC_NONE},
+    [TOKEN_CONST]                = {reserved,  reserved, PREC_NONE},
+    [TOKEN_CONTINUE]             = {reserved,  reserved, PREC_NONE},
     [TOKEN_CPEEK]                = {builtin,   NULL,   PREC_NONE},
     [TOKEN_ELSE]                 = {NULL,      NULL,   PREC_NONE},
     [TOKEN_FALSE]                = {literal,   NULL,   PREC_NONE},
@@ -915,8 +916,6 @@ static ObjStmtExpression* expressionStatement() {
 static ObjExpr* typeExpression() {
     ObjExpr* expression = NULL;
 
-    bool isConst = match(TOKEN_CONST);
-
     if (checkTypeToken()) {
         advance();
         switch (parser.previous.type) {
@@ -939,10 +938,6 @@ static ObjExpr* typeExpression() {
         }
     }
     
-    if (isConst && expression == NULL) {
-        expression = (ObjExpr*) newExprLiteral(EXPR_LITERAL_NIL);
-    }
-
     if (expression) {
         ObjExpr* cursor = expression;
         pushWorkingNode((Obj*)expression);
@@ -950,10 +945,6 @@ static ObjExpr* typeExpression() {
 
         if (cursor->nextExpr) {
             cursor = cursor->nextExpr;
-        }
-
-        if (isConst) {
-            cursor->nextExpr = (ObjExpr*) newExprType(EXPR_TYPE_MODIFIER_CONST);
         }
 
         popWorkingNode();
@@ -1202,7 +1193,7 @@ ObjStmt* declaration() {
         stmt = (ObjStmt*) classDeclaration();
     } else if (match(TOKEN_FUN)) {
         stmt = (ObjStmt*) funDeclaration("Expect function name.");
-    } else if (match(TOKEN_VAR) || check(TOKEN_CONST) || checkTypeToken()) {
+    } else if (match(TOKEN_VAR) || checkTypeToken()) {
         stmt = varDeclaration();
     } else if (match(TOKEN_PLACE)) {
         stmt = (ObjStmt*) placeDeclaration();
