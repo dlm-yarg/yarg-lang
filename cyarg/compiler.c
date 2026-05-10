@@ -352,8 +352,7 @@ static void generateNumber(ObjExprNumber* num) {
         emitConstant(DOUBLE_VAL(num->dbl));
         break;
     case NUMBER_INT: {
-        ObjInt *objInt = (ObjInt *) allocateObject(sizeof (ObjInt) + num->bigInt.m_ * sizeof (uint16_t), OBJ_INT);
-        objInt->bigInt.m_ = num->bigInt.m_;
+        ObjInt *objInt = allocateIntObject(num->bigInt.d_);
         objInt->isLiteral = true;
         int_set_t(&num->bigInt, &objInt->bigInt);
         emitConstant(OBJ_VAL(objInt));
@@ -488,11 +487,6 @@ static void generateExprNamedVariable(ObjExprNamedVariable* var) {
     } else {
         emitBytes(getOp, (uint8_t)arg);
     }
-}
-
-static void generateExprNamedConstant(ObjExprNamedConstant* const_) {
-
-        generateExpr(const_->value);
 }
 
 static void generateExprLiteral(ObjExprLiteral* lit) {
@@ -653,7 +647,6 @@ static void generateExprType(ObjExprTypeLiteral* type) {
         case EXPR_TYPE_LITERAL_INT64: emitBytes(OP_TYPE_LITERAL, TYPE_LITERAL_INT64); return;
         case EXPR_TYPE_LITERAL_UINT64: emitBytes(OP_TYPE_LITERAL, TYPE_LITERAL_UINT64); return;
         case EXPR_TYPE_LITERAL_STRING: emitBytes(OP_TYPE_LITERAL, TYPE_LITERAL_STRING); return;
-        case EXPR_TYPE_MODIFIER_CONST: emitBytes(OP_TYPE_MODIFIER, TYPE_MODIFIER_CONST); return;
         case EXPR_TYPE_LITERAL_INT: emitBytes(OP_TYPE_LITERAL, TYPE_LITERAL_INT); return;
         default: return; // unreachable.
     }
@@ -700,11 +693,6 @@ static void generateExprElt(ObjExpr* expr) {
         case OBJ_EXPR_NAMEDVARIABLE: {
             ObjExprNamedVariable* var = (ObjExprNamedVariable*)expr;
             generateExprNamedVariable(var);
-            break;
-        }
-        case OBJ_EXPR_NAMEDCONSTANT: {
-            ObjExprNamedConstant* const_ = (ObjExprNamedConstant*)expr;
-            generateExprNamedConstant(const_);
             break;
         }
         case OBJ_EXPR_LITERAL: {

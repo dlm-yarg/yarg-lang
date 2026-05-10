@@ -97,7 +97,6 @@ typedef enum {
     OBJ_EXPR_OPERATION,
     OBJ_EXPR_GROUPING,
     OBJ_EXPR_NAMEDVARIABLE,
-    OBJ_EXPR_NAMEDCONSTANT,
     OBJ_EXPR_LITERAL,
     OBJ_EXPR_STRING,
     OBJ_EXPR_CALL,
@@ -213,6 +212,7 @@ typedef struct {
     (type*)allocateObject(sizeof(type), objectType)
 
 Obj* allocateObject(size_t size, ObjType type);
+ObjInt* allocateIntObject(size_t numDigits);
 
 void initDynamicObjArray(DynamicObjArray* array);
 void freeDynamicObjArray(DynamicObjArray* array);

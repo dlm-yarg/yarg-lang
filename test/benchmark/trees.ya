@@ -21,17 +21,16 @@ class Tree {
   }
 }
 
-// 8 -> 122068
-// 7 -> ???
-// 6 -> 4881
-// 5 -> 975
-// 4 -> 194
-var tree = Tree(5);
+var depth = 3;
+var reps = 100;
+
+var tree = Tree(depth);
+var result = tree.walk();
+print "trees: depth: " + string(depth) + ", reps: " + string(reps);
+
 var begin = clock();
-for (var i = 0; i < 100; i = i + 1) {
-  var t = tree.walk();
-  if (t != 975) print "Error " + string(t);
+for (var i = 0; i < reps; i = i + 1) {
+  if (tree.walk() != result) print "Error";
 }
-var end = clock();
-print begin;
-print end - begin;
+var elapsed = clock() - begin;
+print "Time: " + string(elapsed);

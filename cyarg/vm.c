@@ -27,6 +27,7 @@ VM vm;
 
 static void binaryIntOp(ObjRoutine* routine, char const *c);
 static void binaryIntBoolOp(ObjRoutine* routine, char const *c);
+static void unaryIntOp(ObjRoutine* routine, int op);
 
 void vmPinnedRoutineHandler(size_t handler) {
     ObjRoutine* routine = vm.pinnedRoutines[handler];
@@ -522,20 +523,6 @@ static void concatenate(ObjRoutine* routine) {
     push(routine, OBJ_VAL(result));
 }
 
-static void makeConcreteTypeConst(ObjRoutine* routine) {
-    if (IS_NIL(peek(routine, 0))) {
-        pop(routine);
-        ObjConcreteYargType* typeObject = newYargTypeFromType(TypeAny);
-        typeObject->isConst = true;
-        push(routine, OBJ_VAL(typeObject));
-        return;
-    } else {
-        ObjConcreteYargType* typeObj = (ObjConcreteYargType*) AS_OBJ(peek(routine, 0));
-        typeObj->isConst = true;
-        return;
-    }
-}
-
 static void promote(Value *left, Value *right)
 {
     assert(left != 0 && right != 0);
@@ -786,10 +773,8 @@ InterpretResult run(ObjRoutine* routine) {
                 {
                     num += 65536 * READ_BYTE();
                 }
-                ObjInt *i = (ObjInt *) allocateObject(sizeof (ObjInt) + 2 * sizeof (uint16_t), OBJ_INT);
+                ObjInt *i = newIntU(num);
                 i->isLiteral = true;
-                i->bigInt.m_ = 2;
-                int_set_u(num, &i->bigInt);
                 i->bigInt.neg_ = instruction == OP_IMMEDIATE_N8 || instruction == OP_IMMEDIATE_N16 || instruction == OP_IMMEDIATE_N24;
                 push(routine, OBJ_VAL(i));
                 break;
@@ -1155,8 +1140,7 @@ InterpretResult run(ObjRoutine* routine) {
                 } else if (IS_I64(peek(routine, 0))) {
                     push(routine, I64_VAL(-AS_I64(pop(routine))));
                 } else if (IS_INT(peek(routine, 0))) {
-                    Int *b = AS_INT(peek(routine, 0));
-                    int_neg(b);
+                    unaryIntOp(routine, OP_NEGATE);
                 } else {
                     runtimeError(routine, "Operand must be a number or integer.");
                     return INTERPRET_RUNTIME_ERROR;
@@ -1370,13 +1354,6 @@ InterpretResult run(ObjRoutine* routine) {
                 push(routine, OBJ_VAL(typeObj));
                 break;
             }
-            case OP_TYPE_MODIFIER: {
-                uint8_t typeCode = READ_BYTE();
-                switch (typeCode) {
-                    case TYPE_MODIFIER_CONST: makeConcreteTypeConst(routine); break;
-                }
-                break;
-            }
             case OP_TYPE_STRUCT: {
                 uint8_t fieldCount = READ_BYTE();
                 ObjConcreteYargTypeStruct* st = (ObjConcreteYargTypeStruct*) newYargStructType(fieldCount);
@@ -1579,6 +1556,15 @@ InterpretResult compileScript(ObjString* script, Value* result) {
     return runResult;
 }
 
+void unaryIntOp(ObjRoutine* routine, int op) {
+    assert(op == OP_NEGATE);
+    Int* a = AS_INT(peek(routine, 0));
+    ObjInt *r = allocateIntObject(a->d_);
+    int_set_t(a, &r->bigInt);
+    int_neg(&r->bigInt);
+    pop(routine);
+    push(routine, OBJ_VAL(r));
+}
 
 void binaryIntOp(ObjRoutine* routine, char const *c)
 {
@@ -1604,9 +1590,7 @@ void binaryIntOp(ObjRoutine* routine, char const *c)
         assert(!"IntOp");
     }
     if (s > 254) s = 254;
-    s += s % 2;
-    ObjInt *r = (ObjInt *)allocateObject(sizeof (ObjInt) + s * sizeof (uint16_t), OBJ_INT);
-    r->bigInt.m_ = s;
+    ObjInt *r = allocateIntObject(s);
     int_init(&r->bigInt);
 
     switch (*c)
