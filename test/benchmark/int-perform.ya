@@ -1,5 +1,5 @@
-var int32 job_size = 200;
-var uint32 max_job_length = 10;
+var int32 job_size = 280;
+var uint32 max_job_length = 30;
 
 // https://github.com/kraj/uClibc/blob/master/libc/stdlib/rand_r.c#L25
 var maxRand = uint32(0x7fffffff);
@@ -152,7 +152,7 @@ fun bench_op(name, batch_fun) {
     var total_ops = int(bench_job(job_size, batch_fun, start_time + max_job_length));
     var time_taken = uint32(clock()) - start_time;
     var us_per_op = 1000000 * int(time_taken) / total_ops;
-    if (time_taken > 0) { // const int zero should promote to uint32!
+    if (time_taken > 0) {
         var ops_per_s = total_ops / int(time_taken);
         print name + " time:" + string(time_taken) + "s, ops:" + string(total_ops) + ", rate:"  + string(ops_per_s) + " ops/s, duration:" + string(us_per_op) + " µs";
     } else {
