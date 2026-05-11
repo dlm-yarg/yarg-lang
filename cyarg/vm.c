@@ -982,20 +982,39 @@ InterpretResult run(ObjRoutine* routine) {
                 }
                 break;
             }
-            case OP_EQUAL: {
+            case OP_EQUAL: case OP_GREATER: case OP_LESS: {
                 if (IS_INT(peek(routine, 0)) && IS_INT(peek(routine, 1))) {
-                    binaryIntBoolOp(routine, "==");
+                    switch (instruction) {
+                    case OP_EQUAL:
+                        binaryIntBoolOp(routine, "==");
+                        break;
+                    case OP_GREATER:
+                        binaryIntBoolOp(routine, ">");
+                        break;
+                    case OP_LESS:
+                        binaryIntBoolOp(routine, "<");
+                        break;
+                    }
                 } else {
                     promote(&peekCell(routine, 1)->value, &peekCell(routine, 0)->value);
 
-                    Value b = pop(routine);
-                    Value a = pop(routine);
-                    push(routine, BOOL_VAL(valuesEqual(a, b)));
+                    switch (instruction) {
+                    case OP_EQUAL: {
+                        Value b = pop(routine);
+                        Value a = pop(routine);
+                        push(routine, BOOL_VAL(valuesEqual(a, b)));
+                        break;
+                    }
+                    case OP_GREATER:
+                        BINARY_BOOLEAN_OP(routine, >);
+                        break;
+                    case OP_LESS:
+                        BINARY_BOOLEAN_OP(routine, <);
+                        break;
+                    }
                 }
                 break;
             }
-            case OP_GREATER:  BINARY_BOOLEAN_OP(routine, >); break;
-            case OP_LESS:     BINARY_BOOLEAN_OP(routine, <); break;
             case OP_LEFT_SHIFT:  BINARY_UINT_OP(routine, <<); break;
             case OP_RIGHT_SHIFT: BINARY_UINT_OP(routine, >>); break;
             case OP_BITOR:       BINARY_UINT_OP(routine, |); break;
@@ -1629,7 +1648,7 @@ void binaryIntBoolOp(ObjRoutine* routine, char const *op)
         r = ic == INT_GT;
         break;
     case '=':
-        assert(op[1] == '=');
+        assert(op[1] == '=' && op[2] == 0);
         r = ic == INT_EQ;
         break;
     default:

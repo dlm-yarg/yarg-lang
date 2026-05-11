@@ -520,9 +520,19 @@ void fprintObject(FILE* op, Value value) {
         case OBJ_SYNCGROUP:
             printSyncGroup(op, AS_SYNCGROUP(value));
             break;
-        case OBJ_STRING:
-            FPRINTMSG(op, "%s", AS_CSTRING(value));
+        case OBJ_STRING: {
+            char const *s = AS_CSTRING(value);
+            if (strlen(s) > 80) {
+                char trunc[80];
+                memcpy(trunc, s, 76);
+                trunc[76] = '\0';
+                strcat(trunc, "…");
+                FPRINTMSG(op, "%s", trunc);
+            } else {
+                FPRINTMSG(op, "%s", s);
+            }
             break;
+        }
         case OBJ_UPVALUE:
             FPRINTMSG(op, "upvalue");
             break;
