@@ -13,7 +13,7 @@
 
 #include "platform_hal.h"
 
-void platform_hal_init() {
+void platform_hal_init(void) {
 #ifdef CYARG_PICO_STDLIB
     stdio_init_all();
 #endif

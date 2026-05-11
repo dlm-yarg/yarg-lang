@@ -14,30 +14,29 @@ typedef struct ObjConcreteYargTypeMap ObjConcreteYargTypeMap;
 
 #define OBJ_TYPE(value)     (AS_OBJ(value)->type)
 
-#define IS_BOUND_METHOD(value) isObjType(value, OBJ_BOUND_METHOD)
-#define IS_CLASS(value)        isObjType(value, OBJ_CLASS)
-#define IS_CLOSURE(value)      isObjType(value, OBJ_CLOSURE)
-#define IS_FUNCTION(value)     isObjType(value, OBJ_FUNCTION)
-#define IS_INSTANCE(value)     isObjType(value, OBJ_INSTANCE)
-#define IS_NATIVE(value)       isObjType(value, OBJ_NATIVE)
-#define IS_BLOB(value)         isObjType(value, OBJ_BLOB)
-#define IS_ROUTINE(value)      isObjType(value, OBJ_ROUTINE)
-#define IS_CHANNEL(value)      isObjType(value, OBJ_CHANNELCONTAINER)
-#define IS_STRING(value)       isObjType(value, OBJ_STRING)
-#define IS_UNIFORMARRAY(value) (isObjType(value, OBJ_PACKEDUNIFORMARRAY)|| isObjType(value, OBJ_UNOWNED_UNIFORMARRAY))
-#define IS_YARGTYPE(value)     (isObjType(value, OBJ_YARGTYPE) || isObjType(value, OBJ_YARGTYPE_ARRAY) || isObjType(value, OBJ_YARGTYPE_STRUCT) || isObjType(value, OBJ_YARGTYPE_POINTER) || isObjType(value, OBJ_YARGTYPE_MAP))
-#define IS_POINTER(value)      (isObjType(value, OBJ_PACKEDPOINTER) || isObjType(value, OBJ_UNOWNED_PACKEDPOINTER))
-#define IS_STRUCT(value)       (isObjType(value, OBJ_PACKEDSTRUCT) || isObjType(value, OBJ_UNOWNED_PACKEDSTRUCT))
-#define IS_SYNCGROUP(value)    isObjType(value, OBJ_SYNCGROUP)
-#define IS_MAP(value)          isObjType(value, OBJ_MAP)
+#define IS_BOUND_METHOD(value) isObjOfType((value), OBJ_BOUND_METHOD)
+#define IS_CLASS(value)        isObjOfType((value), OBJ_CLASS)
+#define IS_CLOSURE(value)      isObjOfType((value), OBJ_CLOSURE)
+#define IS_FUNCTION(value)     isObjOfType((value), OBJ_FUNCTION)
+#define IS_INSTANCE(value)     isObjOfType((value), OBJ_INSTANCE)
+#define IS_NATIVE(value)       isObjOfType((value), OBJ_NATIVE)
+#define IS_BLOB(value)         isObjOfType((value), OBJ_BLOB)
+#define IS_ROUTINE(value)      isObjOfType((value), OBJ_ROUTINE)
+#define IS_CHANNEL(value)      isObjOfType((value), OBJ_CHANNELCONTAINER)
+#define IS_STRING(value)       isObjOfType((value), OBJ_STRING)
+#define IS_UNIFORMARRAY(value) (isObjOfType((value), OBJ_PACKEDUNIFORMARRAY) || isObjOfType((value), OBJ_UNOWNED_UNIFORMARRAY))
+#define IS_YARGTYPE(value)     (isObjOfType((value), OBJ_YARGTYPE) || isObjOfType((value), OBJ_YARGTYPE_ARRAY) || isObjOfType((value), OBJ_YARGTYPE_STRUCT) || isObjOfType((value), OBJ_YARGTYPE_POINTER) || isObjOfType((value), OBJ_YARGTYPE_MAP))
+#define IS_POINTER(value)      (isObjOfType((value), OBJ_PACKEDPOINTER) || isObjOfType((value), OBJ_UNOWNED_PACKEDPOINTER))
+#define IS_STRUCT(value)       (isObjOfType((value), OBJ_PACKEDSTRUCT) || isObjOfType((value), OBJ_UNOWNED_PACKEDSTRUCT))
+#define IS_SYNCGROUP(value)    isObjOfType((value), OBJ_SYNCGROUP)
+#define IS_MAP(value)          isObjOfType((value), OBJ_MAP)
 
 #define AS_BOUND_METHOD(value) ((ObjBoundMethod*)AS_OBJ(value))
 #define AS_CLASS(value)        ((ObjClass*)AS_OBJ(value))
 #define AS_CLOSURE(value)      ((ObjClosure*)AS_OBJ(value))
 #define AS_FUNCTION(value)     ((ObjFunction*)AS_OBJ(value))
 #define AS_INSTANCE(value)     ((ObjInstance*)AS_OBJ(value))
-#define AS_NATIVE(value) \
-    (((ObjNative*)AS_OBJ(value))->function)
+#define AS_NATIVE(value)       (((ObjNative*)AS_OBJ(value))->function)
 #define AS_ROUTINE(value)      ((ObjRoutine*)AS_OBJ(value))
 #define AS_CHANNEL(value)      ((ObjChannelContainer*)AS_OBJ(value))
 #define AS_STRING(value)       ((ObjString*)AS_OBJ(value))
@@ -109,7 +108,8 @@ typedef enum {
     OBJ_EXPR_TYPE,
     OBJ_EXPR_TYPE_STRUCT,
     OBJ_EXPR_TYPE_INDEXED_COLLECTION,
-    OBJ_INT
+    OBJ_INT,
+    OBJ_VALUE
 } ObjType;
 
 struct Obj {
@@ -133,7 +133,7 @@ typedef struct {
     ObjString* name;
 } ObjFunction;
 
-typedef bool (*NativeFn)(ObjRoutine* routine, int argCount, Value* result);
+typedef bool (*NativeFn)(ObjRoutine* routine, int argCount, Value result);
 
 typedef struct {
     Obj obj;
@@ -150,8 +150,14 @@ struct ObjString {
 typedef struct {
     Obj obj;
     bool isLiteral;
-    Int bigInt;
+    Int bigInt;     // variable size
 } ObjInt;
+
+typedef struct {
+    Obj obj;
+    bool isLiteral;
+    struct AbstractValue value;     // don’t use intConcrete or obj
+} ObjValue;
 
 typedef struct ObjUpvalue {
     Obj obj;
@@ -222,7 +228,7 @@ ObjBoundMethod* newBoundMethod(Value receiver,
                                ObjClosure* method);
 ObjClass* newClass(ObjString* name);
 ObjClosure* newClosure(ObjFunction* function);
-ObjFunction* newFunction();
+ObjFunction* newFunction(void);
 void initFunction(ObjFunction* function);
 ObjInstance* newInstance(ObjClass* klass);
 ObjNative* newNative(NativeFn function);
@@ -250,17 +256,18 @@ void offsetPointerDestination(ObjPackedPointer* pointer, size_t offset);
 
 ObjPackedUniformArray* newPackedUniformArrayAt(PackedValue location);
 
-Value defaultIntValue();
-Value defaultArrayValue(ObjConcreteYargType* type);
-Value defaultStructValue(ObjConcreteYargType* type);
+void defaultIntValue(Value r);
 
-Value placeObjectAt(Value type, Value location);
+ObjPackedUniformArray *defaultArray(ObjConcreteYargType* type);
+ObjPackedStruct *defaultStructValue(ObjConcreteYargType* type);
 
-void printObject(Value value);
-void fprintObject(FILE* op, Value value);
+void placeObjectAt(Value const type, Value const location, Value r);
 
-static inline bool isObjType(Value value, ObjType type) {
-    return IS_OBJ(value) && AS_OBJ(value)->type == type;
+void printObject(Obj *);
+void fprintObject(FILE* op, Obj *);
+
+static inline bool isObjOfType(Value value, ObjType type) {
+    return IS_OBJ(value) && value->obj->type == type;
 }
 
 bool isAddressValue(Value value);

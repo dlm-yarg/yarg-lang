@@ -124,7 +124,7 @@ static void error(const char* message) {
     errorAt(NULL, message);
 }
 
-static Chunk* currentChunk() {
+static Chunk* currentChunk(void) {
     return &current->function->chunk;
 }
 
@@ -215,9 +215,9 @@ static int resolveUpvalue(Compiler* compiler, ObjString* name) {
     return -1;
 }
 
-static uint8_t makeConstant(Value value) {
+static uint8_t makeConstant(Obj *o) {
 
-    int constant = addConstant(currentChunk(), value);
+    int constant = addConstant(currentChunk(), o);
     if (constant > UINT8_MAX) {
         errorAtValue(value, "Too many constants in one chunk.");
         return 0;
@@ -227,38 +227,33 @@ static uint8_t makeConstant(Value value) {
 }
 
 #define UINT24_MAX 16777215
-static void emitConstant(Value value) {
+static void emitConstant(Obj *obj) {
     // DOUBLE_VAL, ADDRESS_VAL or OBJ_VAL(String or Int)
     int32_t v = 0;
     bool asObject = true;
-    switch (value.type)
+    switch (obj->type)
     {
-    case VAL_ADDRESS: // fall through
+    case OBJ_INT:
+        ObjInt *oi = (ObjInt *)obj;
+        if (int_is_range(&oi->bigInt, -UINT24_MAX, UINT24_MAX) == INT_WITHIN)
+        {
+            v = int_to_i32(&oi->bigInt);
+            asObject = false;
+        }
+    case OBJ_VALUE:
+        ObjValue *ov = (ObjValue *)obj;
+//        switch (ov->value.type) {
+            assert(!"Implement");
+//        }
+    case OBJ_STRING:
+        break;
     case VAL_DOUBLE:
-        break;
-    case VAL_OBJ:
-        if (IS_INT(value))
-        {
-            ObjInt *oi = (ObjInt *) value.as.obj;
-            if (int_is_range(&oi->bigInt, -UINT24_MAX, UINT24_MAX) == INT_WITHIN)
-            {
-                v = int_to_i32(&oi->bigInt);
-                asObject = false;
-            }
-        }
-        else
-        {
-            assert(value.as.obj->type == OBJ_STRING);
-        }
-        break;
-    default:
-        assert(!"unsupported type as constant");
         break;
     }
 
     if (asObject)
     {
-        emitBytes(OP_CONSTANT, makeConstant(value));
+        emitBytes(OP_CONSTANT, makeConstant(obj));
     }
     else
     {
@@ -302,7 +297,7 @@ static void emitConstant(Value value) {
     }
 }
 
-static void emitReturn() {
+static void emitReturn(void) {
     if (current->type == TYPE_INITIALIZER) {
         emitBytes(OP_GET_LOCAL, 0);
     } else {
@@ -332,7 +327,9 @@ static void patchJump(int offset) {
 }
 
 static uint8_t identifierConstant(ObjString* name) {
-    return makeConstant(OBJ_VAL(name));
+    struct AbstractValue v;
+    OBJ_VAL(&v, name);
+    return makeConstant(&v);
 }
 
 static void declareVariable(ObjString* name) {
@@ -365,9 +362,11 @@ static void generateStmt(ObjStmt* stmt);
 
 static void generateNumber(ObjExprNumber* num) {
     switch(num->type) {
-    case NUMBER_DOUBLE:
+    case NUMBER_DOUBLE: {
+        struct AbstractValue v;
         emitConstant(DOUBLE_VAL(num->dbl));
         break;
+    }
     case NUMBER_INT: {
         ObjInt *objInt = (ObjInt *) allocateObject(sizeof (ObjInt) + num->bigInt.m_ * sizeof (uint16_t), OBJ_INT);
         objInt->bigInt.m_ = num->bigInt.m_;
@@ -547,7 +546,7 @@ static void generateExprCollectionInit(ObjExprCollectionInitializer* collection)
             generateExpr(pair->b);
         } else {
             ObjExpr* element = (ObjExpr*)newExprNumberFromCint(i);
-        tempRootPush(OBJ_VAL(element));
+            tempRootPush(&element->obj);
             generateExpr(element);
         generateExpr((ObjExpr*)item_or_pair);
         }
@@ -632,9 +631,9 @@ static void generateExprSuper(ObjExprSuper* super) {
     uint8_t name = identifierConstant(super->name);
 
     ObjString* this_ = copyString("this", 4);
-    tempRootPush(OBJ_VAL(this_));
+    tempRootPush(&this_->obj);
     ObjString* super_ = copyString("super", 5);
-    tempRootPush(OBJ_VAL(super_));
+    tempRootPush(&super_->obj);
 
     generateGetNamedVariable(this_);
     if (super->call) {
@@ -785,7 +784,7 @@ static void generateExpr(ObjExpr* expr) {
     }
 }
 
-static void markInitialized() {
+static void markInitialized(void) {
     if (current->scopeDepth == 0) return;
     current->locals[current->localCount - 1].depth = current->scopeDepth;
 }
@@ -843,11 +842,11 @@ static void generatePlaceDeclaration(ObjStmtPlaceDeclaration* decl) {
     }
 }
 
-static void beginScope() {
+static void beginScope(void) {
     current->scopeDepth++;
 }
 
-static void endScope() {
+static void endScope(void) {
     current->scopeDepth--;
 
     while (current->localCount > 0 &&
@@ -862,7 +861,7 @@ static void endScope() {
 }
 
 static void generate(ObjStmt* stmt);
-static ObjFunction* endCompiler();
+static ObjFunction* endCompiler(void);
 
 static void generateStmtBlock(ObjStmtBlock* block) {
     beginScope();
@@ -1010,7 +1009,7 @@ static void generateStmtMethodDeclaration(ObjStmtFunDeclaration* method) {
 
     FunctionType type = TYPE_METHOD;
     ObjString* init = copyString("init", 4);
-    tempRootPush(OBJ_VAL(init));
+    tempRootPush(&init->obj);
     if (identifiersEqual(method->name, init)) {
         type = TYPE_INITIALIZER;
     }
@@ -1038,7 +1037,7 @@ static void generateStmtClassDeclaration(ObjStmtClassDeclaration* decl) {
 
         beginScope();
         ObjString* super = copyString("super", 5);
-        tempRootPush(OBJ_VAL(super));
+        tempRootPush(&super->obj);
         addLocal(super);
         defineVariable(0);
 
@@ -1129,7 +1128,7 @@ static void generate(ObjStmt* stmt) {
     }
 }
 
-static ObjFunction* endCompiler() {
+static ObjFunction* endCompiler(void) {
     emitReturn();
 
     current->ast = NULL;
@@ -1174,7 +1173,7 @@ ObjFunction* compile(const char* source) {
     return compileError ? NULL : function;
 }
 
-void markCompilerRoots() {
+void markCompilerRoots(void) {
     Compiler* compiler = current;
     while (compiler != NULL) {
         markObject((Obj*)compiler->function);

@@ -20,7 +20,7 @@
 #include "test-system/testSystem.h"
 #endif
 
-bool irq_add_shared_handlerNative(ObjRoutine* routine, int argCount, Value* result) {
+bool irq_add_shared_handlerNative(ObjRoutine* routine, int argCount, Value result) {
 
     Value numVal = nativeArgument(routine, argCount, 0);
     Value address = nativeArgument(routine, argCount, 1);
@@ -54,7 +54,7 @@ bool irq_add_shared_handlerNative(ObjRoutine* routine, int argCount, Value* resu
     return true;
 }
 
-bool irq_remove_handlerNative(ObjRoutine* routine, int argCount, Value* result) {
+bool irq_remove_handlerNative(ObjRoutine* routine, int argCount, Value result) {
 
     Value numVal = nativeArgument(routine, argCount, 0);
     Value address = nativeArgument(routine, argCount, 1);
@@ -84,17 +84,17 @@ bool irq_remove_handlerNative(ObjRoutine* routine, int argCount, Value* result) 
 }
 
 
-bool clockNative(ObjRoutine* routine, int argCount, Value* result) {
+bool clockNative(ObjRoutine* routine, int argCount, Value result) {
     if (argCount != 0) {
         runtimeError(routine, "Expected 0 arguments but got %d.", argCount);
         return false;
     }
 
-    *result = SIZE_T_UI_VAL(clock() / CLOCKS_PER_SEC);
+    SIZE_T_UI_VAL(result, clock() / CLOCKS_PER_SEC);
     return true;
 }
 
-bool clock_get_hzNative(ObjRoutine* routine, int argCount, Value* result) {
+bool clock_get_hzNative(ObjRoutine* routine, int argCount, Value result) {
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 arguments but got %d.", argCount);
         return false;
@@ -112,11 +112,11 @@ bool clock_get_hzNative(ObjRoutine* routine, int argCount, Value* result) {
     res = clock_get_hz(as_positive_integer32(numVal));
 #endif
 
-    *result = UI32_VAL(res);
+    UI32_VAL(result, res);
     return true;
 }
 
-bool stdin_getsNative(ObjRoutine* routine, int argCount, Value* result) {
+bool stdin_getsNative(ObjRoutine* routine, int argCount, Value result) {
     if (argCount != 0) {
         runtimeError(routine, "Expected 0 arguments but got %d.", argCount);
         return false;
@@ -124,7 +124,7 @@ bool stdin_getsNative(ObjRoutine* routine, int argCount, Value* result) {
 
     char buffer[4096];
     while (fgets(buffer, sizeof(buffer), stdin) == NULL) {
-        *result = NIL_VAL;
+        NIL_VAL(result);
 //        return true;
     }
     size_t length = strlen(buffer);
@@ -132,16 +132,16 @@ bool stdin_getsNative(ObjRoutine* routine, int argCount, Value* result) {
         buffer[length - 1] = '\0';
         length--;
     }
-    *result = OBJ_VAL(copyString(buffer, (int) length));
+    OBJ_VAL(result, copyString(buffer, (int) length));
     return true;
 }
 
-bool stdin_eofNative(ObjRoutine* routine, int argCount, Value* result) {
-    *result = BOOL_VAL(feof(stdin));
+bool stdin_eofNative(ObjRoutine* routine, int argCount, Value result) {
+    BOOL_VAL(result, feof(stdin));
     return true;
 }
 
-bool stdout_putsNative(ObjRoutine* routine, int argCount, Value* result) {
+bool stdout_putsNative(ObjRoutine* routine, int argCount, Value result) {
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
         return false;
@@ -157,23 +157,23 @@ bool stdout_putsNative(ObjRoutine* routine, int argCount, Value* result) {
     *result = I32_VAL(0);
 #else
     int32_t res = fputs(AS_CSTRING(strVal), stdout);
-    *result = I32_VAL(res);
+    I32_VAL(result, res);
 #endif
     return true;
 }
 
 #if defined(CYARG_FEATURE_HOSTED_REPL)
-bool host_argcNative(ObjRoutine* routine, int argCount, Value* result) {
+bool host_argcNative(ObjRoutine* routine, int argCount, Value result) {
     if (argCount != 0) {
         runtimeError(routine, "Expected 0 arguments but got %d.", argCount);
         return false;
     }
 
-    *result = I32_VAL(vmHost.argc);
+    I32_VAL(result, vmHost.argc);
     return true;
 }
 
-bool host_argnNative(ObjRoutine* routine, int argCount, Value* result) {
+bool host_argnNative(ObjRoutine* routine, int argCount, Value result) {
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
         return false;
@@ -190,11 +190,11 @@ bool host_argnNative(ObjRoutine* routine, int argCount, Value* result) {
         return false;
     }
 
-    *result = OBJ_VAL(copyString(vmHost.argv[index], (int) strlen(vmHost.argv[index])));
+    OBJ_VAL(result, copyString(vmHost.argv[index], (int) strlen(vmHost.argv[index])));
     return true;
 }
 
-bool host_exitCodeNative(ObjRoutine* routine, int argCount, Value* result) {
+bool host_exitCodeNative(ObjRoutine* routine, int argCount, Value result) {
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
         return false;
@@ -207,7 +207,7 @@ bool host_exitCodeNative(ObjRoutine* routine, int argCount, Value* result) {
     }
     uint32_t code = as_positive_integer32(codeVal);
     vmHost.exitCode = (int) code;
-    *result = NIL_VAL;
+    NIL_VAL(result);
     return true;
 }
 #endif

@@ -7,7 +7,7 @@
 #include "memory.h"
 #include "big-int/big-int.h"
 
-ObjAst* newObjAst() {
+ObjAst* newObjAst(void) {
     ObjAst* ast = ALLOCATE_OBJ(ObjAst, OBJ_AST);
     return ast;
 }
@@ -29,7 +29,7 @@ ObjStmtPoke* newStmtPoke(int line) {
 
 ObjStmtVarDeclaration* newStmtVarDeclaration(const char* name, int nameLength, int line) {
     ObjStmtVarDeclaration* stmt = ALLOCATE_OBJ(ObjStmtVarDeclaration, OBJ_STMT_VARDECLARATION);
-    tempRootPush(OBJ_VAL(stmt));
+    tempRootPush(&stmt->stmt.obj);
     stmt->stmt.line = line;
     stmt->name = copyString(name, nameLength);
     tempRootPop();
@@ -45,7 +45,7 @@ ObjStmtPlaceDeclaration* newStmtPlaceDeclaration(int line) {
 
 void appendPlaceAlias(ObjStmtPlaceDeclaration* place, ObjExpr* location, const char* name, int nameLength) {
     ObjPlaceAlias* alias = ALLOCATE_OBJ(ObjPlaceAlias, OBJ_PLACEALIAS);
-    tempRootPush(OBJ_VAL(alias));
+    tempRootPush(&alias->obj);
     alias->name = copyString(name, nameLength);
     alias->location = location;
     appendToDynamicObjArray(&place->aliases, (Obj*)alias);
@@ -74,7 +74,7 @@ ObjStmtFunDeclaration* newStmtFunDeclaration(const char* name, int nameLength, i
     ObjStmtFunDeclaration* fun = ALLOCATE_OBJ(ObjStmtFunDeclaration, OBJ_STMT_FUNDECLARATION);
     fun->stmt.line = line;
     initDynamicObjArray(&fun->parameters);
-    tempRootPush(OBJ_VAL(fun));
+    tempRootPush(&fun->stmt.obj);
     fun->name = copyString(name, nameLength);
     tempRootPop();
     return fun;
@@ -104,7 +104,7 @@ ObjStmtClassDeclaration* newStmtClassDeclaration(const char* name, int nameLengt
     ObjStmtClassDeclaration* decl = ALLOCATE_OBJ(ObjStmtClassDeclaration, OBJ_STMT_CLASSDECLARATION);
     decl->stmt.line = line;
     initDynamicObjArray(&decl->methods);
-    tempRootPush(OBJ_VAL(decl));
+    tempRootPush(&decl->stmt.obj);
     decl->name = copyString(name, nameLength);
     tempRootPop();
     return decl;
@@ -153,7 +153,7 @@ ObjExprNumber* newExprNumberFromCint(int constant) {
 
 ObjExprNamedVariable* newExprNamedVariable(const char* name, int nameLength) {
     ObjExprNamedVariable* var = ALLOCATE_OBJ(ObjExprNamedVariable, OBJ_EXPR_NAMEDVARIABLE);
-    tempRootPush(OBJ_VAL(var));
+    tempRootPush(&var->expr.obj);
     var->name = copyString(name, nameLength);
     tempRootPop();
     return var;
@@ -176,30 +176,30 @@ ObjExprString* newExprString(const char* str, int strLength) {
     ObjExprString* string = ALLOCATE_OBJ(ObjExprString, OBJ_EXPR_STRING);
     string->expr.nextExpr = NULL;
     string->string = NULL;
-    tempRootPush(OBJ_VAL(string));
+    tempRootPush(&string->expr.obj);
     string->string = copyStringWithEscapes(str, strLength);
     tempRootPop();
     return string;
 }
 
-ObjExprCall* newExprCall() {
+ObjExprCall* newExprCall(void) {
     ObjExprCall* call = ALLOCATE_OBJ(ObjExprCall, OBJ_EXPR_CALL);
     initDynamicObjArray(&call->arguments);
     return call;
 }
 
-ObjExprCollectionInitializer* newExprCollectionInitializer() {
+ObjExprCollectionInitializer* newExprCollectionInitializer(void) {
     ObjExprCollectionInitializer* collection = ALLOCATE_OBJ(ObjExprCollectionInitializer, OBJ_EXPR_COLLECTION_INITIALIZER);
     initDynamicObjArray(&collection->initializers);
     return collection;
 }
 
-ObjExprCollectionElement* newExprCollectionElement() {
+ObjExprCollectionElement* newExprCollectionElement(void) {
     ObjExprCollectionElement* collection = ALLOCATE_OBJ(ObjExprCollectionElement, OBJ_EXPR_COLLECTION_ELEMENT);
     return collection;
 }
 
-ObjExprTypeIndexedCollection* newExprTypeIndexedCollection() {
+ObjExprTypeIndexedCollection* newExprTypeIndexedCollection(void) {
     ObjExprTypeIndexedCollection* collection = ALLOCATE_OBJ(ObjExprTypeIndexedCollection, OBJ_EXPR_TYPE_INDEXED_COLLECTION);
     return collection;
 }
@@ -221,7 +221,7 @@ ObjExprBuiltin* newExprBuiltin(ExprBuiltin fn, int arity) {
 
 ObjExprDot* newExprDot(const char* name, int nameLength) {
     ObjExprDot* expr = ALLOCATE_OBJ(ObjExprDot, OBJ_EXPR_DOT);
-    tempRootPush(OBJ_VAL(expr));
+    tempRootPush(&expr->expr.obj);
     expr->name = copyString(name, nameLength);
     tempRootPop();
     return expr;
@@ -229,7 +229,7 @@ ObjExprDot* newExprDot(const char* name, int nameLength) {
 
 ObjExprSuper* newExprSuper(const char* name, int nameLength) {
     ObjExprSuper* expr = ALLOCATE_OBJ(ObjExprSuper, OBJ_EXPR_SUPER);
-    tempRootPush(OBJ_VAL(expr));
+    tempRootPush(&expr->expr.obj);
     expr->name = copyString(name, nameLength);
     tempRootPop();
     return expr;
@@ -241,9 +241,9 @@ ObjExprTypeLiteral* newExprType(ExprTypeLiteral type) {
     return expr;
 }
 
-ObjExprTypeStruct* newExprTypeStruct() {
+ObjExprTypeStruct* newExprTypeStruct(void) {
     ObjExprTypeStruct* expr = ALLOCATE_OBJ(ObjExprTypeStruct, OBJ_EXPR_TYPE_STRUCT);
-    tempRootPush(OBJ_VAL(expr));
+    tempRootPush(&expr->expr.obj);
     initDynamicValueArray(&expr->fieldsByIndex);
     tempRootPop();
     return expr;
@@ -252,7 +252,7 @@ ObjExprTypeStruct* newExprTypeStruct() {
 ObjStmtFieldDeclaration* newStmtFieldDeclaration(const char* name, int nameLength, int line) {
     ObjStmtFieldDeclaration* decl = ALLOCATE_OBJ(ObjStmtFieldDeclaration, OBJ_STMT_FIELDDECLARATION);
     decl->stmt.line = line;
-    tempRootPush(OBJ_VAL(decl));
+    tempRootPush(&decl->stmt.obj);
     decl->name = copyString(name, nameLength);
     tempRootPop();
     return decl;
@@ -260,7 +260,7 @@ ObjStmtFieldDeclaration* newStmtFieldDeclaration(const char* name, int nameLengt
 
 static int indendation = 0;
 
-void printIndentation() {
+void printIndentation(void) {
     for (int i = 0; i < indendation; i++) {
         printf("  ");
     }
@@ -312,7 +312,7 @@ void printCallArgs(DynamicObjArray* args) {
 
 void printExprDot(ObjExprDot* dot) {
     printf(".");
-    printObject(OBJ_VAL(dot->name));
+    printObject((Obj *)dot->name);
     if (dot->assignment) {
         printf(" = ");
         printExpr(dot->assignment);
@@ -323,9 +323,9 @@ void printExprDot(ObjExprDot* dot) {
 
 void printExprSuper(ObjExprSuper* expr) {
     printf("super.");
-    printObject(OBJ_VAL(expr->name));
+    printObject(&expr->name->obj);
     if (expr->call) {
-        printExpr((ObjExpr*)expr->call);
+        printExpr(&expr->call->expr);
     }
 }
 
@@ -441,7 +441,7 @@ void printExpr(ObjExpr* expr) {
             }
             case OBJ_EXPR_NAMEDVARIABLE: {
                 ObjExprNamedVariable* var = (ObjExprNamedVariable*)cursor;
-                printObject(OBJ_VAL(var->name));
+                printObject(&var->name->obj);
                 if (var->assignment) {
                     printf(" = ");
                     printExpr(var->assignment);
@@ -460,7 +460,7 @@ void printExpr(ObjExpr* expr) {
             case OBJ_EXPR_STRING: {
                 ObjExprString* str = (ObjExprString*)cursor;
                 printf("\"");
-                printObject(OBJ_VAL(str->string));
+                printObject(&str->string->obj);
                 printf("\"");
                 break;
             }
@@ -524,7 +524,7 @@ void printStmtIf(ObjStmtIf* ctrl) {
 
 void printFunDeclaration(ObjStmtFunDeclaration* decl) {
     printf("fun ");
-    printObject(OBJ_VAL(decl->name));
+    printObject(&decl->name->obj);
     printCallArgs(&decl->parameters);
     printf("\n");
     printIndentation();
@@ -555,7 +555,7 @@ void printStmtFor(ObjStmtFor* loop) {
 
 void printStmtClassDeclaration(ObjStmtClassDeclaration* class_) {
     printf("class ");
-    printObject(OBJ_VAL(class_->name));
+    printObject(&class_->name->obj);
     if (class_->superclass) {
         printf(" < ");
         printExpr(class_->superclass);
@@ -602,7 +602,7 @@ void printStmtVarDeclaration(ObjStmtVarDeclaration* decl) {
         printExpr(decl->type);
     }
     printf(" ");
-    printObject(OBJ_VAL(decl->name));
+    printObject(&decl->name->obj);
     if (decl->initialiser) {
         printf(" = ");
         printExpr(decl->initialiser);
@@ -613,7 +613,7 @@ void printStmtVarDeclaration(ObjStmtVarDeclaration* decl) {
 static void printAliasDeclaration(ObjPlaceAlias* alias) {
     printExpr(alias->location);
     printf(" ");
-    printObject(OBJ_VAL(alias->name));
+    printObject(&alias->name->obj);
     printf(";");
 }
 
@@ -660,7 +660,7 @@ static void printStmtFieldDeclaration(ObjStmtFieldDeclaration* decl) {
         printf(" ");
     }
 
-    printObject(OBJ_VAL(decl->name));
+    printObject(&decl->name->obj);
     printf(";");
 }
 

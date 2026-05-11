@@ -1,12 +1,11 @@
 #ifndef cyarg_channel_h
 #define cyarg_channel_h
 
-#include <stdio.h>
-#include "value.h"
-#include "object.h"
-
+typedef struct Obj Obj;
+typedef struct ObjRoutine ObjRoutine;
 typedef struct ObjChannelContainer ObjChannelContainer;
 typedef struct ObjSyncGroup ObjSyncGroup;
+typedef struct AbstractValue *Value;
 
 ObjChannelContainer* newChannel(ObjRoutine* routine, size_t capacity);
 
@@ -15,12 +14,12 @@ void markChannel(ObjChannelContainer* channel);
 
 void printChannel(FILE* op, ObjChannelContainer* channel);
 
-void sendChannel(ObjChannelContainer* channel, Value data);
-Value receiveChannel(ObjChannelContainer* channel);
+void sendChannel(ObjChannelContainer* channel, Value const data);
+void receiveChannel(ObjChannelContainer* channel, Value r);
 Value peekChannel(ObjChannelContainer* channel);
-bool shareChannel(ObjChannelContainer* channel, Value data);
+bool shareChannel(ObjChannelContainer* channel, Value const data);
 
-Value collectFromChannel(ObjChannelContainer* channel);
+void collectFromChannel(ObjChannelContainer* channel, Value r);
 void joinSyncGroup(ObjChannelContainer* channel, ObjSyncGroup* group);
 void leaveSyncGroup(ObjChannelContainer* channel, ObjSyncGroup* group);
 

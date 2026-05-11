@@ -23,21 +23,21 @@ extern "C" {
 
 using namespace std;
 
-static bool setBuiltin(ObjRoutine *, int, Value *);
-static bool readBuiltin(ObjRoutine *, int, Value *);
-static bool writeBuiltin(ObjRoutine *, int, Value *);
-static bool interruptBuiltin(ObjRoutine *, int, Value *);
-static bool syncBuiltin(ObjRoutine *, int, Value *);
+static bool setBuiltin(ObjRoutine *, int, Value);
+static bool readBuiltin(ObjRoutine *, int, Value);
+static bool writeBuiltin(ObjRoutine *, int, Value);
+static bool interruptBuiltin(ObjRoutine *, int, Value);
+static bool syncBuiltin(ObjRoutine *, int, Value);
 
-Value getTestSystemBuiltin(uint8_t builtin)
+void getTestSystemBuiltin(uint8_t builtin, Value r)
 {
     switch (builtin) {
-        case BUILTIN_TS_SET: return OBJ_VAL(newNative(setBuiltin));
-        case BUILTIN_TS_READ: return OBJ_VAL(newNative(readBuiltin));
-        case BUILTIN_TS_WRITE: return OBJ_VAL(newNative(writeBuiltin));
-        case BUILTIN_TS_INTERRUPT: return OBJ_VAL(newNative(interruptBuiltin));
-        case BUILTIN_TS_SYNC: return OBJ_VAL(newNative(syncBuiltin));
-        default: return NIL_VAL;
+        case BUILTIN_TS_SET: OBJ_VAL(r, newNative(setBuiltin));
+        case BUILTIN_TS_READ: OBJ_VAL(r, newNative(readBuiltin));
+        case BUILTIN_TS_WRITE: OBJ_VAL(r, newNative(writeBuiltin));
+        case BUILTIN_TS_INTERRUPT: OBJ_VAL(r, newNative(interruptBuiltin));
+        case BUILTIN_TS_SYNC: OBJ_VAL(r, newNative(syncBuiltin));
+        default: NIL_VAL(r);
     }
 }
 

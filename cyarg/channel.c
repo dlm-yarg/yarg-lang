@@ -32,14 +32,14 @@ typedef struct ObjChannelContainer {
 
 ObjChannelContainer* newChannel(ObjRoutine* routine, size_t capacity) {
     ObjChannelContainer* channel = ALLOCATE_OBJ(ObjChannelContainer, OBJ_CHANNELCONTAINER);
-    tempRootPush(OBJ_VAL(channel));
+    tempRootPush(&channel->obj);
     channel->overflow = false;
 
     channel->buffer = ALLOCATE(Value, capacity);
     channel->bufferSize = capacity;
 
     for (int i = 0; i < capacity; i++) {
-        channel->buffer[i] = NIL_VAL;
+        NIL_VAL(channel->buffer[i]);
     }
     platform_critical_section_init(&channel->lock);
     channel->lock_access = &channel->lock;
@@ -173,7 +173,7 @@ bool shareChannel(ObjChannelContainer* channel, Value data) {
 }
 
 Value peekChannel(ObjChannelContainer* channel) {
-    Value result = NIL_VAL;
+    Value result = 0;
 
     if (channel->occupied > 0) {
         result = channel->buffer[readCursor(channel)];

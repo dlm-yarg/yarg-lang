@@ -32,9 +32,9 @@ void writeChunk(Chunk* chunk, uint8_t byte, int line) {
     chunk->count++;
 }
 
-int addConstant(Chunk* chunk, Value value) {
-    tempRootPush(value);
-    appendToDynamicValueArray(&chunk->constants, value);
-    tempRootPop();
+int addConstant(Chunk* chunk, Obj *o) {
+    if (IS_OBJ(value)) tempRootPush(value->obj);
+    appendToDynamicValueArray(&chunk->constants, o);
+    if (IS_OBJ(value)) tempRootPop();
     return chunk->constants.count - 1;
 }

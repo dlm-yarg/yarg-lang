@@ -6,7 +6,7 @@
 typedef struct ObjAst ObjAst;
 
 bool parse(ObjAst* ast);
-void markParserRoots();
+void markParserRoots(void);
 
 
 #endif

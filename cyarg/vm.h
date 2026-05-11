@@ -32,8 +32,8 @@ typedef struct {
 
     platform_mutex heap;
 
-    Value tempRoots[TEMP_ROOTS_MAX];
-    Value* tempRootsTop;
+    Obj *tempRoots[TEMP_ROOTS_MAX];
+    Obj **tempRootsTop;
 
     size_t bytesAllocated;
     size_t nextGC;
@@ -46,10 +46,10 @@ typedef struct {
 extern VM vm;
 
 // two-phase init, broadly get the memory manager up, and then get the yarg env up.
-void initVMMemory();
-void initVMRuntime();
-void freeVM();
-void markVMRoots();
+void initVMMemory(void);
+void initVMRuntime(void);
+void freeVM(void);
+void markVMRoots(void);
 
 InterpretResult bootScript(ObjString* script);
 InterpretResult compileScript(ObjString* script, Value* compileResult);

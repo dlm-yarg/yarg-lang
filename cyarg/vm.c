@@ -232,18 +232,18 @@ bool callfn(ObjRoutine* routine, ObjClosure* closure, int argCount) {
     return true;
 }
 
-static InterpretResult callValue(ObjRoutine* routine, Value callee, int argCount) {
+static InterpretResult callValue(ObjRoutine* routine, Obj *callee, int argCount) {
     if (IS_OBJ(callee)) {
         switch (OBJ_TYPE(callee)) {
             case OBJ_BOUND_METHOD: {
-                ObjBoundMethod* bound = AS_BOUND_METHOD(callee);
+                ObjBoundMethod* bound = (ObjBoundMethod *)callee;
                 ValueCell* target = peekCell(routine, argCount);
                 target->value = bound->reciever;
                 target->cellType = NULL;
                 return callfn(routine, bound->method, argCount) ? INTERPRET_OK : INTERPRET_RUNTIME_ERROR;
             }
             case OBJ_CLASS: {
-                ObjClass* klass = AS_CLASS(callee);
+                ObjClass* klass = (ObjClass *)callee;
                 ValueCell* target = peekCell(routine, argCount);
                 target->value = OBJ_VAL(newInstance(klass));
                 target->cellType = NULL;
@@ -257,16 +257,17 @@ static InterpretResult callValue(ObjRoutine* routine, Value callee, int argCount
                 return INTERPRET_OK;
             }
             case OBJ_CLOSURE:
-                return callfn(routine, AS_CLOSURE(callee), argCount) ? INTERPRET_OK : INTERPRET_RUNTIME_ERROR;
+                return callfn(routine, (ObjClosure *)callee, argCount) ? INTERPRET_OK : INTERPRET_RUNTIME_ERROR;
             case OBJ_NATIVE: {
-                NativeFn native = AS_NATIVE(callee);
+                NativeFn native = ((ObjNative *)callee)->function;
                 if (native == importBuiltinDummy) {
                     return importBuiltin(routine, argCount);
                 } else {
-                    Value result = NIL_VAL; 
+                    struct AbstractValue result;
+                    NIL_VAL(&result);
                     if (native(routine, argCount, &result)) {
                         popN(routine, argCount + 1);
-                        push(routine, result);
+                        push(routine, &result);
                         return INTERPRET_OK;
                     } else {
                         return INTERPRET_RUNTIME_ERROR;
@@ -1503,7 +1504,7 @@ uint8_t compile_bootstrap[] = {
 
 size_t compile_bootstrap_parameter_offset = 5;
 
-InterpretResult bootstrapVM(Value* bootstrapResult, ObjString* script) {
+InterpretResult bootstrapVM(Value bootstrapResult, ObjString* script) {
     ObjClosure* closure = newClosure(&vm.bootFunction);
 
     bindEntryFn(&vm.core0, closure);
@@ -1529,7 +1530,7 @@ InterpretResult bootScript(ObjString* script) {
     return runResult;
 }
 
-InterpretResult compileScript(ObjString* script, Value* result) {
+InterpretResult compileScript(ObjString* script, Value result) {
     bindBootstrapCode("compiler-host", 13, compile_bootstrap, sizeof(compile_bootstrap), script, compile_bootstrap_parameter_offset);
 
     // Treat the compile bootstrap as a function, so we get a result.

@@ -49,8 +49,8 @@ typedef struct ObjRoutine {
     AddSliceFn addSlice;
 
     ObjClosure* entryFunction;
-    Value entryArg;
-    Value result;
+    struct AbstractValue entryArg;
+    struct AbstractValue result;
 
     ObjUpvalue* openUpvalues;
 
@@ -59,7 +59,7 @@ typedef struct ObjRoutine {
 } ObjRoutine;
 
 void initRoutine(ObjRoutine* routine);
-ObjRoutine* newRoutine();
+ObjRoutine* newRoutine(void);
 void resetRoutine(ObjRoutine* routine);
 bool bindEntryFn(ObjRoutine* routine, ObjClosure* closure);
 void bindEntryArgs(ObjRoutine* routine, Value entryArg);
@@ -72,11 +72,11 @@ size_t stackOffsetOf(CallFrame* frame, size_t frameIndex);
 bool pinRoutine(ObjRoutine* routine, uintptr_t* address);
 void runAndRenter(ObjRoutine* routine);
 
-bool resumeRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Value argument, Value* result);
+bool resumeRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Value const argument, Value result);
 void yieldFromRoutine(ObjRoutine* routine);
 void returnFromRoutine(ObjRoutine* routine, Value result);
-bool startRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Value argument);
-bool receiveFromRoutine(ObjRoutine* routine, Value* result);
+bool startRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Value const argument);
+bool receiveFromRoutine(ObjRoutine* routine, Value result);
 
 void markRoutine(ObjRoutine* routine);
 

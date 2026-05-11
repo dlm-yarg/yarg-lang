@@ -15,7 +15,7 @@ bool addSlice(ObjRoutine* routine);
 
 void initRoutine(ObjRoutine* routine) {
     routine->entryFunction = NULL;
-    routine->entryArg = NIL_VAL;
+    NIL_VAL(&routine->entryArg);
     routine->state = EXEC_UNBOUND;
     routine->sliceCount = 0;
     initDynamicObjArray(&routine->additionalSlicesArray);
@@ -38,7 +38,7 @@ void initRoutine(ObjRoutine* routine) {
 
 void resetRoutine(ObjRoutine* routine) {
 
-    routine->result = NIL_VAL;
+    NIL_VAL(&routine->result);
 
     routine->stackTopIndex = 0;
     routine->frameCount = 0;
@@ -50,7 +50,7 @@ bool addSlice(ObjRoutine* routine) {
     ObjStackSlice* sliceObj = ALLOCATE_OBJ(ObjStackSlice, OBJ_STACKSLICE);
     if (sliceObj == NULL) return false;
 
-    tempRootPush(OBJ_VAL(sliceObj));
+    tempRootPush(&sliceObj->obj);
 
     if (routine->stackSliceCapacity < routine->sliceCount + 1) {
         size_t oldCapacity = routine->stackSliceCapacity;
@@ -69,9 +69,9 @@ bool addSlice(ObjRoutine* routine) {
     return (routine->stackSlices != NULL);
 }
 
-ObjRoutine* newRoutine() {
+ObjRoutine* newRoutine(void) {
     ObjRoutine* routine = ALLOCATE_OBJ(ObjRoutine, OBJ_ROUTINE);
-    tempRootPush(OBJ_VAL(routine));
+    tempRootPush((Obj *)routine);
     initRoutine(routine);
     tempRootPop();
     return routine;
@@ -87,7 +87,7 @@ void runAndRenter(ObjRoutine* routine) {
 bool pinRoutine(ObjRoutine* routine, uintptr_t* address) {
 
     assert(routine->entryFunction);
-    assert(IS_NIL(routine->entryArg));
+    assert(IS_NIL(&routine->entryArg));
     assert(routine->entryFunction->function->arity == 0);
 
     if (installPinnedRoutine(routine, address)) {
@@ -113,7 +113,7 @@ bool bindEntryFn(ObjRoutine* routine, ObjClosure* closure) {
 
 void bindEntryArgs(ObjRoutine* routine, Value entryArg) {
 
-    routine->entryArg = entryArg;
+    CopyValue(&routine->entryArg, entryArg);
 }
 
 void pushEntryElements(ObjRoutine* routine) {
@@ -128,7 +128,7 @@ void enterEntryFunction(ObjRoutine* routine) {
     callfn(routine, routine->entryFunction, routine->entryFunction->function->arity);
 }
 
-bool resumeRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Value argument, Value* result) {
+bool resumeRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Value const argument, Value result) {
     if (target->state == EXEC_UNBOUND) {
         push(target, OBJ_VAL(target->entryFunction));
     }
@@ -137,7 +137,7 @@ bool resumeRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Val
         bindEntryArgs(target, argument);
         push(target, argument);
     } else {
-        assert(argCount == 0);
+        assert(argCount == 0 && argument == 0);
     }
 
     callfn(target, target->entryFunction, target->entryFunction->function->arity);

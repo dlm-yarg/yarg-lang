@@ -329,8 +329,8 @@ bool is_stored_type(Value type) {
     return false;
 }
 
-size_t yt_sizeof_type_storage(Value type) {
-    if (IS_NIL(type)) {
+size_t yt_sizeof_type_storage(ValueType type) {
+    if (type == VAL_NIL) {
         return sizeof(Value);
     } else {
         ObjConcreteYargType* t = AS_YARGTYPE(type);
@@ -396,7 +396,7 @@ Value defaultValue(Value type) {
             case TypeInt64: return I64_VAL(0);
             case TypeUint64: return UI64_VAL(0);
             case TypeStruct: return defaultStructValue(ct);
-            case TypeArray: return defaultArrayValue(ct);
+            case TypeArray: return defaultArray(ct);
             case TypePointer:
             case TypeAny:
             case TypeString:

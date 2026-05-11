@@ -25,16 +25,16 @@
 
 void* reallocate(void* pointer, size_t oldSize, size_t newSize);
 
-void tempRootPush(Value value);
-Value tempRootPop();
+void tempRootPush(Obj *obj);
+Obj *tempRootPop(void);
 
 void markObject(Obj* object);
 void markDynamicObjArray(DynamicObjArray* array);
 void markValue(Value value);
 void markValueCell(ValueCell* value);
 void markFunction(ObjFunction* function);
-void collectGarbage();
-void freeObjects();
-void printObjects();
+void collectGarbage(void);
+void freeObjects(void);
+void printObjects(void);
 
 #endif

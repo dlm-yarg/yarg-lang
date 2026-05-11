@@ -45,11 +45,11 @@ void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
     return result;
 }
 
-void tempRootPush(Value value) {
+void tempRootPush(Obj *obj) {
 
     platform_mutex_enter(&vm.heap);
 
-    *vm.tempRootsTop = value;
+    *vm.tempRootsTop = obj;
     vm.tempRootsTop++;
 
     if (vm.tempRootsTop - &vm.tempRoots[0] >= TEMP_ROOTS_MAX) {
@@ -59,10 +59,10 @@ void tempRootPush(Value value) {
     platform_mutex_leave(&vm.heap);
 }
 
-Value tempRootPop() {
+Obj *tempRootPop(void) {
     platform_mutex_enter(&vm.heap);
     vm.tempRootsTop--;
-    Value result = *vm.tempRootsTop;
+    Obj *result = *vm.tempRootsTop;
     platform_mutex_leave(&vm.heap);
     return result;
 }
@@ -95,7 +95,7 @@ void markValue(Value value) {
 
 void markValueCell(ValueCell* cell) {
     if (cell == NULL) return;
-    markValue(cell->value);
+    markValue(&cell->value);
     markObject((Obj*)cell->cellType);
 }
 
@@ -491,9 +491,13 @@ static void freeObject(Obj* object) {
         case OBJ_UNOWNED_PACKEDPOINTER: FREE(ObjPackedPointer, object); break;
         case OBJ_PACKEDPOINTER: {
             ObjPackedPointer* ptr = (ObjPackedPointer*) object;
-            Value targetType = ptr->type->target_type == NULL ? NIL_VAL : OBJ_VAL(ptr->type->target_type);
-            ptr->destination = reallocate(ptr->destination, yt_sizeof_type_storage(targetType), 0);
-            FREE(ObjPackedPointer, object); 
+            struct AbstractValue targetType;
+            if (ptr->type->target_type == NULL)
+                NIL_VAL(&targetType);
+            else
+                OBJ_VAL(&targetType, ptr->type->target_type);
+            ptr->destination = reallocate(ptr->destination, yt_sizeof_type_storage(&targetType), 0);
+            FREE(ObjPackedPointer, object);
             break;
         }
         case OBJ_UNOWNED_UNIFORMARRAY: FREE(ObjPackedUniformArray, object); break;
@@ -599,19 +603,19 @@ static void freeObject(Obj* object) {
     }
 }
 
-static void markRoots() {
+static void markRoots(void) {
     markVMRoots();
     markCompilerRoots();
 }
 
-static void traceReferences() {
+static void traceReferences(void) {
     while (vm.grayCount > 0) {
         Obj* object = vm.grayStack[--vm.grayCount];
         blackenObject(object);
     }
 }
 
-static void sweep() {
+static void sweep(void) {
     Obj* previous = NULL;
     Obj* object = vm.objects;
     while (object != NULL) {
@@ -633,7 +637,7 @@ static void sweep() {
     }
 }
 
-void collectGarbage() {
+void collectGarbage(void) {
 
     platform_mutex_enter(&vm.heap);
 
@@ -660,7 +664,7 @@ void collectGarbage() {
     platform_mutex_leave(&vm.heap);
 }
 
-void freeObjects() {
+void freeObjects(void) {
     Obj* object = vm.objects;
     while (object != NULL) {
         Obj* next = object->next;
@@ -671,13 +675,13 @@ void freeObjects() {
     free(vm.grayStack);
 }
 
-void printObjects() {
+void printObjects(void) {
     PRINTERR("=== Objects ===\n");
     Obj* object = vm.objects;
     size_t count = 0;
     while (object != NULL) {
         PRINTERR("%p ", (void*)object);
-        fprintValue(stderr, OBJ_VAL(object));
+        fprintObject(stderr, object);
         PRINTERR("\n");
         object = object->next;
         count++;

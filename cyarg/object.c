@@ -96,7 +96,7 @@ ObjClosure* newClosure(ObjFunction* function) {
     return closure;
 }
 
-ObjFunction* newFunction() {
+ObjFunction* newFunction(void) {
     ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
     initFunction(function);
     return function;
@@ -139,11 +139,11 @@ ObjInt* newIntU(uint64_t value) {
     return i;
 }
 
-Value defaultIntValue() {
+void defaultIntValue(Value r) {
     ObjInt *intObj = (ObjInt *) allocateObject(sizeof (ObjInt) + 2 * sizeof (uint16_t), OBJ_INT);
     intObj->bigInt.m_ = 2;
     int_init(&intObj->bigInt);
-    return OBJ_VAL(intObj);
+    OBJ_VAL(r, intObj);
 }
 
 PackedValue arrayElement(PackedValue array, size_t index) {
@@ -162,7 +162,7 @@ size_t arrayCardinality(PackedValue array) {
 
 ObjPackedUniformArray* newPackedUniformArray(ObjConcreteYargTypeArray* type) {
     ObjPackedUniformArray* array = ALLOCATE_OBJ(ObjPackedUniformArray, OBJ_PACKEDUNIFORMARRAY);
-    tempRootPush(OBJ_VAL(array));
+    tempRootPush((Obj *)array);
 
     PackedValue new_array = { .storedType = (ObjConcreteYargType*) type, .storedValue = NULL };
     new_array.storedValue = reallocate(NULL, 0, arrayElementSize(type) * type->cardinality);
@@ -185,14 +185,14 @@ ObjPackedUniformArray* newPackedUniformArrayAt(PackedValue location) {
     return array;
 }
 
-Value defaultArrayValue(ObjConcreteYargType* type) {
+ObjPackedUniformArray *defaultArray(ObjConcreteYargType* type) {
 
     ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*)type;
     if (arrayType->cardinality == 0) {
-        return NIL_VAL;
+        return 0;
     }
     
-    return OBJ_VAL(newPackedUniformArray(arrayType));
+    return newPackedUniformArray(arrayType);
 }
 
 ObjMap* newMap(ObjConcreteYargTypeMap* type) {
@@ -205,7 +205,7 @@ ObjMap* newMap(ObjConcreteYargTypeMap* type) {
 ObjPackedPointer* newPointerForHeapCell(PackedValue location) {
 
     ObjPackedPointer* ptr = ALLOCATE_OBJ(ObjPackedPointer, OBJ_PACKEDPOINTER);
-    tempRootPush(OBJ_VAL(ptr));
+    tempRootPush((Obj *)ptr);
     ptr->type = (ObjConcreteYargTypePointer*) newYargTypeFromType(TypePointer);
     ptr->type->target_type = location.storedType;
     ptr->destination = location.storedValue;
@@ -215,7 +215,7 @@ ObjPackedPointer* newPointerForHeapCell(PackedValue location) {
 
 ObjPackedPointer* newPointerAtHeapCell(PackedValue location) {
     ObjPackedPointer* ptr = ALLOCATE_OBJ(ObjPackedPointer, OBJ_UNOWNED_PACKEDPOINTER);
-    tempRootPush(OBJ_VAL(ptr));
+    tempRootPush((Obj *)ptr);
     ptr->type = (ObjConcreteYargTypePointer*) newYargTypeFromType(TypePointer);
     ptr->type->target_type = location.storedType;
     ptr->destination = location.storedValue;
@@ -280,35 +280,37 @@ Obj* destinationObject(Value pointer) {
     return NULL;
 }
 
-Value placeObjectAt(Value placedType, Value location) {
+void placeObjectAt(Value placedType, Value location, Value r) {
     if (is_placeable_type(placedType) && IS_ADDRESS(location)) {
         PackedValue loc;
         loc.storedType = IS_NIL(placedType) ? NULL : AS_YARGTYPE(placedType);
         loc.storedValue = (PackedValueStore*) AS_ADDRESS(location);
         switch (loc.storedType->yt) {
-            case TypeArray:  // fall through
-            case TypeStruct:
-            case TypeInt8:
-            case TypeUint8:
-            case TypeInt16:
-            case TypeUint16:
-            case TypeInt32:
-            case TypeUint32:
-            case TypeInt64:
-            case TypeUint64: {
-                ObjPackedPointer* result = newPointerAtHeapCell(loc);
-                return OBJ_VAL(result);
-            }
-            default:
-                return NIL_VAL;
+        case TypeArray:  // fall through
+        case TypeStruct:
+        case TypeInt8:
+        case TypeUint8:
+        case TypeInt16:
+        case TypeUint16:
+        case TypeInt32:
+        case TypeUint32:
+        case TypeInt64:
+        case TypeUint64: {
+            ObjPackedPointer* result = newPointerAtHeapCell(loc);
+            OBJ_VAL(r, result);
+        }
+        default:
+            NIL_VAL(r);
         }
     }
-    return NIL_VAL;
+    else {
+        NIL_VAL(r);
+    }
 }
 
 ObjPackedStruct* newPackedStruct(ObjConcreteYargTypeStruct* type) {
     ObjPackedStruct* object = ALLOCATE_OBJ(ObjPackedStruct, OBJ_PACKEDSTRUCT);
-    tempRootPush(OBJ_VAL(object));
+    tempRootPush((Obj *)object);
 
     PackedValue new_struct = { .storedType = (ObjConcreteYargType*) type, .storedValue = NULL };
     new_struct.storedValue = reallocate(new_struct.storedValue, 0, type->storage_size);
@@ -350,13 +352,14 @@ PackedValue structField(PackedValue struct_, size_t index) {
     return f;
 }
 
-Value defaultStructValue(ObjConcreteYargType* type) {
+ObjPackedStruct *defaultStructValue(ObjConcreteYargType* type) {
     ObjConcreteYargTypeStruct* typeStruct = (ObjConcreteYargTypeStruct*)type;
+    tempRootPush((Obj *)typeStruct);
 
     ObjPackedStruct* object = newPackedStruct(typeStruct);
-    tempRootPush(OBJ_VAL(object));
 
-    return tempRootPop();
+    tempRootPop();
+    return object;
 }
 
 static ObjString* allocateString(char* chars, int length, uint32_t hash) {
@@ -364,8 +367,10 @@ static ObjString* allocateString(char* chars, int length, uint32_t hash) {
     string->length = length;
     string->chars = chars;
     string->hash = hash;
-    tempRootPush(OBJ_VAL(string));
-    tableSet(&vm.strings, string, NIL_VAL);
+    tempRootPush((Obj *)(string));
+    struct AbstractValue v;
+    NIL_VAL(&v);
+    tableSet(&vm.strings, string, &v);
     tempRootPop();
     return string;
 }
@@ -430,10 +435,9 @@ ObjString* copyStringWithEscapes(const char* chars, int length)
     return allocateString(heapChars, lengthOut, hash);
 }
 
-
 ObjUpvalue* newUpvalue(ValueCell* slot, size_t stackOffset) {
     ObjUpvalue* upvalue = ALLOCATE_OBJ(ObjUpvalue, OBJ_UPVALUE);
-    upvalue->closed.value = NIL_VAL;
+    NIL_VAL(&upvalue->closed.value);
     upvalue->closed.cellType = NULL;
     upvalue->contents = slot;
     upvalue->stackOffset = stackOffset;
@@ -470,8 +474,9 @@ static void printArray(FILE* op, ObjPackedUniformArray* array) {
 
 static void printPointer(FILE* op, ObjPackedPointer* ptr) {
     FPRINTMSG(op, "<*");
-    Value targetType = ptr->type->target_type == NULL ? NIL_VAL : OBJ_VAL(ptr->type->target_type);
-    fprintValue(op, targetType);
+
+    Obj *targetType = ptr->type->target_type == NULL ? 0 : (Obj *) ptr->type->target_type;
+    fprintObject(op, targetType);
     FPRINTMSG(op, ":%p>", (void*) ptr->destination);
 }
 
@@ -487,78 +492,81 @@ static void printStruct(FILE* op, ObjPackedStruct* st) {
     FPRINTMSG(op, "}");
 }
 
-void fprintObject(FILE* op, Value value) {
-    switch (OBJ_TYPE(value)) {
+void fprintObject(FILE* op, Obj *obj) {
+    if (obj == 0) {
+        FPRINTMSG(op, "nil");
+    } else
+    switch (obj->type) {
         case OBJ_BOUND_METHOD:
-            printFunction(op, AS_BOUND_METHOD(value)->method->function);
+            printFunction(op, ((ObjBoundMethod *)obj)->method->function);
             break;
         case OBJ_CLASS:
-            FPRINTMSG(op, "%s", AS_CLASS(value)->name->chars);
+            FPRINTMSG(op, "%s", ((ObjClass *)obj)->name->chars);
             break;
         case OBJ_CLOSURE:
-            printFunction(op, AS_CLOSURE(value)->function);
+            printFunction(op, ((ObjClosure *)obj)->function);
             break;
         case OBJ_FUNCTION:
-            printFunction(op, AS_FUNCTION(value));
+            printFunction(op, ((ObjFunction *)obj));
             break;
         case OBJ_INSTANCE:
-            FPRINTMSG(op, "%s instance", AS_INSTANCE(value)->klass->name->chars);
+            FPRINTMSG(op, "%s instance", ((ObjInstance*)obj)->klass->name->chars);
             break;
         case OBJ_NATIVE:
             FPRINTMSG(op, "<native fn>");
             break;
         case OBJ_ROUTINE:
-            printRoutine(op, AS_ROUTINE(value));
+            printRoutine(op, ((ObjRoutine *)obj));
             break;
         case OBJ_CHANNELCONTAINER:
-            printChannel(op, AS_CHANNEL(value));
+            printChannel(op, ((ObjChannelContainer *)obj));
             break;
         case OBJ_SYNCGROUP:
-            printSyncGroup(op, AS_SYNCGROUP(value));
+            printSyncGroup(op, ((ObjSyncGroup *)obj));
             break;
         case OBJ_STRING:
-            FPRINTMSG(op, "%s", AS_CSTRING(value));
+            FPRINTMSG(op, "%s", ((ObjString*)obj)->chars);
             break;
         case OBJ_UPVALUE:
             FPRINTMSG(op, "upvalue");
             break;
         case OBJ_UNOWNED_UNIFORMARRAY:
         case OBJ_PACKEDUNIFORMARRAY:
-            printArray(op, AS_UNIFORMARRAY(value));
+            printArray(op, ((ObjPackedUniformArray *)obj));
             break;
         case OBJ_YARGTYPE:
         case OBJ_YARGTYPE_ARRAY:
         case OBJ_YARGTYPE_STRUCT:
         case OBJ_YARGTYPE_MAP:
-            printType(op, AS_YARGTYPE(value));
+            printType(op, ((ObjConcreteYargType *)obj));
             break;
         case OBJ_UNOWNED_PACKEDPOINTER:
         case OBJ_PACKEDPOINTER:
-            printPointer(op, AS_POINTER(value));
+            printPointer(op, ((ObjPackedPointer *)obj));
             break;
         case OBJ_UNOWNED_PACKEDSTRUCT:
         case OBJ_PACKEDSTRUCT:
-            printStruct(op, AS_STRUCT(value));
+            printStruct(op, ((ObjPackedStruct *)obj));
             break;
         case OBJ_INT: {
-            Int *i = AS_INT(value);
+            Int *i = &((ObjInt *)obj)->bigInt;
             char sb[INT_STRLEN_FOR_INT254];
-            char const* s = int_to_s(i, sb, INT_STRLEN_FOR_INT254);
+            char const *s = int_to_s(i, sb, INT_STRLEN_FOR_INT254);
             FPRINTMSG(op, "%s", s);
             break;
         }
         case OBJ_MAP:
             FPRINTMSG(op, "<map ");
-            FPRINTMSG(op, "(%d) ", AS_MAP(value)->entries.count);
-            printType(op, (ObjConcreteYargType*)(AS_MAP(value)->type));
+            FPRINTMSG(op, "(%d) ", ((ObjMap*)obj)->entries.count);
+            printType(op, (ObjConcreteYargType *)(((ObjMap*)obj)->type));
             FPRINTMSG(op, " >");
             break;
         default:
-            FPRINTMSG(op, "<implementation object %d>", OBJ_TYPE(value));
+            FPRINTMSG(op, "<implementation object %d>", obj->type);
             break;
     }
 }
 
-void printObject(Value value) {
-    fprintObject(stdout, value);
+void printObject(Obj *obj) {
+    fprintObject(stdout, obj);
 }

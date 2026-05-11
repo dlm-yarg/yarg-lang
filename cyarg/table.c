@@ -57,7 +57,7 @@ static void adjustCapacity(ValueTable* table, int capacity) {
     Entry* entries = ALLOCATE(Entry, capacity);
     for (int i = 0; i < capacity; i++) {
         entries[i].key = NULL;
-        entries[i].value = NIL_VAL;
+        NIL_VAL(entries[i].value);
     }
 
     table->count = 0;

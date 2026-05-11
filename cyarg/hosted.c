@@ -35,7 +35,7 @@ int runHostedFile(const char* libraryPath, const char* path) {
 
     char* replPath = libraryNameFor(path, libraryPath);
     ObjString* replPathString = copyString(replPath, strlen(replPath));
-    tempRootPush(OBJ_VAL(replPathString));
+    tempRootPush(&replPathString->obj);
     free(replPath);
 
     vmHost.exitCode = EX_OK;
@@ -53,7 +53,7 @@ int runHostedFile(const char* libraryPath, const char* path) {
 int compileFile(const char* path) {
 
     ObjString* pathString = copyString(path, strlen(path));
-    tempRootPush(OBJ_VAL(pathString));
+    tempRootPush(&pathString->obj);
 
     Value compilerResult;
     InterpretResult result = compileScript(pathString, &compilerResult);

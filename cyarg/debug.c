@@ -290,7 +290,7 @@ void printValueStack(ObjRoutine* routine, const char* message) {
     for (int i = (int)(stackSize - 1); i >= 0; i--) {
         ValueCell* slot = peekCell(routine, i);
         printf("[ ");
-        printValue(slot->value);
+        printValue(&slot->value);
         printf(" | ");
         printType(stdout, slot->cellType);
         printf(" ]");

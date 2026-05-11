@@ -287,7 +287,7 @@ typedef struct {
     ObjStmt* body;
 } ObjStmtFor;
 
-ObjAst* newObjAst();
+ObjAst* newObjAst(void);
 
 ObjExprNumber* newExprNumberDouble(double value);
 ObjExprNumber* newExprNumberInt(int numberDecimalDigits);
@@ -299,15 +299,15 @@ ObjExprPair* newExprPair(ObjExpr* a, ObjExpr* b);
 ObjExprOperation* newExprOperation(ObjExpr* rhs, ExprOp op);
 ObjExprGrouping* newExprGrouping(ObjExpr* expression);
 ObjExprNamedVariable* newExprNamedVariable(const char* name, int nameLength);
-ObjExprCall* newExprCall();
-ObjExprCollectionInitializer* newExprCollectionInitializer();
-ObjExprCollectionElement* newExprCollectionElement();
+ObjExprCall* newExprCall(void);
+ObjExprCollectionInitializer* newExprCollectionInitializer(void);
+ObjExprCollectionElement* newExprCollectionElement(void);
 ObjExprBuiltin* newExprBuiltin(ExprBuiltin fn, int arity);
 ObjExprDot* newExprDot(const char* name, int nameLength);
 ObjExprSuper* newExprSuper(const char* name, int nameLength);
 ObjExprTypeLiteral* newExprType(ExprTypeLiteral type);
-ObjExprTypeStruct* newExprTypeStruct();
-ObjExprTypeIndexedCollection* newExprTypeIndexedCollection();
+ObjExprTypeStruct* newExprTypeStruct(void);
+ObjExprTypeIndexedCollection* newExprTypeIndexedCollection(void);
 
 ObjStmtExpression* newStmtExpression(ObjExpr* expr, ObjType statement, int line);
 ObjStmtBlock* newStmtBlock(int line);

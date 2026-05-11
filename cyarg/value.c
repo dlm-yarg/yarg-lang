@@ -95,9 +95,9 @@ void initialisePackedValue(PackedValue packedValue) {
         packedValue.storedValue->asValue = NIL_VAL;
     } else {
         switch (packedValue.storedType->yt) {
-            case TypeAny: packedValue.storedValue->asValue = NIL_VAL; break;
-            case TypeBool: packedValue.storedValue->asValue = BOOL_VAL(false); break;
-            case TypeDouble: packedValue.storedValue->asValue = DOUBLE_VAL(0); break;
+            case TypeAny: NIL_VAL(packedValue.storedValue->asValue); break;
+            case TypeBool: BOOL_VAL(packedValue.storedValue->asValue, false); break;
+            case TypeDouble: DOUBLE_VAL(packedValue.storedValue->asValue, 0.0); break;
             case TypeInt8: packedValue.storedValue->as.i8 = 0; break;
             case TypeUint8: packedValue.storedValue->as.ui8 = 0; break;
             case TypeInt16: packedValue.storedValue->as.i16 = 0; break;
@@ -376,7 +376,7 @@ void printValue(Value value) {
 }
 
 void fprintValue(FILE* op, Value value) {
-    switch (value.type) {
+    switch (value->type) {
         case VAL_BOOL:
             FPRINTMSG(op, AS_BOOL(value) ? "true" : "false");
             break;
@@ -413,6 +413,10 @@ bool valuesEqual(Value a, Value b) {
         case VAL_OBJ:      return AS_OBJ(a) == AS_OBJ(b);
         default:           return false; // Unreachable.
     }
+}
+
+void CopyValue(Value to, Value const from) {
+
 }
 
 bool is_positive_integer32(Value a) {
