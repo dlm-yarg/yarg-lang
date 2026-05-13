@@ -22,7 +22,7 @@ Obj* allocateObject(size_t size, ObjType type) {
 
     platform_mutex_enter(&vm.heap);
 
-    object->next = vm.objects;
+    object->oNext = vm.objects;
     vm.objects = object;
     
     platform_mutex_leave(&vm.heap);
@@ -185,7 +185,7 @@ ObjPackedUniformArray* newPackedUniformArrayAt(PackedValue location) {
     return array;
 }
 
-ObjPackedUniformArray *defaultArray(ObjConcreteYargType* type) {
+ObjPtr defaultArray(ObjConcreteYargType* type) {
 
     ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*)type;
     if (arrayType->cardinality == 0) {
@@ -352,7 +352,7 @@ PackedValue structField(PackedValue struct_, size_t index) {
     return f;
 }
 
-ObjPackedStruct *defaultStructValue(ObjConcreteYargType* type) {
+ObjPtr defaultStructValue(ObjConcreteYargType* type) {
     ObjConcreteYargTypeStruct* typeStruct = (ObjConcreteYargTypeStruct*)type;
     tempRootPush((Obj *)typeStruct);
 
@@ -441,7 +441,7 @@ ObjUpvalue* newUpvalue(ValueCell* slot, size_t stackOffset) {
     upvalue->closed.cellType = NULL;
     upvalue->contents = slot;
     upvalue->stackOffset = stackOffset;
-    upvalue->next = NULL;
+    upvalue->uvNext = NULL;
     return upvalue;
 }
 

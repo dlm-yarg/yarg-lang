@@ -4,6 +4,11 @@
 #include "object.h"
 #include "stdio.h"
 
+#define AS_YARGTYPE_ARRAY(obj)      ((ObjConcreteYargTypeArray *)osDeref(obj))
+#define AS_YARGTYPE_STRUCT(obj)     ((ObjConcreteYargTypeStruct *)osDeref(obj))
+#define AS_YARGTYPE_POINTER(obj)    ((ObjConcreteYargTypePointer *)osDeref(obj))
+#define AS_YARGTYPE_MAP(obj)        ((ObjConcreteYargTypeMap *)osDeref(obj))
+
 typedef enum {
    TypeAny,
    TypeBool,
@@ -38,57 +43,60 @@ typedef struct ObjConcreteYargType {
 typedef struct ObjConcreteYargTypeArray {
     ObjConcreteYargType core;
     size_t cardinality;
-    ObjConcreteYargType* element_type;
+    ObjPtr element_type;
 } ObjConcreteYargTypeArray;
+
+typedef struct YargTypeStructElement {
+    ObjPtr name;
+    size_t offset;
+    ObjPtr type;
+} YargTypeStructElement;
 
 typedef struct ObjConcreteYargTypeStruct {
     ObjConcreteYargType core;
-    ValueTable field_names;
-    size_t* field_indexes;
-    ObjConcreteYargType** field_types;
-    size_t field_count;
     size_t storage_size;
+    DynamicArray elements; // of type YargTypeStructElement
 } ObjConcreteYargTypeStruct;
 
 typedef struct ObjConcreteYargTypePointer {
     ObjConcreteYargType core;
-    ObjConcreteYargType* target_type;
+    ObjPtr target_type;
 } ObjConcreteYargTypePointer;
 
 typedef struct ObjConcreteYargTypeMap {
     ObjConcreteYargType core;
-    ObjConcreteYargType* key_type;
-    ObjConcreteYargType* value_type;
+    ObjPtr key_type;
+    ObjPtr value_type;
 } ObjConcreteYargTypeMap;
 
-ObjConcreteYargType* newYargTypeFromType(ConcreteYargType yt);
+ObjPtr newYargTypeFromType(ConcreteYargType yt);
 
-ObjConcreteYargType* newYargArrayTypeFromType(Value elementType);
-ObjConcreteYargType* newYargStructType(size_t fieldCount);
-ObjConcreteYargType* newYargPointerType(Value targetType);
+ObjPtr newYargArrayTypeFromType(ObjPtr elementType);
+ObjPtr newYargStructType(size_t fieldCount);
+ObjPtr newYargPointerType(ObjPtr targetType);
 
 size_t arrayElementOffset(ObjConcreteYargTypeArray* arrayType, size_t index);
 size_t arrayElementSize(ObjConcreteYargTypeArray* arrayType);
-Value arrayElementType(ObjConcreteYargTypeArray* arrayType);
+ObjPtr arrayElementType(ObjConcreteYargTypeArray* arrayType);
 
-size_t addFieldType(ObjConcreteYargTypeStruct* st, size_t index, size_t fieldOffset, Value type, Value offset, Value name);
+void addFieldType(ObjConcreteYargTypeStruct* st, size_t index, ObjPtr type, ObjPtr offset, ObjPtr name);
 
-bool isUint32Pointer(Value val);
+bool isUint32Pointer(ObjPtr);
 
-Value concrete_typeof(Value a);
+ObjPtr concrete_typeof(ObjPtr);
 bool type_packs_as_obj(ObjConcreteYargType* type);
 bool type_packs_as_container(ObjConcreteYargType* type);
-bool is_nil_assignable_type(Value type);
-bool is_placeable_type(Value type);
-bool is_stored_type(Value type);
-size_t yt_sizeof_type_storage(Value type);
+bool is_nil_assignable_type(ObjPtr);
+bool is_placeable_type(ObjPtr);
+bool is_stored_type(ObjPtr);
+size_t yt_sizeof_type_storage(ObjPtr);
 
-Value defaultValue(Value type);
+ObjPtr defaultValue(ObjPtr type);
 
-bool isInitialisableType(ObjConcreteYargType* lhsType, Value rhsValue, Value *promotedRhs); // promotedRhs will be VAL_NIL if no promotion
+bool isInitialisableType(ObjPtr lhsType, ObjPtr rhsValue, ObjPtr *promotedRhs); // promotedRhs will be VAL_NIL if no promotion
 
-bool isSupportedMapKeyType(Value type);
+bool isSupportedMapKeyType(ObjPtr type);
 
-void printType(FILE* op, ObjConcreteYargType* type);
+void printType(FILE* op, ObjPtr type);
 
 #endif

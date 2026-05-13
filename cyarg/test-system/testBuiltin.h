@@ -9,9 +9,9 @@
 extern "C" {
 #endif
 
-#include "../value.h"
+#include "../object_type.h"
 
-Value getTestSystemBuiltin(uint8_t builtin);
+ObjPtr getTestSystemBuiltin(uint8_t builtin);
 
 #ifdef __cplusplus
 }

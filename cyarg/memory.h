@@ -1,6 +1,7 @@
 #ifndef cyarg_memory_h
 #define cyarg_memory_h
 
+#if 0
 #include "common.h"
 #include "object.h"
 
@@ -28,13 +29,13 @@ void* reallocate(void* pointer, size_t oldSize, size_t newSize);
 void tempRootPush(Obj *obj);
 Obj *tempRootPop(void);
 
-void markObject(Obj* object);
-void markDynamicObjArray(DynamicObjArray* array);
-void markValue(Value value);
+void markObject(ObjPtr object);
+void markDynamicObjArray(DynamicArray* array);
+void markValue(ObjPtr value);
 void markValueCell(ValueCell* value);
 void markFunction(ObjFunction* function);
 void collectGarbage(void);
 void freeObjects(void);
-void printObjects(void);
 
+#endif
 #endif

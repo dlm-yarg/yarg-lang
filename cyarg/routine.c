@@ -229,7 +229,7 @@ void markRoutine(ObjRoutine* routine) {
 
     for (ObjUpvalue* upvalue = routine->openUpvalues;
         upvalue != NULL;
-        upvalue = upvalue->next) {
+        upvalue = upvalue->uvNext) {
         markObject((Obj*)upvalue);
     }
 

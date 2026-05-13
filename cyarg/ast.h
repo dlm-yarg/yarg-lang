@@ -137,14 +137,14 @@ typedef struct {
 
 typedef struct {
     ObjExpr expr;
-    DynamicObjArray arguments;
+    DynamicArray arguments; // of ObjPtr
 } ObjExprCall;
 
 typedef struct {
     ObjExpr expr;
     bool isMap;
-    DynamicObjArray initializers;
     ObjExpr* cardinality;
+    DynamicArray initializers; // of ObjPtr
 } ObjExprCollectionInitializer;
 
 typedef struct {
@@ -206,7 +206,7 @@ typedef struct {
 
 typedef struct {
     ObjExpr expr;
-    DynamicValueArray fieldsByIndex;
+    DynamicArray fieldsByIndex; // of ObjPtr
 } ObjExprTypeStruct;
 
 typedef struct {
@@ -249,21 +249,21 @@ typedef struct {
 typedef struct {
     ObjStmt stmt;
     ObjExpr* type;
-    DynamicObjArray aliases;
+    DynamicArray aliases; // of ObjPtr
 } ObjStmtPlaceDeclaration;
 
 typedef struct {
     ObjStmt stmt;
     ObjString* name;
-    DynamicObjArray parameters;
     ObjStmt* body;
+    DynamicArray parameters; // of ObjPtr
 } ObjStmtFunDeclaration;
 
 typedef struct {
     ObjStmt stmt;
     ObjString* name;
     ObjExpr* superclass;
-    DynamicObjArray methods;
+    DynamicArray methods; // of ObjPtr
 } ObjStmtClassDeclaration;
 
 typedef struct {
@@ -327,6 +327,6 @@ ObjStmtFor* newStmtFor(int line);
 
 void printStmts(ObjStmt* stmts);
 void printExpr(ObjExpr* expr);
-void printSourceValue(FILE* op, Value value);
+void printSourceValue(FILE* op, ObjPtr value);
 
 #endif

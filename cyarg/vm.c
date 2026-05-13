@@ -332,7 +332,7 @@ static ObjUpvalue* captureUpvalue(ObjRoutine* routine, ValueCell* local, size_t 
     ObjUpvalue* upvalue = routine->openUpvalues;
     while (upvalue != NULL && upvalue->stackOffset > stackOffset) {
         prevUpvalue = upvalue;
-        upvalue = upvalue->next;
+        upvalue = upvalue->uvNext;
     }
 
     if (upvalue != NULL && upvalue->stackOffset == stackOffset) {
@@ -340,12 +340,12 @@ static ObjUpvalue* captureUpvalue(ObjRoutine* routine, ValueCell* local, size_t 
     }
 
     ObjUpvalue* createdUpvalue = newUpvalue(local, stackOffset);
-    createdUpvalue->next = upvalue;
+    createdUpvalue->uvNext = upvalue;
 
     if (prevUpvalue == NULL) {
         routine->openUpvalues = createdUpvalue;
     } else {
-        prevUpvalue->next = createdUpvalue;
+        prevUpvalue->uvNext = createdUpvalue;
     }
 
     return createdUpvalue;
@@ -356,7 +356,7 @@ static void closeUpvalues(ObjRoutine* routine, size_t last) {
         ObjUpvalue* upvalue = routine->openUpvalues;
         upvalue->closed = *upvalue->contents;
         upvalue->contents = &upvalue->closed;
-        routine->openUpvalues = upvalue->next;
+        routine->openUpvalues = upvalue->uvNext;
     }
 }
 

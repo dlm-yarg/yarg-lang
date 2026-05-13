@@ -2,21 +2,18 @@
 #define cyarg_sync_group_h
 
 #include <stdio.h>
-#include "value.h"
-#include "object.h"
+#include "object_type.h"
 #include "platform_hal.h"
 
-typedef struct ObjSyncGroup ObjSyncGroup;
+ObjPtr newSyncGroup(ObjPtr routine, ObjPtr items);
 
-ObjSyncGroup* newSyncGroup(ObjRoutine* routine, ObjPackedUniformArray* items);
+void freeSyncGroup(ObjPtr group);
+void markSyncGroup(ObjPtr group);
 
-void freeSyncGroup(Obj* group);
-void markSyncGroup(ObjSyncGroup* group);
+void printSyncGroup(FILE* op, ObjPtr group);
 
-void printSyncGroup(FILE* op, ObjSyncGroup* group);
+ObjPtr receiveSyncGroup(ObjPtr group);
 
-Value receiveSyncGroup(ObjSyncGroup* group);
-
-platform_critical_section* getSyncGroupLock(ObjSyncGroup* group);
+platform_critical_section* getSyncGroupLock(ObjPtr group);
 
 #endif

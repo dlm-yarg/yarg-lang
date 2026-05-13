@@ -1,11 +1,12 @@
 #ifndef cyarg_routine_h
 #define cyarg_routine_h
 
-#include "value.h"
 #include "object.h"
 
 #define FRAMES_MAX 20
 #define SLICE_MAX 64
+
+typedef struct ObjRoutine ObjRoutine;
 
 typedef struct {
     ObjClosure* closure;
@@ -45,12 +46,12 @@ typedef struct ObjRoutine {
     size_t stackTopIndex;
 
     StackSlice stk;
-    DynamicObjArray additionalSlicesArray;
+    DynamicArray additionalSlicesArray; // of ObjPtr
     AddSliceFn addSlice;
 
     ObjClosure* entryFunction;
-    struct AbstractValue entryArg;
-    struct AbstractValue result;
+    ObjPtr entryArg;
+    ObjPtr result;
 
     ObjUpvalue* openUpvalues;
 
@@ -62,32 +63,32 @@ void initRoutine(ObjRoutine* routine);
 ObjRoutine* newRoutine(void);
 void resetRoutine(ObjRoutine* routine);
 bool bindEntryFn(ObjRoutine* routine, ObjClosure* closure);
-void bindEntryArgs(ObjRoutine* routine, Value entryArg);
+void bindEntryArgs(ObjRoutine* routine, ObjPtr entryArg);
 void pushEntryElements(ObjRoutine* routine);
 void enterEntryFunction(ObjRoutine* routine);
 ValueCell* frameSlot(ObjRoutine* routine, CallFrame* frame, size_t index);
-Value nativeArgument(ObjRoutine* routine, size_t argCount, size_t argument);
+ObjPtr nativeArgument(ObjRoutine* routine, size_t argCount, size_t argument);
 size_t stackOffsetOf(CallFrame* frame, size_t frameIndex);
 
 bool pinRoutine(ObjRoutine* routine, uintptr_t* address);
 void runAndRenter(ObjRoutine* routine);
 
-bool resumeRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Value const argument, Value result);
+bool resumeRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, ObjPtr argument, ObjPtr *result);
 void yieldFromRoutine(ObjRoutine* routine);
-void returnFromRoutine(ObjRoutine* routine, Value result);
-bool startRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Value const argument);
-bool receiveFromRoutine(ObjRoutine* routine, Value result);
+void returnFromRoutine(ObjRoutine* routine, ObjPtr *result);
+bool startRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, ObjPtr argument);
+bool receiveFromRoutine(ObjRoutine* routine, ObjPtr *result);
 
 void markRoutine(ObjRoutine* routine);
 
-void push(ObjRoutine* routine, Value value);
-void pushTyped(ObjRoutine* routine, Value value, Value type);
-Value pop(ObjRoutine* routine);
+void push(ObjRoutine* routine, ObjPtr value);
+void pushTyped(ObjRoutine* routine, ObjPtr value, ObjPtr type);
+ObjPtr pop(ObjRoutine* routine);
 void popN(ObjRoutine* routine, size_t count);
 void popFrame(ObjRoutine* routine, CallFrame* frame);
-Value peek(ObjRoutine* routine, int distance);
+ObjPtr peek(ObjRoutine* routine, int distance);
 ValueCell* peekCell(ObjRoutine* routine, int distance);
-ValueCellTarget peekCellTarget(ObjRoutine* routine, int distance);
+ValueCell* peekCellTarget(ObjRoutine* routine, int distance);
 
 void runtimeError(ObjRoutine* routine, const char* format, ...);
 

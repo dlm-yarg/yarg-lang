@@ -1,3 +1,4 @@
+#if 0
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -622,12 +623,12 @@ static void sweep(void) {
         if (object->isMarked) {
             object->isMarked = false;
             previous = object;
-            object = object->next;
+            object = object->oNext;
         } else {
             Obj* unreached = object;
-            object = object->next;
+            object = object->oNext;
             if (previous != NULL) {
-                previous->next = object;
+                previous->oNext = object;
             } else {
                 vm.objects = object;
             }
@@ -667,7 +668,7 @@ void collectGarbage(void) {
 void freeObjects(void) {
     Obj* object = vm.objects;
     while (object != NULL) {
-        Obj* next = object->next;
+        Obj* next = object->oNext;
         freeObject(object);
         object = next;
     }
@@ -683,8 +684,9 @@ void printObjects(void) {
         PRINTERR("%p ", (void*)object);
         fprintObject(stderr, object);
         PRINTERR("\n");
-        object = object->next;
+        object = object->oNext;
         count++;
     }
     PRINTERR("=== End Objects (%zu) ===\n", count);
 }
+#endif

@@ -26,14 +26,11 @@ typedef struct {
     
     ValueCellTable globals;
     ValueTable strings;
-    ObjString* initString;
-    ObjString* libraryPath;
+    ObjPtr initString;
+    ObjPtr libraryPath;
     ValueTable imports;
 
     platform_mutex heap;
-
-    Obj *tempRoots[TEMP_ROOTS_MAX];
-    Obj **tempRootsTop;
 
     size_t bytesAllocated;
     size_t nextGC;
@@ -52,7 +49,7 @@ void freeVM(void);
 void markVMRoots(void);
 
 InterpretResult bootScript(ObjString* script);
-InterpretResult compileScript(ObjString* script, Value* compileResult);
+InterpretResult compileScript(ObjString* script, ObjPtr* compileResult);
 
 InterpretResult run(ObjRoutine* routine);
 bool callfn(ObjRoutine* routine, ObjClosure* closure, int argCount);

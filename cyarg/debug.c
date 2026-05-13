@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <assert.h>
 
 #include "debug.h"
 #include "object.h"
@@ -6,26 +7,31 @@
 #include "yargtype.h"
 #include "routine.h"
 
+#define CODE ((uint8_t *)chunk->code->arrayItems)
+#define LINE ((int *)chunk->lines->arrayItems)
+#define CONSTANT ((ValueCell *)chunk->constants->arrayItems)
+
 void disassembleChunk(Chunk* chunk, const char* name) {
     printf("== %s ==\n", name);
-    for (int offset = 0; offset < chunk->count;) {
+    for (int offset = 0; offset < chunk->code->arrayLength;) {
         offset = disassembleInstruction(chunk, offset);
     }
 }
 
 static int constantInstruction(const char* name, Chunk* chunk, int offset) {
-    uint8_t constant = chunk->code[offset + 1];
+//    uint8_t constant = *((uint8_t *)daAt(&chunk->code, offset + 1));
+    uint8_t constant = CODE[offset + 1];
     printf("%-16s %4d:'", name, constant);
-    printValue(chunk->constants.values[constant]);
+    printValue(((ValueCell *)&chunk->constants->arrayItems)[constant].value);
     printf("'\n");
     return offset + 2;
 }
 
 static int invokeInstruction(const char* name, Chunk* chunk, int offset) {
-    uint8_t constant = chunk->code[offset + 1];
-    uint8_t argCount = chunk->code[offset + 2];
+    uint8_t constant = CODE[offset + 1];
+    uint8_t argCount = CODE[offset + 2];
     printf("%-16s (%d args) %4d:'", name, argCount, constant);
-    printValue(chunk->constants.values[constant]);
+    printValue(CONSTANT[constant].value);
     printf("'\n");
     return offset + 3;
 }
@@ -36,35 +42,36 @@ static int simpleInstruction(const char* name, int offset) {
 }
 
 static int byteInstruction(const char* name, Chunk* chunk, int offset) {
-    uint8_t slot = chunk->code[offset + 1];
+    uint8_t slot = CODE[offset + 1];
     printf("%-16s %4d\n", name, slot);
     return offset + 2;
 }
 
 static int twoByteInstruction(const char* name, Chunk* chunk, int offset) {
-    uint16_t slot = chunk->code[offset + 1];
-    slot += chunk->code[offset + 2] * 256;
+    uint8_t slot = CODE[offset + 1];
+    slot += CODE[offset + 2] * 256;
     printf("%-16s %6d\n", name, slot);
     return offset + 3;
 }
 
 static int threeByteInstruction(const char* name, Chunk* chunk, int offset) {
-    uint32_t slot = chunk->code[offset + 1];
-    slot += chunk->code[offset + 2] * 256;
-    slot += chunk->code[offset + 3] * 65536;
+    uint8_t slot = CODE[offset + 1];
+    slot += CODE[offset + 2] * 256;
+    slot += CODE[offset + 3] * 65536;
     printf("%-16s %9d\n", name, slot);
     return offset + 4;
 }
 
 static int jumpInstruction(const char* name, int sign, Chunk* chunk, int offset) {
-    uint16_t jump = (uint16_t)(chunk->code[offset + 1] << 8);
-    jump |= chunk->code[offset + 2];
+    uint16_t jump = (uint16_t)(CODE[offset + 1] << 8u);
+    assert(jump == (uint16_t)((int)(CODE[offset + 1]) << 8));
+    jump |= CODE[offset + 2];
     printf("%-16s %4d -> %d\n", name, offset, offset + 3 + sign * jump);
     return offset + 3;
 }
 
 static int builtinInstruction(const char* name, Chunk* chunk, int offset) {
-    uint8_t slot = chunk->code[offset + 1];
+    uint8_t slot = CODE[offset + 1];
     printf("%-16s ", name);
     switch (slot) {
         case BUILTIN_PEEK: printf("peek"); break;
@@ -106,7 +113,7 @@ static int builtinInstruction(const char* name, Chunk* chunk, int offset) {
 }
 
 static int typeLiteralInstruction(const char* name, Chunk* chunk, int offset) {
-    uint8_t type = chunk->code[offset + 1];
+    uint8_t type = CODE[offset + 1];
     printf("%-16s ", name);
     switch (type) {
         case TYPE_LITERAL_BOOL: printf("bool"); break;
@@ -129,13 +136,13 @@ static int typeLiteralInstruction(const char* name, Chunk* chunk, int offset) {
 
 int disassembleInstruction(Chunk* chunk, int offset) {
     printf("%04d ", offset);
-    if (offset > 0 && chunk->lines[offset] == chunk->lines[offset - 1]) {
+    if (offset > 0 && LINE[offset] == LINE[offset - 1]) {
         printf("   | ");
     } else {
-        printf("%4d ", chunk->lines[offset]);
+        printf("%4d ", LINE[offset]);
     }
 
-    uint8_t instruction = chunk->code[offset];
+    uint8_t instruction = CODE[offset];
     switch (instruction) {
         case OP_CONSTANT:
             return constantInstruction("OP_CONSTANT", chunk, offset);
@@ -219,16 +226,15 @@ int disassembleInstruction(Chunk* chunk, int offset) {
             return invokeInstruction("OP_SUPER_INVOKE", chunk, offset);
         case OP_CLOSURE: {
             offset++;
-            uint8_t constant = chunk->code[offset++];
+            uint8_t constant = CODE[offset++];
             printf("%-16s %4d ", "OP_CLOSURE", constant);
-            printValue(chunk->constants.values[constant]);
+            printValue(CONSTANT[constant].value);
             printf("\n");
 
-            ObjFunction* function = AS_FUNCTION(
-                chunk->constants.values[constant]);
+            ObjFunction* function = AS_FUNCTION(CONSTANT[constant].value);
             for (int j = 0; j < function->upvalueCount; j++) {
-                int isLocal = chunk->code[offset++];
-                int index = chunk->code[offset++];
+                int isLocal = CODE[offset++];
+                int index = CODE[offset++];
                 printf("%04d       |                    %s %d\n",
                        offset - 2, isLocal ? "local" : "upvalue", index);
             }
@@ -290,9 +296,9 @@ void printValueStack(ObjRoutine* routine, const char* message) {
     for (int i = (int)(stackSize - 1); i >= 0; i--) {
         ValueCell* slot = peekCell(routine, i);
         printf("[ ");
-        printValue(&slot->value);
+        printValue(slot->value);
         printf(" | ");
-        printType(stdout, slot->cellType);
+        printType(stdout, slot->type);
         printf(" ]");
     }
     printf("\n");

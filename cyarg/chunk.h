@@ -2,7 +2,7 @@
 #define cyarg_chunk_h
 
 #include "common.h"
-#include "value.h"
+#include "dynamic_array.h"
 
 typedef enum {
     OP_CONSTANT,
@@ -70,11 +70,9 @@ typedef enum {
 } OpCode;
 
 typedef struct {
-    int count;
-    int capacity;
-    uint8_t* code;
-    int* lines;
-    DynamicValueArray constants;
+    DynamicArray *code; // of type uint8_t
+    DynamicArray *lines; // of type int
+    DynamicArray *constants; // of type ValueCell
 } Chunk;
 
 typedef enum {
@@ -127,9 +125,9 @@ typedef enum {
     TYPE_LITERAL_INT
 } BuiltinType;
 
-void initChunk(Chunk* chunk);
-void freeChunk(Chunk* chunk);
-void writeChunk(Chunk* chunk, uint8_t byte, int line);
-int addConstant(Chunk* chunk, Value value);
+void initChunk(Chunk *);
+void freeChunk(Chunk *);
+void writeChunk(Chunk *, uint8_t byte, int line);
+int addConstant(Chunk *, ObjPtr);
 
 #endif

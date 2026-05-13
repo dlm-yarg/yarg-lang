@@ -5,8 +5,8 @@
 #include "value.h"
 
 typedef struct {
-    ObjString* key;
-    Value value;
+    ObjPtr key;
+    ObjPtr value;
 } Entry;
 
 typedef struct {
@@ -17,8 +17,8 @@ typedef struct {
 
 void initTable(ValueTable* table);
 void freeTable(ValueTable* table);
-bool tableGet(ValueTable* table, ObjString* key, Value* value);
-bool tableSet(ValueTable* table, ObjString* key, Value value);
+bool tableGet(ValueTable* table, ObjPtr key, ObjPtr* value);
+bool tableSet(ValueTable* table, ObjPtr key, ObjPtr value);
 bool tableDelete(ValueTable* table, ObjString* key);
 void tableAddAll(ValueTable* from, ValueTable* to);
 ObjString* tableFindString(ValueTable* table, const char* chars, int length, uint32_t hash);
