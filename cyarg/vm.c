@@ -160,7 +160,6 @@ void initVMRuntime() {
     initFunction(&vm.bootFunction);
 
     initCellTable(&vm.globals);
-    initTable(&vm.imports);
     initTable(&vm.strings);
     
     vm.initString = copyString("init", 4);
@@ -175,6 +174,10 @@ void initVMRuntime() {
     defineNative("c_stdin_eof", stdin_eofNative);
     defineNative("c_stdout_puts", stdout_putsNative);
 
+    defineNative("c_readFileIntoBuffer", readFileIntoBufferNative);
+    defineNative("c_fileSize", fileSizeNative);
+    defineNative("c_fileExists", fileExistsNative);
+
 #if defined(CYARG_FEATURE_HOSTED_REPL)
     defineNative("host_argc", host_argcNative);
     defineNative("host_argn", host_argnNative);
@@ -185,7 +188,6 @@ void initVMRuntime() {
 void freeVM() {
     freeCellTable(&vm.globals);
     freeTable(&vm.strings);
-    freeTable(&vm.imports);
     vm.initString = NULL;
     vm.libraryPath = NULL;
     freeObjects();
@@ -207,7 +209,6 @@ void markVMRoots() {
         markValue(*slot);
     }
 
-    markTable(&vm.imports);
     markObject((Obj*)vm.libraryPath);
     markCellTable(&vm.globals);
     markObject((Obj*)vm.initString);
@@ -260,17 +261,13 @@ static InterpretResult callValue(ObjRoutine* routine, Value callee, int argCount
                 return callfn(routine, AS_CLOSURE(callee), argCount) ? INTERPRET_OK : INTERPRET_RUNTIME_ERROR;
             case OBJ_NATIVE: {
                 NativeFn native = AS_NATIVE(callee);
-                if (native == importBuiltinDummy) {
-                    return importBuiltin(routine, argCount);
+                Value result = NIL_VAL; 
+                if (native(routine, argCount, &result)) {
+                    popN(routine, argCount + 1);
+                    push(routine, result);
+                    return INTERPRET_OK;
                 } else {
-                    Value result = NIL_VAL; 
-                    if (native(routine, argCount, &result)) {
-                        popN(routine, argCount + 1);
-                        push(routine, result);
-                        return INTERPRET_OK;
-                    } else {
-                        return INTERPRET_RUNTIME_ERROR;
-                    }
+                    return INTERPRET_RUNTIME_ERROR;
                 }
             }
             default:
@@ -1260,7 +1257,7 @@ InterpretResult run(ObjRoutine* routine) {
                 ObjFunction* function = AS_FUNCTION(READ_CONSTANT());
                 ObjClosure* closure = newClosure(function);
                 push(routine, OBJ_VAL(closure));
-                for (int i = 0; i < closure->upvalueCount; i++) {
+                for (int i = 0; i < closure->cUpvalueCount; i++) {
                     uint8_t isLocal = READ_BYTE();
                     uint8_t index = READ_BYTE();
                     if (isLocal) {
@@ -1469,7 +1466,7 @@ typedef void (*bindBootstrapFunction)(ObjString* script);
 static void bindBootstrapCode(const char* name, size_t nameLength, 
                               const uint8_t code[], size_t codeLength, 
                               ObjString* script, size_t constantIndex) {
-    vm.bootFunction.name = copyString(name, (int)nameLength);
+    vm.bootFunction.fName = copyString(name, (int)nameLength);
 
     for (size_t i = 0; i < codeLength; i++) {
         writeChunk(&vm.bootFunction.chunk, code[i], 0);
@@ -1481,7 +1478,7 @@ static void bindBootstrapCode(const char* name, size_t nameLength,
 // note that it is assumed that the initial script is well-formed and won't
 // produce a compile error. (use --compile to check this when editing the script)
 uint8_t bootstrap[] = {
-    OP_GET_BUILTIN, BUILTIN_COMPILE,
+    OP_GET_BUILTIN, BUILTIN_LOAD,
     OP_GET_BUILTIN, BUILTIN_READ_SOURCE,
     OP_CONSTANT, 0,
     OP_CALL, 1,
@@ -1502,6 +1499,18 @@ uint8_t compile_bootstrap[] = {
 };
 
 size_t compile_bootstrap_parameter_offset = 5;
+
+uint8_t load_bootstrap[] = {
+    OP_GET_BUILTIN, BUILTIN_LOAD,
+    OP_GET_BUILTIN, BUILTIN_READ_BINARY,
+    OP_CONSTANT, 0,
+    OP_CALL, 1,
+    OP_CALL, 1,
+    OP_CALL, 0,
+    OP_RETURN
+};
+
+size_t load_bootstrap_parameter_offset = 5;
 
 InterpretResult bootstrapVM(Value* bootstrapResult, ObjString* script) {
     ObjClosure* closure = newClosure(&vm.bootFunction);
@@ -1527,6 +1536,16 @@ InterpretResult bootScript(ObjString* script) {
     Value discardedResult;
     InterpretResult runResult = bootstrapVM(&discardedResult, script);
     return runResult;
+}
+
+InterpretResult bootBinary(ObjString *script) {
+    bindBootstrapCode("boot", 4, load_bootstrap, sizeof(load_bootstrap), script, load_bootstrap_parameter_offset);
+
+    // Yarg scripts do not return values, so the bootstrap result is discarded.
+    Value discardedResult;
+    InterpretResult result = bootstrapVM(&discardedResult, script);
+    tempRootPop();
+    return result;
 }
 
 InterpretResult compileScript(ObjString* script, Value* result) {

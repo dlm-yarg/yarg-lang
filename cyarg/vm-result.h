@@ -3,7 +3,7 @@
 
 typedef enum {
     INTERPRET_OK,
-    INTERPRET_RUNTIME_ERROR,
+    INTERPRET_RUNTIME_ERROR
 } InterpretResult;
 
 #endif

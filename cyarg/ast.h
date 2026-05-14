@@ -54,7 +54,7 @@ typedef enum {
 } ExprLiteral;
 
 typedef enum {
-    EXPR_BUILTIN_IMPORT,
+    EXPR_BUILTIN_READ_BINARY,
     EXPR_BUILTIN_READ_SOURCE,
     EXPR_BUILTIN_COMPILE,
     EXPR_BUILTIN_MAKE_ROUTINE,
@@ -85,7 +85,8 @@ typedef enum {
     EXPR_BUILTIN_TS_SYNC,
     EXPR_BUILTIN_INT,
     EXPR_BUILTIN_MFLOAT64,
-    EXPR_BUILTIN_STRING
+    EXPR_BUILTIN_STRING,
+    EXPR_BUILTIN_LOAD
 } ExprBuiltin;
 
 typedef struct {

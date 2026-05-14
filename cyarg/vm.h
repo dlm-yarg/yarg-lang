@@ -28,7 +28,6 @@ typedef struct {
     ValueTable strings;
     ObjString* initString;
     ObjString* libraryPath;
-    ValueTable imports;
 
     platform_mutex heap;
 
@@ -53,6 +52,7 @@ void markVMRoots();
 
 InterpretResult bootScript(ObjString* script);
 InterpretResult compileScript(ObjString* script, Value* compileResult);
+InterpretResult bootBinary(ObjString *script);
 
 InterpretResult run(ObjRoutine* routine);
 bool callfn(ObjRoutine* routine, ObjClosure* closure, int argCount);

@@ -15,95 +15,12 @@
 #include "channel.h"
 #include "yargtype.h"
 #include "sync_group.h"
+#include "pack.h"
 
 #ifdef CYARG_FEATURE_TEST_SYSTEM
 #include "test-system/testSystem.h"
 #include "test-system/testBuiltin.h"
 #endif
-
-bool importBuiltinDummy(ObjRoutine* routineContext, int argCount, Value* result) {
-    *result = NIL_VAL;
-    return true;
-}
-
-static char* libraryNameFor(const char* importname, const char* libraryPath) {
-    size_t namelen = strlen(importname);
-    size_t pathlen = 0;
-    if (libraryPath) {
-        pathlen = strlen(libraryPath);
-    }
-    char* filename = malloc(pathlen + 1 +namelen + 3 + 1);
-    if (filename) {
-        if (libraryPath) {
-            strcpy(filename, libraryPath);
-            if (libraryPath[pathlen - 1] != '/') {
-                strcat(filename, "/");
-            }
-        } else {
-            strcpy(filename, "");
-        }
-        strcat(filename, importname);
-        strcat(filename, ".ya");
-    }
-    return filename;
-}
-
-InterpretResult importBuiltin(ObjRoutine* routineContext, int argCount) {
-    if (argCount != 1) {
-        runtimeError(routineContext, "Expected 1 arguments but got %d.", argCount);
-        return INTERPRET_RUNTIME_ERROR;
-    }
-    if (!IS_STRING(peek(routineContext, 0))) {
-        runtimeError(routineContext, "Argument to import must be string.");
-        return INTERPRET_RUNTIME_ERROR;
-    }
-
-    Value val;
-    if (tableGet(&vm.imports, AS_STRING(peek(routineContext, 0)), &val)) {
-        pop(routineContext);
-        pop(routineContext);
-        push(routineContext, NIL_VAL);
-        return INTERPRET_OK;
-    }
-
-    char* source = NULL;
-    char* inmportLibrary = vm.libraryPath ? AS_CSTRING(OBJ_VAL(vm.libraryPath)) : NULL;
-    char* library = libraryNameFor(AS_CSTRING(peek(routineContext, 0)), inmportLibrary);
-    if (library) {
-        source = readFile(library);
-        free(library);
-    }
-
-    if (source) {
-        ObjFunction* function = compile(source);
-        free(source);
-        if (function == NULL) {
-            return INTERPRET_RUNTIME_ERROR;
-        }
-
-        tempRootPush(OBJ_VAL(function));
-
-        Value libstring = pop(routineContext);
-        tempRootPush(libstring);
-        pop(routineContext);
-
-        ObjClosure* closure = newClosure(function);
-        push(routineContext, OBJ_VAL(closure));
-
-        tableSet(&vm.imports, AS_STRING(libstring), BOOL_VAL(true));
-
-        tempRootPop();
-        tempRootPop();
-
-        callfn(routineContext, closure, 0);
-        return INTERPRET_OK;
-    }
-    else {
-        runtimeError(routineContext, "source not found");
-        return INTERPRET_RUNTIME_ERROR;
-    }
-
-}
 
 bool readSourceBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     if (argCount != 1) {
@@ -126,6 +43,42 @@ bool readSourceBuiltin(ObjRoutine* routineContext, int argCount, Value* result) 
     free(source);
 
     *result = OBJ_VAL(sourceString);
+    return true;
+}
+
+bool readBinaryBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
+    if (argCount != 1) {
+        runtimeError(routineContext, "Expected 1 argument but got %d.", argCount);
+        return false;
+    }
+    if (!IS_STRING(nativeArgument(routineContext, argCount, 0))) {
+        runtimeError(routineContext, "Argument must be a string.");
+        return false;
+    }
+
+    Value pathVal = nativeArgument(routineContext, argCount, 0);
+    const char* c_pathString = AS_CSTRING(pathVal);
+
+    size_t file_size = fileSize(c_pathString);
+
+    ObjConcreteYargType* byteType = newYargTypeFromType(TypeUint8);
+    tempRootPush(OBJ_VAL(byteType));
+
+    ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*)newYargArrayTypeFromType(OBJ_VAL(byteType));
+    tempRootPush(OBJ_VAL(arrayType));
+
+    arrayType->cardinality = file_size;
+    ObjPackedUniformArray* array = newPackedUniformArray(arrayType);
+    tempRootPush(OBJ_VAL(array));
+
+    readFileIntoBuffer(c_pathString, (uint8_t*)array->store.storedValue, file_size);
+
+    *result = OBJ_VAL(array);
+
+    tempRootPop();
+    tempRootPop();
+    tempRootPop();
+
     return true;
 }
 
@@ -152,6 +105,38 @@ bool compileBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     return true;
 }
 
+
+bool loadBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
+    if (argCount != 1) {
+        runtimeError(routineContext, "Expected 1 arguments but got %d.", argCount);
+        return false;
+    }
+    Value arg = nativeArgument(routineContext, argCount, 0);
+    ObjFunction* function = NULL;
+    
+    if (IS_UNIFORMARRAY(arg)) {
+        ObjPackedUniformArray* array = AS_UNIFORMARRAY(arg);
+        uintptr_t addr = pinUniformArray(array);
+        function = loadPackageFromBuffer((uint8_t*)addr, arrayCardinality(array->store));
+    } else if (IS_STRING(arg)) {
+        const char* source = AS_CSTRING(arg);
+        function = compile(source);
+    } else {
+        runtimeError(routineContext, "Argument to load must be a byte array or a string.");
+        return false;
+    }
+
+    if (function == NULL) {
+        *result = NIL_VAL;
+    } else {
+        push(routineContext, OBJ_VAL(function));
+        ObjClosure* closure = newClosure(function);
+        *result = OBJ_VAL(closure);
+        pop(routineContext);
+    }
+    return true;
+}
+
 bool makeChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
     if (argCount >= 2) {
         runtimeError(routine, "Expected 0 or 1 arguments but got %d.", argCount);
@@ -164,6 +149,7 @@ bool makeChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         Value arg1 = nativeArgument(routine, argCount, 0);
         if (!is_positive_integer32(arg1)) {
             runtimeError(routine, "Expected a positive integer");
+            return false;
         }
         valCapacity = arg1;
     }
@@ -432,23 +418,28 @@ bool pinBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     }
 
     Value arg = nativeArgument(routineContext, argCount, 0);
+    if (IS_ROUTINE(arg)) {
+        ObjRoutine* isrRoutine = AS_ROUTINE(arg);
+        if (isrRoutine->entryFunction->function->arity != 0) {
+            runtimeError(routineContext, "Can only pin routines with 0 argument entry functions.");
+            return false;        
+        }
 
-    if (!IS_ROUTINE(arg)) {
-        runtimeError(routineContext, "Argument to pin must be a routine.");
-        return false;
-    }
-    ObjRoutine* isrRoutine = AS_ROUTINE(arg);
-    if (isrRoutine->entryFunction->function->arity != 0) {
-        runtimeError(routineContext, "Can only pin routines with 0 argument entry functions.");
-        return false;        
-    }
-
-    uintptr_t addr;
-    if (pinRoutine(isrRoutine, &addr)) {
+        uintptr_t addr;
+        if (pinRoutine(isrRoutine, &addr)) {
+            *result = ADDRESS_VAL(addr);
+            return true;
+        } else {
+            runtimeError(routineContext, "No more pinned routines available.");
+            return false;
+        }
+    } else if (IS_UNIFORMARRAY(arg)) {
+        ObjPackedUniformArray* array = AS_UNIFORMARRAY(arg);
+        uintptr_t addr = pinUniformArray(array);
         *result = ADDRESS_VAL(addr);
         return true;
     } else {
-        runtimeError(routineContext, "No more pinned routines available.");
+        runtimeError(routineContext, "Expected a routine or uniform array.");
         return false;
     }
 }
@@ -1029,7 +1020,7 @@ bool stringBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
 Value getBuiltin(uint8_t builtin) {
     switch (builtin) {
         case BUILTIN_PEEK: return OBJ_VAL(newNative(peekBuiltin));
-        case BUILTIN_IMPORT: return OBJ_VAL(newNative(importBuiltinDummy));
+        case BUILTIN_READ_BINARY: return OBJ_VAL(newNative(readBinaryBuiltin));
         case BUILTIN_READ_SOURCE: return OBJ_VAL(newNative(readSourceBuiltin));
         case BUILTIN_COMPILE: return OBJ_VAL(newNative(compileBuiltin));
         case BUILTIN_MAKE_ROUTINE: return OBJ_VAL(newNative(makeRoutineBuiltin));
@@ -1055,6 +1046,7 @@ Value getBuiltin(uint8_t builtin) {
         case BUILTIN_INT: return OBJ_VAL(newNative(intBuiltin));
         case BUILTIN_MFLOAT64: return OBJ_VAL(newNative(floatBuiltin));
         case BUILTIN_STRING: return OBJ_VAL(newNative(stringBuiltin));
+        case BUILTIN_LOAD: return OBJ_VAL(newNative(loadBuiltin));
 #ifndef CYARG_FEATURE_TEST_SYSTEM
         default: return NIL_VAL;
 #else

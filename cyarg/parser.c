@@ -136,10 +136,10 @@ static void synchronize() {
             case TOKEN_VAR:
             case TOKEN_FOR:
             case TOKEN_IF:
-            case TOKEN_IMPORT:
             case TOKEN_WHILE:
             case TOKEN_PRINT:
             case TOKEN_RETURN:
+            case TOKEN_LOAD:
                 return;
             
             default:
@@ -364,7 +364,7 @@ static ObjExpr* literal(bool canAssign) {
 static ObjExpr* builtin(bool canAssign) {     
     switch (parser.previous.type) {
         case TOKEN_PEEK: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_PEEK, 1);
-        case TOKEN_IMPORT: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_IMPORT, 1);
+        case TOKEN_READ_BINARY: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_READ_BINARY, 1);
         case TOKEN_READ_SOURCE: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_READ_SOURCE, 1);
         case TOKEN_COMPILE: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_COMPILE, 1);
         case TOKEN_MAKE_ROUTINE: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_MAKE_ROUTINE, 1);
@@ -395,6 +395,7 @@ static ObjExpr* builtin(bool canAssign) {
         case TOKEN_INT: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_INT, 1);
         case TOKEN_MACHINE_FLOAT64: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_MFLOAT64, 1);
         case TOKEN_TYPE_STRING: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_STRING, 1);
+        case TOKEN_LOAD: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_LOAD, 1);
         default: return NULL; // Unreachable.
     } 
 }
@@ -790,7 +791,6 @@ static AstParseRule rules[] = {
     [TOKEN_FOR]                  = {NULL,      NULL,   PREC_NONE},
     [TOKEN_FUN]                  = {NULL,      NULL,   PREC_NONE},
     [TOKEN_IF]                   = {NULL,      NULL,   PREC_NONE},
-    [TOKEN_IMPORT]               = {builtin,   NULL,   PREC_NONE},
     [TOKEN_INT8]                 = {type,      NULL,   PREC_NONE},
     [TOKEN_INT16]                = {type,      NULL,   PREC_NONE},
     [TOKEN_INT32]                = {type,      NULL,   PREC_NONE},
@@ -808,6 +808,7 @@ static AstParseRule rules[] = {
     [TOKEN_PLACE]                = {NULL,      NULL,   PREC_NONE},
     [TOKEN_POKE]                 = {NULL,      NULL,   PREC_NONE},
     [TOKEN_PRINT]                = {NULL,      NULL,   PREC_NONE},
+    [TOKEN_READ_BINARY]          = {builtin,   NULL,   PREC_NONE},
     [TOKEN_READ_SOURCE]          = {builtin,   NULL,   PREC_NONE},
     [TOKEN_RECEIVE]              = {builtin,   NULL,   PREC_NONE},
     [TOKEN_RESUME]               = {builtin,   NULL,   PREC_NONE},
@@ -833,6 +834,7 @@ static AstParseRule rules[] = {
     [TOKEN_TS_INTERRUPT]         = {builtin,   NULL,   PREC_NONE},
     [TOKEN_TS_SYNC]              = {builtin,   NULL,   PREC_NONE},
     [TOKEN_INT]                  = {type,      NULL,   PREC_NONE},
+    [TOKEN_LOAD]                 = {builtin,   NULL,   PREC_NONE},
 
     [TOKEN_ERROR]                = {NULL,      NULL,   PREC_NONE},
     [TOKEN_EOF]                  = {NULL,      NULL,   PREC_NONE},
