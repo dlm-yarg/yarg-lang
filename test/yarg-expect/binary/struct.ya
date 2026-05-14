@@ -21,9 +21,14 @@ struct { int8 i8; int16 i16; int32 i32; mfloat64 f; int8 i8; any a; } y;
 y.a = c();
  print y;
 print y.a.x();
+<<<<<<< HEAD
 struct { int8 i8; int16 i16; int32 i32; mfloat64 f; int8 i8; any a; string s; } y2;
 y2.s = "This is a truncated long string. Dlm did this to stop the whole script being printed when tracing is enabled and broke print!";
 y.a=y2;
+=======
+struct { int8 i8; int16 i16; int32 i32; mfloat64 f; int8 i8; any a; } y2;
+ y.a=y2;
+>>>>>>> main
 print y;
 y.a=[1,2,4];
 print y;
@@ -37,7 +42,11 @@ print y;
 // expect: 7
 // expect: struct{|6:40|0; 0; 0; 0.00000; 0; c instance; }
 // expect: 7
+<<<<<<< HEAD
 // expect: struct{|6:40|0; 0; 0; 0.00000; 0; struct{|6:40|0; 0; 0; 0.00000; 0; nil; This is a truncated long string. Dlm did this to stop the whole script being…; }; }
+=======
+// expect: struct{|6:40|0; 0; 0; 0.00000; 0; struct{|6:40|0; 0; 0; 0.00000; 0; nil; }; }
+>>>>>>> main
 // expect: struct{|6:40|0; 0; 0; 0.00000; 0; Type:any[3]:[1, 2, 4]; }
 // expect: struct{|6:40|0; 0; 0; 0.00000; 0; Type:any[3]:[<fn f>, 2, 4]; }
 

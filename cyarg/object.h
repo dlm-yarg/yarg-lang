@@ -147,7 +147,7 @@ struct ObjString {
     uint32_t hash;
 };
 
-typedef struct {
+typedef struct ObjInt {
     Obj obj;
     bool isLiteral;
     Int bigInt;
@@ -186,7 +186,7 @@ typedef struct {
     ObjClosure* method;
 } ObjBoundMethod;
 
-typedef struct {
+typedef struct ObjPackedUniformArray {
     Obj obj;
     PackedValue store;
 } ObjPackedUniformArray;

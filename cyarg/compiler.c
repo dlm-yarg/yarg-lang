@@ -552,7 +552,7 @@ static void generateExprCollectionElement(ObjExprCollectionElement* collection) 
 
 static void generateExprBuiltin(ObjExprBuiltin* fn) {
     switch(fn->builtin) {
-        case EXPR_BUILTIN_IMPORT: emitBytes(OP_GET_BUILTIN, BUILTIN_IMPORT); break;
+        case EXPR_BUILTIN_READ_BINARY: emitBytes(OP_GET_BUILTIN, BUILTIN_READ_BINARY); break;
         case EXPR_BUILTIN_READ_SOURCE: emitBytes(OP_GET_BUILTIN, BUILTIN_READ_SOURCE); break;
         case EXPR_BUILTIN_COMPILE: emitBytes(OP_GET_BUILTIN, BUILTIN_COMPILE); break;
         case EXPR_BUILTIN_MAKE_ROUTINE: emitBytes(OP_GET_BUILTIN, BUILTIN_MAKE_ROUTINE); break;
@@ -1052,7 +1052,7 @@ static void generateStmtFieldDeclaration(ObjStmtFieldDeclaration* stmt) {
 }
 
 static void generateStmt(ObjStmt* stmt) {
-#if defined COMPILE_INCLUDE_LINE_NUMBERS
+#ifndef COMPILE_EXCLUDE_LINE_NUMBERS
     if (current->function->chunk.numLines == 0 ||
         current->function->chunk.lines[current->function->chunk.numLines - 1].line != stmt->line) {
         if (current->function->chunk.numLines == current->function->chunk.lineCapacity) {
