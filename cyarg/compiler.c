@@ -227,35 +227,6 @@ static uint8_t makeConstant(Obj *o) {
 }
 
 #define UINT24_MAX 16777215
-<<<<<<< HEAD
-static void emitConstant(Obj *obj) {
-    // DOUBLE_VAL, ADDRESS_VAL or OBJ_VAL(String or Int)
-    int32_t v = 0;
-    bool asObject = true;
-    switch (obj->type)
-    {
-    case OBJ_INT:
-        ObjInt *oi = (ObjInt *)obj;
-        if (int_is_range(&oi->bigInt, -UINT24_MAX, UINT24_MAX) == INT_WITHIN)
-        {
-            v = int_to_i32(&oi->bigInt);
-            asObject = false;
-        }
-    case OBJ_VALUE:
-        ObjValue *ov = (ObjValue *)obj;
-//        switch (ov->value.type) {
-            assert(!"Implement");
-//        }
-    case OBJ_STRING:
-        break;
-    case VAL_DOUBLE:
-        break;
-    }
-
-    if (asObject)
-    {
-        emitBytes(OP_CONSTANT, makeConstant(obj));
-=======
 static void emitImmediateConstant(int32_t);
 static void emitConstant(Value value) {
     // DOUBLE_VAL, ADDRESS_VAL or OBJ_VAL(String or Int)
@@ -285,7 +256,6 @@ static void emitConstant(Value value) {
         emitBytes(OP_CONSTANT, makeConstant(value));
     } else {
         emitImmediateConstant(v);
->>>>>>> binary
     }
 }
 

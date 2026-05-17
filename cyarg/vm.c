@@ -1565,22 +1565,7 @@ InterpretResult bootBinary(ObjString *script) {
     return result;
 }
 
-
-<<<<<<< HEAD
-InterpretResult compileScript(ObjString* script, Value result) {
-=======
-InterpretResult bootBinary(ObjString *script) {
-    bindBootstrapCode("boot", 4, load_bootstrap, sizeof(load_bootstrap), script, load_bootstrap_parameter_offset);
-
-    // Yarg scripts do not return values, so the bootstrap result is discarded.
-    Value discardedResult;
-    InterpretResult result = bootstrapVM(&discardedResult, script);
-    tempRootPop();
-    return result;
-}
-
-InterpretResult compileScript(ObjString* script, Value* result) {
->>>>>>> binary
+InterpretResult compileScript(ObjPtr script, ObjPtr* result) {
     bindBootstrapCode("compiler-host", 13, compile_bootstrap, sizeof(compile_bootstrap), script, compile_bootstrap_parameter_offset);
 
     // Treat the compile bootstrap as a function, so we get a result.

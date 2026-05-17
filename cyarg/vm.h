@@ -26,14 +26,8 @@ typedef struct {
     
     ValueCellTable globals;
     ValueTable strings;
-<<<<<<< HEAD
     ObjPtr initString;
     ObjPtr libraryPath;
-    ValueTable imports;
-=======
-    ObjString* initString;
-    ObjString* libraryPath;
->>>>>>> binary
 
     platform_mutex heap;
 
@@ -46,7 +40,6 @@ typedef struct {
 } VM;
 
 extern VM vm;
-extern uint8_t load_bootstrap[];
 
 // two-phase init, broadly get the memory manager up, and then get the yarg env up.
 void initVMMemory(void);
@@ -55,12 +48,8 @@ void freeVM(void);
 void markVMRoots(void);
 
 InterpretResult bootScript(ObjString* script);
-<<<<<<< HEAD
 InterpretResult compileScript(ObjString* script, ObjPtr* compileResult);
-=======
-InterpretResult compileScript(ObjString* script, Value* compileResult);
 InterpretResult bootBinary(ObjString *script);
->>>>>>> binary
 
 InterpretResult run(ObjRoutine* routine);
 bool callfn(ObjRoutine* routine, ObjClosure* closure, int argCount);

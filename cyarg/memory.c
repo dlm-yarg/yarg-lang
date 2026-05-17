@@ -689,11 +689,4 @@ void printObjects(void) {
     }
     PRINTERR("=== End Objects (%zu) ===\n", count);
 }
-<<<<<<< HEAD
 #endif
-=======
-
-void pinObj(Obj* object) {
-    ; // currently a nop.
-}
->>>>>>> binary

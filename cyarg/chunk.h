@@ -69,26 +69,10 @@ typedef enum {
     OP_PLACE
 } OpCode;
 
-typedef struct {
-<<<<<<< HEAD
+typedef struct Chunk {
     DynamicArray *code; // of type uint8_t
     DynamicArray *lines; // of type int
     DynamicArray *constants; // of type ValueCell
-=======
-    uint16_t address;
-    uint16_t line;
-} ChunkSource;
-
-typedef struct Chunk {
-    int count;
-    int capacity;
-    uint8_t* code;
-    int numLines;
-    int lineCapacity;
-    ChunkSource *lines;
-    DynamicValueArray constants;
-    bool xip;
->>>>>>> binary
 } Chunk;
 
 typedef enum {

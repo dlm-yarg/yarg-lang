@@ -22,54 +22,6 @@
 
 #include <stdio.h>
 
-<<<<<<< HEAD
-=======
-#include "common.h"
-#include "big-int/big-int.h"
-
-typedef struct Obj Obj;
-typedef struct ObjString ObjString;
-typedef struct ObjRoutine ObjRoutine;
-typedef struct ObjConcreteYargType ObjConcreteYargType;
-typedef struct ObjPackedUniformArray ObjPackedUniformArray;
-
-typedef union {
-    bool boolean;
-    double dbl;
-    uint8_t ui8;
-    int8_t i8;
-    uint16_t ui16;
-    int16_t i16;
-    uint32_t ui32;
-    int32_t i32;
-    uint64_t ui64;
-    int64_t i64;
-    uintptr_t address;
-    Obj* obj;
-} AnyValue;
-
-typedef enum {
-    VAL_BOOL,
-    VAL_NIL,
-    VAL_DOUBLE,
-    VAL_I8,
-    VAL_UI8,
-    VAL_I16,
-    VAL_UI16,
-    VAL_I32,
-    VAL_UI32,
-    VAL_UI64,
-    VAL_I64,
-    VAL_ADDRESS,
-    VAL_OBJ,
-} ValueType;
-
-typedef struct {
-    ValueType type;
-    AnyValue as;
-} Value;
-
->>>>>>> binary
 #if defined(__LP64__) || defined(_WIN64) || defined(__x86_64__) || defined(__aarch64__)
 #define IS_64BIT 1
 #define IS_32BIT 0
@@ -94,6 +46,6 @@ bool is_struct(ObjPtr val);
 bool is_nil(ObjPtr val);
 bool is_channel(ObjPtr val);
 
-uintptr_t pinUniformArray(ObjPackedUniformArray* array);
+uintptr_t pinUniformArray(ObjPtr array);
 
 #endif

@@ -1,8 +1,8 @@
 #ifndef cyarg_builtin_h
 #define cyarg_builtin_h
 
-typedef struct Obj Obj;
+#include "object_type.h"
 
-Obj *getBuiltin(uint8_t builtin);
+ObjPtr getBuiltin(uint8_t builtin);
 
 #endif

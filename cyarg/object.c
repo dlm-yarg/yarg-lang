@@ -529,22 +529,8 @@ void fprintObject(FILE* op, Obj *obj) {
         case OBJ_SYNCGROUP:
             printSyncGroup(op, ((ObjSyncGroup *)obj));
             break;
-<<<<<<< HEAD
         case OBJ_STRING:
             FPRINTMSG(op, "%s", ((ObjString*)obj)->chars);
-=======
-        case OBJ_STRING: {
-            char const *s = AS_CSTRING(value);
-            if (strlen(s) > 80) {
-                char trunc[80];
-                memcpy(trunc, s, 76);
-                trunc[76] = '\0';
-                strcat(trunc, "…");
-                FPRINTMSG(op, "%s", trunc);
-            } else {
-                FPRINTMSG(op, "%s", s);
-            }
->>>>>>> binary
             break;
         }
         case OBJ_UPVALUE:
