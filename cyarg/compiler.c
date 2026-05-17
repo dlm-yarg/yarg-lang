@@ -352,8 +352,7 @@ static void generateNumber(ObjExprNumber* num) {
         emitConstant(DOUBLE_VAL(num->dbl));
         break;
     case NUMBER_INT: {
-        ObjInt *objInt = (ObjInt *) allocateObject(sizeof (ObjInt) + num->bigInt.m_ * sizeof (uint16_t), OBJ_INT);
-        objInt->bigInt.m_ = num->bigInt.m_;
+        ObjInt *objInt = allocateIntObject(num->bigInt.d_);
         objInt->isLiteral = true;
         int_set_t(&num->bigInt, &objInt->bigInt);
         emitConstant(OBJ_VAL(objInt));
@@ -1053,7 +1052,7 @@ static void generateStmtFieldDeclaration(ObjStmtFieldDeclaration* stmt) {
 }
 
 static void generateStmt(ObjStmt* stmt) {
-
+#ifndef COMPILE_EXCLUDE_LINE_NUMBERS
     if (current->function->chunk.numLines == 0 ||
         current->function->chunk.lines[current->function->chunk.numLines - 1].line != stmt->line) {
         if (current->function->chunk.numLines == current->function->chunk.lineCapacity) {
@@ -1064,7 +1063,7 @@ static void generateStmt(ObjStmt* stmt) {
         }
         current->function->chunk.lines[current->function->chunk.numLines++] = (ChunkSource){current->function->chunk.count, stmt->line};
     }
-
+#endif
     current->panicMode = false;
     current->recent = stmt;
     switch (stmt->obj.type) {

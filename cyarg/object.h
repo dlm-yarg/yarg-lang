@@ -147,7 +147,7 @@ struct ObjString {
     uint32_t hash;
 };
 
-typedef struct {
+typedef struct ObjInt {
     Obj obj;
     bool isLiteral;
     Int bigInt;
@@ -212,6 +212,7 @@ typedef struct {
     (type*)allocateObject(sizeof(type), objectType)
 
 Obj* allocateObject(size_t size, ObjType type);
+ObjInt* allocateIntObject(size_t numDigits);
 
 void initDynamicObjArray(DynamicObjArray* array);
 void freeDynamicObjArray(DynamicObjArray* array);
