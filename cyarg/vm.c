@@ -160,7 +160,6 @@ void initVMRuntime() {
     initFunction(&vm.bootFunction);
 
     initCellTable(&vm.globals);
-    initTable(&vm.imports);
     initTable(&vm.strings);
     
     vm.initString = copyString("init", 4);
@@ -175,6 +174,10 @@ void initVMRuntime() {
     defineNative("c_stdin_eof", stdin_eofNative);
     defineNative("c_stdout_puts", stdout_putsNative);
 
+    defineNative("c_readFileIntoBuffer", readFileIntoBufferNative);
+    defineNative("c_fileSize", fileSizeNative);
+    defineNative("c_fileExists", fileExistsNative);
+
 #if defined(CYARG_FEATURE_HOSTED_REPL)
     defineNative("host_argc", host_argcNative);
     defineNative("host_argn", host_argnNative);
@@ -185,7 +188,6 @@ void initVMRuntime() {
 void freeVM() {
     freeCellTable(&vm.globals);
     freeTable(&vm.strings);
-    freeTable(&vm.imports);
     vm.initString = NULL;
     vm.libraryPath = NULL;
     freeObjects();
@@ -207,7 +209,6 @@ void markVMRoots() {
         markValue(*slot);
     }
 
-    markTable(&vm.imports);
     markObject((Obj*)vm.libraryPath);
     markCellTable(&vm.globals);
     markObject((Obj*)vm.initString);
@@ -232,18 +233,18 @@ bool callfn(ObjRoutine* routine, ObjClosure* closure, int argCount) {
     return true;
 }
 
-static InterpretResult callValue(ObjRoutine* routine, Obj *callee, int argCount) {
+static InterpretResult callValue(ObjRoutine* routine, ObjPtr callee, int argCount) {
     if (IS_OBJ(callee)) {
         switch (OBJ_TYPE(callee)) {
             case OBJ_BOUND_METHOD: {
-                ObjBoundMethod* bound = (ObjBoundMethod *)callee;
+                ObjBoundMethod* bound = AS_BOUND_METHOD(callee);
                 ValueCell* target = peekCell(routine, argCount);
                 target->value = bound->reciever;
                 target->cellType = NULL;
                 return callfn(routine, bound->method, argCount) ? INTERPRET_OK : INTERPRET_RUNTIME_ERROR;
             }
             case OBJ_CLASS: {
-                ObjClass* klass = (ObjClass *)callee;
+                ObjClass* klass = AS_CLASS(callee);
                 ValueCell* target = peekCell(routine, argCount);
                 target->value = OBJ_VAL(newInstance(klass));
                 target->cellType = NULL;
@@ -257,21 +258,16 @@ static InterpretResult callValue(ObjRoutine* routine, Obj *callee, int argCount)
                 return INTERPRET_OK;
             }
             case OBJ_CLOSURE:
-                return callfn(routine, (ObjClosure *)callee, argCount) ? INTERPRET_OK : INTERPRET_RUNTIME_ERROR;
+                return callfn(routine, AS_CLOSURE(callee), argCount) ? INTERPRET_OK : INTERPRET_RUNTIME_ERROR;
             case OBJ_NATIVE: {
-                NativeFn native = ((ObjNative *)callee)->function;
-                if (native == importBuiltinDummy) {
-                    return importBuiltin(routine, argCount);
+                NativeFn native = AS_NATIVE(callee);
+                Value result = NIL_VAL;
+                if (native(routine, argCount, &result)) {
+                    popN(routine, argCount + 1);
+                    push(routine, result);
+                    return INTERPRET_OK;
                 } else {
-                    struct AbstractValue result;
-                    NIL_VAL(&result);
-                    if (native(routine, argCount, &result)) {
-                        popN(routine, argCount + 1);
-                        push(routine, &result);
-                        return INTERPRET_OK;
-                    } else {
-                        return INTERPRET_RUNTIME_ERROR;
-                    }
+                    return INTERPRET_RUNTIME_ERROR;
                 }
             }
             default:
@@ -772,10 +768,8 @@ InterpretResult run(ObjRoutine* routine) {
                 {
                     num += 65536 * READ_BYTE();
                 }
-                ObjInt *i = (ObjInt *) allocateObject(sizeof (ObjInt) + 2 * sizeof (uint16_t), OBJ_INT);
+                ObjInt *i = newIntU(num);
                 i->isLiteral = true;
-                i->bigInt.m_ = 2;
-                int_set_u(num, &i->bigInt);
                 i->bigInt.neg_ = instruction == OP_IMMEDIATE_N8 || instruction == OP_IMMEDIATE_N16 || instruction == OP_IMMEDIATE_N24;
                 push(routine, OBJ_VAL(i));
                 break;
@@ -983,20 +977,39 @@ InterpretResult run(ObjRoutine* routine) {
                 }
                 break;
             }
-            case OP_EQUAL: {
+            case OP_EQUAL: case OP_GREATER: case OP_LESS: {
                 if (IS_INT(peek(routine, 0)) && IS_INT(peek(routine, 1))) {
-                    binaryIntBoolOp(routine, "==");
+                    switch (instruction) {
+                    case OP_EQUAL:
+                        binaryIntBoolOp(routine, "==");
+                        break;
+                    case OP_GREATER:
+                        binaryIntBoolOp(routine, ">");
+                        break;
+                    case OP_LESS:
+                        binaryIntBoolOp(routine, "<");
+                        break;
+                    }
                 } else {
                     promote(&peekCell(routine, 1)->value, &peekCell(routine, 0)->value);
 
-                    Value b = pop(routine);
-                    Value a = pop(routine);
-                    push(routine, BOOL_VAL(valuesEqual(a, b)));
+                    switch (instruction) {
+                    case OP_EQUAL: {
+                        Value b = pop(routine);
+                        Value a = pop(routine);
+                        push(routine, BOOL_VAL(valuesEqual(a, b)));
+                        break;
+                    }
+                    case OP_GREATER:
+                        BINARY_BOOLEAN_OP(routine, >);
+                        break;
+                    case OP_LESS:
+                        BINARY_BOOLEAN_OP(routine, <);
+                        break;
+                    }
                 }
                 break;
             }
-            case OP_GREATER:  BINARY_BOOLEAN_OP(routine, >); break;
-            case OP_LESS:     BINARY_BOOLEAN_OP(routine, <); break;
             case OP_LEFT_SHIFT:  BINARY_UINT_OP(routine, <<); break;
             case OP_RIGHT_SHIFT: BINARY_UINT_OP(routine, >>); break;
             case OP_BITOR:       BINARY_UINT_OP(routine, |); break;
@@ -1261,7 +1274,7 @@ InterpretResult run(ObjRoutine* routine) {
                 ObjFunction* function = AS_FUNCTION(READ_CONSTANT());
                 ObjClosure* closure = newClosure(function);
                 push(routine, OBJ_VAL(closure));
-                for (int i = 0; i < closure->upvalueCount; i++) {
+                for (int i = 0; i < closure->cUpvalueCount; i++) {
                     uint8_t isLocal = READ_BYTE();
                     uint8_t index = READ_BYTE();
                     if (isLocal) {
@@ -1456,6 +1469,7 @@ InterpretResult run(ObjRoutine* routine) {
             }
         }
     }
+}
 
 #undef READ_BYTE
 #undef READ_SHORT
@@ -1463,14 +1477,13 @@ InterpretResult run(ObjRoutine* routine) {
 #undef READ_STRING
 #undef BINARY_BOOLEAN_OP
 #undef BINARY_OP
-}
 
 typedef void (*bindBootstrapFunction)(ObjString* script);
 
 static void bindBootstrapCode(const char* name, size_t nameLength, 
                               const uint8_t code[], size_t codeLength, 
                               ObjString* script, size_t constantIndex) {
-    vm.bootFunction.name = copyString(name, (int)nameLength);
+    vm.bootFunction.fName = copyString(name, (int)nameLength);
 
     for (size_t i = 0; i < codeLength; i++) {
         writeChunk(&vm.bootFunction.chunk, code[i], 0);
@@ -1482,7 +1495,7 @@ static void bindBootstrapCode(const char* name, size_t nameLength,
 // note that it is assumed that the initial script is well-formed and won't
 // produce a compile error. (use --compile to check this when editing the script)
 uint8_t bootstrap[] = {
-    OP_GET_BUILTIN, BUILTIN_COMPILE,
+    OP_GET_BUILTIN, BUILTIN_LOAD,
     OP_GET_BUILTIN, BUILTIN_READ_SOURCE,
     OP_CONSTANT, 0,
     OP_CALL, 1,
@@ -1504,7 +1517,19 @@ uint8_t compile_bootstrap[] = {
 
 size_t compile_bootstrap_parameter_offset = 5;
 
-InterpretResult bootstrapVM(Value bootstrapResult, ObjString* script) {
+uint8_t load_bootstrap[] = {
+    OP_GET_BUILTIN, BUILTIN_LOAD,
+    OP_GET_BUILTIN, BUILTIN_READ_BINARY,
+    OP_CONSTANT, 0,
+    OP_CALL, 1,
+    OP_CALL, 1,
+    OP_CALL, 0,
+    OP_RETURN
+};
+
+size_t load_bootstrap_parameter_offset = 5;
+
+InterpretResult bootstrapVM(Value* bootstrapResult, ObjString* script) {
     ObjClosure* closure = newClosure(&vm.bootFunction);
 
     bindEntryFn(&vm.core0, closure);
@@ -1530,7 +1555,32 @@ InterpretResult bootScript(ObjString* script) {
     return runResult;
 }
 
+InterpretResult bootBinary(ObjString *script) {
+    bindBootstrapCode("boot", 4, load_bootstrap, sizeof(load_bootstrap), script, load_bootstrap_parameter_offset);
+
+    // Yarg scripts do not return values, so the bootstrap result is discarded.
+    Value discardedResult;
+    InterpretResult result = bootstrapVM(&discardedResult, script);
+    tempRootPop();
+    return result;
+}
+
+
+<<<<<<< HEAD
 InterpretResult compileScript(ObjString* script, Value result) {
+=======
+InterpretResult bootBinary(ObjString *script) {
+    bindBootstrapCode("boot", 4, load_bootstrap, sizeof(load_bootstrap), script, load_bootstrap_parameter_offset);
+
+    // Yarg scripts do not return values, so the bootstrap result is discarded.
+    Value discardedResult;
+    InterpretResult result = bootstrapVM(&discardedResult, script);
+    tempRootPop();
+    return result;
+}
+
+InterpretResult compileScript(ObjString* script, Value* result) {
+>>>>>>> binary
     bindBootstrapCode("compiler-host", 13, compile_bootstrap, sizeof(compile_bootstrap), script, compile_bootstrap_parameter_offset);
 
     // Treat the compile bootstrap as a function, so we get a result.
@@ -1539,27 +1589,11 @@ InterpretResult compileScript(ObjString* script, Value result) {
 }
 
 void unaryIntOp(ObjRoutine* routine, int op) {
+    assert(op == OP_NEGATE);
     Int* a = AS_INT(peek(routine, 0));
-    int s = 0;
-    switch (op) {
-        case OP_NEGATE:
-            s = a->m_;
-            break;
-        default:
-            assert(!"UnaryIntOp");
-    }
-    if (s > 254) s = 254;
-    s += s % 2;
-    ObjInt *r = (ObjInt *)allocateObject(sizeof (ObjInt) + s * sizeof (uint16_t), OBJ_INT);
-    r->bigInt.m_ = s;
+    ObjInt *r = allocateIntObject(a->d_);
     int_set_t(a, &r->bigInt);
-    switch (op) {
-        case OP_NEGATE:
-            int_neg(&r->bigInt);
-            break;
-        default:
-            assert(!"IntUnaryOp");  
-    }
+    int_neg(&r->bigInt);
     pop(routine);
     push(routine, OBJ_VAL(r));
 }
@@ -1588,9 +1622,7 @@ void binaryIntOp(ObjRoutine* routine, char const *c)
         assert(!"IntOp");
     }
     if (s > 254) s = 254;
-    s += s % 2;
-    ObjInt *r = (ObjInt *)allocateObject(sizeof (ObjInt) + s * sizeof (uint16_t), OBJ_INT);
-    r->bigInt.m_ = s;
+    ObjInt *r = allocateIntObject(s);
     int_init(&r->bigInt);
 
     switch (*c)
@@ -1629,7 +1661,7 @@ void binaryIntBoolOp(ObjRoutine* routine, char const *op)
         r = ic == INT_GT;
         break;
     case '=':
-        assert(op[1] == '=');
+        assert(op[1] == '=' && op[2] == 0);
         r = ic == INT_EQ;
         break;
     default:

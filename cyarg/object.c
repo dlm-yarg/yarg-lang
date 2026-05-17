@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 
 #include "memory.h"
 #include "object.h"
@@ -32,6 +33,14 @@ Obj* allocateObject(size_t size, ObjType type) {
 #endif
 
     return object;
+}
+
+ObjInt* allocateIntObject(size_t numDigits) {
+    numDigits += numDigits % 2; // numDigits is always even
+    assert(numDigits <= 254 && numDigits >= 2);
+    ObjInt *i = (ObjInt *) allocateObject(sizeof (ObjInt) + numDigits * sizeof (uint16_t), OBJ_INT);
+    i->bigInt.m_ = numDigits;
+    return i;
 }
 
 void initDynamicObjArray(DynamicObjArray* array) {
@@ -92,7 +101,7 @@ ObjClosure* newClosure(ObjFunction* function) {
     ObjClosure* closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
     closure->function = function;
     closure->upvalues = upvalues;
-    closure->upvalueCount = function->upvalueCount;
+    closure->cUpvalueCount = function->upvalueCount;
     return closure;
 }
 
@@ -106,7 +115,7 @@ void initFunction(ObjFunction* function) {
     // may not be called after alloc, so init all fields.
     function->arity = 0;
     function->upvalueCount = 0;
-    function->name = NULL;
+    function->fName = NULL;
     initChunk(&function->chunk);
 }
 
@@ -124,22 +133,18 @@ ObjNative* newNative(NativeFn function) {
 }
 
 ObjInt* newInt(int64_t value) {
-    ObjInt *i = (ObjInt *) allocateObject(sizeof (ObjInt) + 2 * sizeof (uint16_t), OBJ_INT);
-    i->isLiteral = false;
-    i->bigInt.m_ = sizeof (value) / sizeof (uint16_t);
+    ObjInt *i = allocateIntObject(sizeof value / sizeof (uint16_t));
     int_set_i(value, &i->bigInt);
     return i;
 }
 
 ObjInt* newIntU(uint64_t value) {
-    ObjInt *i = (ObjInt *) allocateObject(sizeof (ObjInt) + 2 * sizeof (uint16_t), OBJ_INT);
-    i->isLiteral = false;
-    i->bigInt.m_ = sizeof (value) / sizeof (uint16_t);
+    ObjInt *i = allocateIntObject(sizeof value / sizeof (uint16_t));
     int_set_u(value, &i->bigInt);
     return i;
 }
 
-void defaultIntValue(Value r) {
+ObjPtr defaultIntValue() {
     ObjInt *intObj = (ObjInt *) allocateObject(sizeof (ObjInt) + 2 * sizeof (uint16_t), OBJ_INT);
     intObj->bigInt.m_ = 2;
     int_init(&intObj->bigInt);
@@ -446,11 +451,11 @@ ObjUpvalue* newUpvalue(ValueCell* slot, size_t stackOffset) {
 }
 
 static void printFunction(FILE* op, ObjFunction* function) {
-    if (function->name == NULL) {
+    if (function->fName == NULL) {
         FPRINTMSG(op, "<script>");
         return;
     }
-    FPRINTMSG(op, "<fn %s>", function->name->chars);
+    FPRINTMSG(op, "<fn %s>", function->fName->chars);
 }
 
 static void printRoutine(FILE* op, ObjRoutine* routine) {
@@ -524,9 +529,24 @@ void fprintObject(FILE* op, Obj *obj) {
         case OBJ_SYNCGROUP:
             printSyncGroup(op, ((ObjSyncGroup *)obj));
             break;
+<<<<<<< HEAD
         case OBJ_STRING:
             FPRINTMSG(op, "%s", ((ObjString*)obj)->chars);
+=======
+        case OBJ_STRING: {
+            char const *s = AS_CSTRING(value);
+            if (strlen(s) > 80) {
+                char trunc[80];
+                memcpy(trunc, s, 76);
+                trunc[76] = '\0';
+                strcat(trunc, "…");
+                FPRINTMSG(op, "%s", trunc);
+            } else {
+                FPRINTMSG(op, "%s", s);
+            }
+>>>>>>> binary
             break;
+        }
         case OBJ_UPVALUE:
             FPRINTMSG(op, "upvalue");
             break;

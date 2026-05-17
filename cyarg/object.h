@@ -163,7 +163,7 @@ typedef struct ObjFunction {
     int arity;
     int upvalueCount;
     Chunk chunk;
-    ObjPtr name;
+    ObjPtr fName;
 } ObjFunction;
 
 typedef bool (*NativeFn)(ObjPtr routine, int argCount, ObjPtr *result);
@@ -284,8 +284,12 @@ typedef struct ObjMap {
 #define ALLOCATE_OBJ(type, objectType) allocateObject(sizeof(type), (objectType))
 #define ALLOCATE_VAR_OBJ(type, objectType, itemType, numItems) allocateObject(sizeof (type) + sizeof (itemType) * (numItems), (objectType))
 
+<<<<<<< HEAD
 ObjPtr allocateObject(size_t size, ObjType type);
 ObjPtr allocateVarObject(size_t size, ObjType type, size_t itemSize, size_t numItems);
+=======
+Obj* allocateObject(size_t size, ObjType type);
+>>>>>>> binary
 
 ObjPtr newBoundMethod(ObjPtr receiver, ObjPtr method);
 ObjPtr newClass(ObjPtr name);
@@ -300,6 +304,7 @@ ObjPtr takeString(char *chars, int length);
 ObjPtr copyString(const char *chars, int length);
 ObjPtr copyStringWithEscapes(const char *chars, int length);
 ObjPtr newUpvalue(ValueCell *slot, size_t stackOffset);
+ObjPtr allocateIntObject(size_t numDigits);
 ObjPtr newInt(int64_t value);
 ObjPtr newIntU(uint64_t value);
 

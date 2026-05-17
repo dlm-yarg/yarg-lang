@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <assert.h>
 
 #include "chunk.h"
 #include "memory.h"
@@ -8,13 +9,17 @@ void initChunk(Chunk* chunk) {
     chunk->count = 0;
     chunk->capacity = 0;
     chunk->code = NULL;
-    chunk->lines = NULL;
+    chunk->numLines = 0;
+    chunk->lineCapacity = 0;
+    chunk->lines = 0;
     initDynamicValueArray(&chunk->constants);
 }
 
 void freeChunk(Chunk* chunk) {
-    FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
-    FREE_ARRAY(int, chunk->lines, chunk->capacity);
+    if (!chunk->xip) {
+        FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
+    }
+    FREE_ARRAY(ChunkSource, chunk->lines, chunk->lineCapacity);
     freeDynamicValueArray(&chunk->constants);
     initChunk(chunk);
 }
@@ -24,15 +29,13 @@ void writeChunk(Chunk* chunk, uint8_t byte, int line) {
         int oldCapacity = chunk->capacity;
         chunk->capacity = GROW_CAPACITY(oldCapacity);
         chunk->code = GROW_ARRAY(uint8_t, chunk->code, oldCapacity, chunk->capacity);
-        chunk->lines = GROW_ARRAY(int, chunk->lines, oldCapacity, chunk->capacity);
     }
 
     chunk->code[chunk->count] = byte;
-    chunk->lines[chunk->count] = line;
     chunk->count++;
 }
 
-int addConstant(Chunk* chunk, Obj *o) {
+int addConstant(Chunk* chunk, ObjPtr o) {
     if (IS_OBJ(value)) tempRootPush(value->obj);
     appendToDynamicValueArray(&chunk->constants, o);
     if (IS_OBJ(value)) tempRootPop();
