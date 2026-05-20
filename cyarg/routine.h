@@ -4,7 +4,7 @@
 #include "object.h"
 
 #define FRAMES_MAX 20
-#define SLICE_MAX 64
+#define SLICE_SIZE 64
 
 typedef struct ObjRoutine ObjRoutine;
 
@@ -22,15 +22,10 @@ typedef enum {
     EXEC_ERROR
 } ExecState;
 
-typedef bool (*AddSliceFn)(ObjRoutine* routine);
-
-typedef struct StackSlice {
-    ValueCell elements[SLICE_MAX];
-} StackSlice;
-
-typedef struct ObjStackSlice{
+typedef struct ObjStackSlice {
     Obj obj;
-    StackSlice slice;
+    ObjPtr elements[SLICE_SIZE];
+    ObjPtr sliceBelow;
 } ObjStackSlice;
 
 typedef struct ObjRoutine {
@@ -39,21 +34,14 @@ typedef struct ObjRoutine {
     CallFrame frames[FRAMES_MAX];
     int frameCount;
 
-    StackSlice** stackSlices;
-    size_t stackSliceCapacity;
-    size_t sliceCount;
-    
-    size_t stackTopIndex;
+    ArrayItemCount topIndex;
+    ObjPtr topSlice;
 
-    StackSlice stk;
-    DynamicArray additionalSlicesArray; // of ObjPtr
-    AddSliceFn addSlice;
-
-    ObjClosure* entryFunction;
+    ObjPtr entryFunction; // closure
     ObjPtr entryArg;
     ObjPtr result;
 
-    ObjUpvalue* openUpvalues;
+    DynamicArray *openUpvalues; // of ObjPtr, note pointer to da as wasteful to realloc ObjRoutine to extend openUpvalues
 
     volatile ExecState state;
     bool traceExecution;

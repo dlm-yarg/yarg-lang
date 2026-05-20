@@ -31,21 +31,21 @@
 #endif
 
 
-void copyValue(ObjPtr *to, ObjPtr from);
+ObjPtr copyValue(ObjPtr);
 
-bool is_positive_integer32(ObjPtr a);
-uint32_t as_positive_integer32(ObjPtr a);
+bool is_positive_integer32(ObjPtr);
+uint32_t as_positive_integer32(ObjPtr);
 
-bool valuesEqual(ObjPtr a, ObjPtr b);
+bool valuesEqual(ObjPtr, ObjPtr);
 
-void printValue(ObjPtr value);
-void fprintValue(FILE* op, ObjPtr value);
+void printValue(ObjPtr);
+void fprintValue(FILE *, ObjPtr);
 
-bool is_uniformarray(ObjPtr val);
-bool is_struct(ObjPtr val);
-bool is_nil(ObjPtr val);
-bool is_channel(ObjPtr val);
+bool is_uniformarray(ObjPtr);
+bool is_struct(ObjPtr);
+bool is_nil(ObjPtr);
+bool is_channel(ObjPtr);
 
-uintptr_t pinUniformArray(ObjPtr array);
+uintptr_t pinUniformArray(ObjPtr);
 
 #endif

@@ -503,7 +503,7 @@ static void freeObject(Obj* object) {
         }
         case OBJ_UNOWNED_UNIFORMARRAY: FREE(ObjPackedUniformArray, object); break;
         case OBJ_PACKEDUNIFORMARRAY: {
-            ObjPackedUniformArray* array = (ObjPackedUniformArray*)object;
+            ObjPackedUniformArray* array = (ObjPackedArray*)object;
             ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*)array->store.storedType;
             size_t element_size = arrayElementSize(arrayType);
             array->store.storedValue = reallocate(array->store.storedValue, arrayType->cardinality * element_size, 0);

@@ -72,7 +72,7 @@ typedef enum {
 typedef struct Chunk {
     DynamicArray *code; // of type uint8_t
     DynamicArray *lines; // of type int
-    DynamicArray *constants; // of type ValueCell
+    DynamicArray *constants; // of type ObjPtr
 } Chunk;
 
 typedef enum {

@@ -13,21 +13,19 @@
 typedef uint16_t ObjPtr;
 typedef uint16_t ObjSize;
 typedef uint16_t ArrayItemCount;
+typedef uint16_t ElementOffset;
 
-typedef struct ValueCell {
-    ObjPtr value;
-    ObjPtr type;
-} ValueCell;
-
-typedef struct ValueCollectionEntry {
+// for maps/structs/classes
+typedef struct KeyValue {
     ObjPtr key;
     ObjPtr value;
-} ValueCollectionEntry;
+} KeyValue;
 
-typedef struct TypedCollectionEntry {
+// for placed-structs
+typedef struct KeyOffsetType {
     ObjPtr key;
-    ObjPtr value;
+    ElementOffset offset;
     ObjPtr type;
-} TypedCollectionEntry;
+} KeyOffsetType;
 
 #endif

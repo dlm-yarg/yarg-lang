@@ -23,8 +23,8 @@ void daInit(DynamicArray *, ObjSize);
 void daExtend(Obj *enclosingObject, DynamicArray *, ArrayItemCount);
 void daFree(DynamicArray *);
 
-void daPushBack(DynamicArray *, void *);
-void *daAt(DynamicArray *, ArrayItemCount);
+void daPushBack(DynamicArray *, void const *);
+void const *daAt(DynamicArray const *, ArrayItemCount);
 ArrayItemCount daSize(DynamicArray *);
 
 #endif

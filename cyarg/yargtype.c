@@ -29,7 +29,7 @@ ObjPtr newYargTypeFromType(ConcreteYargType yt) {
     case TypeYargType:
     case TypeInt :
         r = ALLOCATE_OBJ(ObjConcreteYargType, OBJ_YARGTYPE);
-        AS_YARGTYPE(r)->yt = yt;
+        ((ObjConcreteYargType *)osDerefAndModify(r))->yt = yt;
         break;
     case TypeArray:
         r = ALLOCATE_OBJ(ObjConcreteYargTypeArray, OBJ_YARGTYPE_ARRAY);
@@ -70,7 +70,7 @@ size_t arrayElementSize(ObjConcreteYargTypeArray* arrayType) {
 }
 
 ObjPtr newYargStructType(size_t fieldCount) {
-    ObjPtr r = ALLOCATE_VAR_OBJ(ObjConcreteYargTypeStruct, OBJ_YARGTYPE_STRUCT, YargTypeStructElement, fieldCount);
+    ObjPtr r = ALLOCATE_VAR_OBJ(ObjConcreteYargTypeStruct, OBJ_YARGTYPE_STRUCT, elements, YargTypeStructElement, fieldCount);
     ObjConcreteYargTypeStruct* s = AS_YARGTYPE_STRUCT(r);
     s->core.yt = TypeStruct;
     daInit(&s->elements, sizeof (YargTypeStructElement));
@@ -103,7 +103,7 @@ ObjPtr newYargPointerType(ObjPtr targetType) {
 }
 
 bool isUint32Pointer(ObjPtr val) {
-    ObjPackedPointer *pointer = AS_POINTER(val);
+    ObjPointer *pointer = AS_POINTER(val);
     ObjType t = pointer->obj.objType;
     if (pointer->type != 0 && (t == OBJ_PACKEDPOINTER || t == OBJ_UNOWNED_PACKEDPOINTER)) {
         ObjConcreteYargType* dest = AS_YARGTYPE(pointer->type);
@@ -253,7 +253,7 @@ bool is_nil_assignable_type(ObjPtr type) {
 }
 
 bool is_placeable_type(ObjPtr typeVal) {
-    ObjConcreteYargType *o = AS_YARGTYPE(typeVal);
+    ObjConcreteYargType const *o = AS_YARGTYPE(typeVal);
     ObjType t = o->obj.objType;
     if (t == OBJ_YARGTYPE || t == OBJ_YARGTYPE_ARRAY || t == OBJ_YARGTYPE_STRUCT ||
         t == OBJ_YARGTYPE_POINTER || t == OBJ_YARGTYPE_MAP) {
@@ -274,7 +274,7 @@ bool is_placeable_type(ObjPtr typeVal) {
             case TypeStruct: {
                 ObjConcreteYargTypeStruct* ct = (ObjConcreteYargTypeStruct*)o;
                 bool is_placeable = true;
-                for (size_t i = 0; i < ct->elements.arrayLength; i++) {
+                for (size_t i = 0; i < ct->elements.arrayLength && is_placeable; i++) {
                     YargTypeStructElement *e = &((YargTypeStructElement *)ct->elements.arrayItems)[i];
                     ObjPtr fieldType = e == 0 ? 0 : e->type;
                     is_placeable &= is_placeable_type(fieldType);
@@ -288,7 +288,7 @@ bool is_placeable_type(ObjPtr typeVal) {
 }
 
 bool is_stored_type(ObjPtr type) {
-    ObjConcreteYargType *o = AS_YARGTYPE(type);
+    ObjConcreteYargType const *o = AS_YARGTYPE(type);
     ObjType t = o->obj.objType;
     if (t == OBJ_YARGTYPE || t == OBJ_YARGTYPE_ARRAY || t == OBJ_YARGTYPE_STRUCT ||
         t == OBJ_YARGTYPE_POINTER || t == OBJ_YARGTYPE_MAP) {
@@ -359,7 +359,7 @@ size_t yt_sizeof_type_storage(ObjPtr type) {
 // todo - pre alloc defaults
 ObjPtr defaultValue(ObjPtr type) {
     if (type == 0) {
-        return 0;
+        return OIR_NIL;
     } else {
         ObjConcreteYargType* ct = AS_YARGTYPE(type);
         switch (ct->yt) {
@@ -386,7 +386,7 @@ ObjPtr defaultValue(ObjPtr type) {
         case TypeChannel:
         case TypeMap:
         case TypeYargType:
-            return 0;
+            return OIR_NIL;
         }
     }
 }
@@ -443,66 +443,66 @@ bool isInitialisableType(ObjPtr lhsType, ObjPtr rhsValue, ObjPtr *promotedRhs) {
                 switch (lhsConcreteType->yt)
                 {
                 case TypeInt8:
-                    if (int_is_range(&i->bigInt, INT8_MIN, INT8_MAX) == INT_WITHIN)
+                    if (int_is_range(&i->i, INT8_MIN, INT8_MAX) == INT_WITHIN)
                     {
                         *promotedRhs = ALLOCATE_OBJ(ObjI8, OBJ_I8);
-                        AS_I8OBJ(*promotedRhs)->i = int_to_i32(&i->bigInt);
+                        AS_I8OBJ(*promotedRhs)->i = int_to_i32(&i->i);
                         return true;
                     }
                     break;
                 case TypeUint8:
-                    if (int_is_range(&i->bigInt, 0, UINT8_MAX) == INT_WITHIN)
+                    if (int_is_range(&i->i, 0, UINT8_MAX) == INT_WITHIN)
                     {
                         *promotedRhs = ALLOCATE_OBJ(ObjUi8, OBJ_UI8);
-                        AS_UI8OBJ(*promotedRhs)->i = int_to_u32(&i->bigInt);
+                        AS_UI8OBJ(*promotedRhs)->i = int_to_u32(&i->i);
                         return true;
                     }
                     break;
                 case TypeInt16:
-                    if (int_is_range(&i->bigInt, INT16_MIN, INT16_MAX) == INT_WITHIN)
+                    if (int_is_range(&i->i, INT16_MIN, INT16_MAX) == INT_WITHIN)
                     {
                         *promotedRhs = ALLOCATE_OBJ(ObjI16, OBJ_I16);
-                        AS_I16OBJ(*promotedRhs)->i = int_to_i32(&i->bigInt);
+                        AS_I16OBJ(*promotedRhs)->i = int_to_i32(&i->i);
                         return true;
                     }
                     break;
                 case TypeUint16:
-                    if (int_is_range(&i->bigInt, 0, UINT16_MAX) == INT_WITHIN)
+                    if (int_is_range(&i->i, 0, UINT16_MAX) == INT_WITHIN)
                     {
                         *promotedRhs = ALLOCATE_OBJ(ObjUi16, OBJ_UI16);
-                        AS_UI16OBJ(*promotedRhs)->i = int_to_u32(&i->bigInt);
+                        AS_UI16OBJ(*promotedRhs)->i = int_to_u32(&i->i);
                         return true;
                     }
                     break;
                 case TypeInt32:
-                    if (int_is_range(&i->bigInt, INT32_MIN, INT32_MAX) == INT_WITHIN)
+                    if (int_is_range(&i->i, INT32_MIN, INT32_MAX) == INT_WITHIN)
                     {
                         *promotedRhs = ALLOCATE_OBJ(ObjI32, OBJ_I32);
-                        AS_I32OBJ(*promotedRhs)->i = int_to_i32(&i->bigInt);
+                        AS_I32OBJ(*promotedRhs)->i = int_to_i32(&i->i);
                         return true;
                     }
                     break;
                 case TypeUint32:
-                    if (int_is_range(&i->bigInt, 0, UINT32_MAX) == INT_WITHIN)
+                    if (int_is_range(&i->i, 0, UINT32_MAX) == INT_WITHIN)
                     {
                         *promotedRhs = ALLOCATE_OBJ(ObjUi32, OBJ_UI32);
-                        AS_UI32OBJ(*promotedRhs)->i = int_to_u32(&i->bigInt);
+                        AS_UI32OBJ(*promotedRhs)->i = int_to_u32(&i->i);
                         return true;
                     }
                     break;
                 case TypeInt64:
-                    if (int_is_range(&i->bigInt, INT64_MIN, INT64_MAX) == INT_WITHIN)
+                    if (int_is_range(&i->i, INT64_MIN, INT64_MAX) == INT_WITHIN)
                     {
                         *promotedRhs = ALLOCATE_OBJ(ObjI64, OBJ_I64);
-                        AS_I64OBJ(*promotedRhs)->i = int_to_i64(&i->bigInt);
+                        AS_I64OBJ(*promotedRhs)->i = int_to_i64(&i->i);
                         return true;
                     }
                     break;
                 case TypeUint64:
-                    if (int_is_range(&i->bigInt, 0, UINT64_MAX) == INT_WITHIN)
+                    if (int_is_range(&i->i, 0, UINT64_MAX) == INT_WITHIN)
                     {
                         *promotedRhs = ALLOCATE_OBJ(ObjUi64, OBJ_UI64);
-                        AS_UI64OBJ(*promotedRhs)->i = int_to_u64(&i->bigInt);
+                        AS_UI64OBJ(*promotedRhs)->i = int_to_u64(&i->i);
                         return true;
                     }
                     break;

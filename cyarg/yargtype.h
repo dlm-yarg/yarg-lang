@@ -4,40 +4,14 @@
 #include "object.h"
 #include "stdio.h"
 
-#define AS_YARGTYPE_ARRAY(obj)      ((ObjConcreteYargTypeArray *)osDeref(obj))
-#define AS_YARGTYPE_STRUCT(obj)     ((ObjConcreteYargTypeStruct *)osDeref(obj))
-#define AS_YARGTYPE_POINTER(obj)    ((ObjConcreteYargTypePointer *)osDeref(obj))
-#define AS_YARGTYPE_MAP(obj)        ((ObjConcreteYargTypeMap *)osDeref(obj))
-
-typedef enum {
-   TypeAny,
-   TypeBool,
-   TypeInt,
-   TypeDouble,
-   TypeInt8,
-   TypeUint8,
-   TypeInt16,
-   TypeUint16,
-   TypeInt32,
-   TypeUint32,
-   TypeInt64,
-   TypeUint64,
-   TypeString,
-   TypeClass,
-   TypeInstance,
-   TypeFunction,
-   TypeRoutine,
-   TypeChannel,
-   TypeArray,
-   TypeStruct,
-   TypePointer,
-   TypeMap,
-   TypeYargType
-} ConcreteYargType;
+#define AS_YARGTYPE_ARRAY(obj)      ((ObjConcreteYargTypeArray const *)osDeref(obj))
+#define AS_YARGTYPE_STRUCT(obj)     ((ObjConcreteYargTypeStruct const *)osDeref(obj))
+#define AS_YARGTYPE_POINTER(obj)    ((ObjConcreteYargTypePointer const *)osDeref(obj))
+#define AS_YARGTYPE_MAP(obj)        ((ObjConcreteYargTypeMap const *)osDeref(obj))
 
 typedef struct ObjConcreteYargType {
     Obj obj;
-    ConcreteYargType yt;
+    ObjType yt;
 } ObjConcreteYargType;
 
 typedef struct ObjConcreteYargTypeArray {
@@ -48,13 +22,11 @@ typedef struct ObjConcreteYargTypeArray {
 
 typedef struct YargTypeStructElement {
     ObjPtr name;
-    size_t offset;
     ObjPtr type;
 } YargTypeStructElement;
 
 typedef struct ObjConcreteYargTypeStruct {
     ObjConcreteYargType core;
-    size_t storage_size;
     DynamicArray elements; // of type YargTypeStructElement
 } ObjConcreteYargTypeStruct;
 
@@ -69,7 +41,7 @@ typedef struct ObjConcreteYargTypeMap {
     ObjPtr value_type;
 } ObjConcreteYargTypeMap;
 
-ObjPtr newYargTypeFromType(ConcreteYargType yt);
+ObjPtr newYargTypeFromType(ObjType yt);
 
 ObjPtr newYargArrayTypeFromType(ObjPtr elementType);
 ObjPtr newYargStructType(size_t fieldCount);

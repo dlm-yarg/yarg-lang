@@ -1,370 +1,376 @@
-#include <stdio.h>
-#include <string.h>
-#include <assert.h>
+#include "object.h"
+
+#include "object_in_rom.h"
 
 #include "memory.h"
-#include "object.h"
-#include "table.h"
-#include "value.h"
 #include "vm.h"
 #include "yargtype.h"
 #include "channel.h"
 #include "sync_group.h"
+#include "dynamic_array.h"
 
-#define ALLOCATE_OBJ(type, objectType) \
-    (type*)allocateObject(sizeof(type), objectType)
+#include <stdio.h>
+#include <string.h>
+#include <assert.h>
+#include <stdarg.h>
 
-Obj* allocateObject(size_t size, ObjType type) {
-    Obj* object = (Obj*)reallocate(NULL, 0, size);
-    memset(object, 0, size);
+ObjPtr allocateObject(size_t size, ObjType type) {
+    ObjPtr p = osAlloc(size);
+    Obj *obj = (Obj *)osDeref(p);
+    memset(obj, 0, size);
 
-    object->type = type;
-    object->isMarked = false;
-
-    platform_mutex_enter(&vm.heap);
-
-    object->oNext = vm.objects;
-    vm.objects = object;
-    
-    platform_mutex_leave(&vm.heap);
+    obj->objType = type;
 
 #ifdef DEBUG_LOG_GC
-    PRINTERR("%p allocate %zu for %d\n", (void*)object, size, type);
+    PRINTERR("%p allocate %zu for %d\n", obj, size, type);
 #endif
 
-    return object;
+    return p;
 }
 
-ObjInt* allocateIntObject(size_t numDigits) {
+ObjPtr allocateVarObject(size_t size, ObjType type, size_t itemSize, size_t arrayOffset, size_t numItems) {
+    ObjPtr p = osAlloc(size + numItems * itemSize);
+    Obj *obj = (Obj *)osDeref(p);
+    obj->objType = type;
+    DynamicArray *da = (DynamicArray *)((uint8_t *) obj + arrayOffset);
+
+    da->arrayCapacity = numItems;
+    da->arrayLength = 0;
+    da->arrayItemSize = itemSize;
+
+    return p;
+}
+
+void extendVarObject(ObjPtr p, size_t size, size_t arrayOffset, size_t numItems) {
+    Obj const *obj = osDeref(p);
+    DynamicArray *da = (DynamicArray *)((uint8_t *) obj + arrayOffset);
+    osRealloc(p, size + numItems * da->arrayItemSize);
+    Obj *newObj = (Obj *)osDeref(p);
+    da = (DynamicArray *)((uint8_t *) newObj + arrayOffset);
+    da->arrayCapacity = numItems;
+}
+
+ObjPtr allocateIntObject(size_t numDigits) {
     numDigits += numDigits % 2; // numDigits is always even
     assert(numDigits <= 254 && numDigits >= 2);
-    ObjInt *i = (ObjInt *) allocateObject(sizeof (ObjInt) + numDigits * sizeof (uint16_t), OBJ_INT);
-    i->bigInt.m_ = numDigits;
-    return i;
+    ObjPtr p = osAlloc(sizeof (ObjInt) + numDigits * sizeof (uint16_t));
+    ObjInt *obj = (ObjInt *)osDeref(p);
+    obj->obj.objType = OBJ_INT;
+    obj->i.m_ = numDigits;
+    return p;
 }
 
-void initDynamicObjArray(DynamicObjArray* array) {
-    array->objects = NULL;
-    array->stash = NULL;
-    array->objectCapacity = 0;
-    array->objectCount = 0;
+void appendToDynamicObjArray(DynamicArray* array, ObjPtr p) { // call EXTEND_VAR_OBJ first
+    assert(array->arrayCapacity > array->arrayLength);
+    ObjPtr *arrayStore = (ObjPtr *)array->arrayItems;
+    arrayStore[array->arrayLength++] = p;
 }
 
-void freeDynamicObjArray(DynamicObjArray* array) {
-    FREE_ARRAY(Obj*, array->objects, array->objectCapacity);
-    initDynamicObjArray(array);
-}
-
-void appendToDynamicObjArray(DynamicObjArray* array, Obj* obj) {
-    array->stash = obj;
-    if (array->objectCapacity < array->objectCount + 1) {
-        int oldCapacity = array->objectCapacity;
-        array->objectCapacity = GROW_CAPACITY(oldCapacity);
-        array->objects = GROW_ARRAY(Obj*, array->objects, oldCapacity, array->objectCapacity);
-    }
-    array->objects[array->objectCount] = obj;
-    array->objectCount++;
-    array->stash = NULL;
-}
-
-Obj* removeLastFromDynamicObjArray(DynamicObjArray* array) {
-    Obj* end = NULL;
-    if (array->objectCount > 0) {
-        end = array->objects[array->objectCount - 1];
-        array->objectCount--;
-    }
-    return end;
+ObjPtr removeLastFromDynamicObjArray(DynamicArray* array) {
+    assert(array->arrayLength > 0);
+    ObjPtr *arrayStore = (ObjPtr *)array->arrayItems;
+    return arrayStore[--array->arrayLength];
 }
 
 
-ObjBoundMethod* newBoundMethod(Value reciever, ObjClosure* method) {
-    ObjBoundMethod* bound = ALLOCATE_OBJ(ObjBoundMethod,
-                                         OBJ_BOUND_METHOD);
-    bound->reciever = reciever;
+// ObjBoundMethod* newBoundMethod(Value receiver, ObjClosure* method) {
+ObjPtr newBoundMethod(ObjPtr receiver, ObjPtr method) {
+    ObjPtr p = ALLOCATE_OBJ(ObjBoundMethod, OBJ_BOUND_METHOD);
+    ObjBoundMethod *bound = (ObjBoundMethod *)osDeref(p);
+    bound->receiver = receiver;
     bound->method = method;
-    return bound;
+    return p;
 }
 
-ObjClass* newClass(ObjString* name) {
-    ObjClass* klass = ALLOCATE_OBJ(ObjClass, OBJ_CLASS);
+ObjPtr newClass(ObjPtr name) {
+    ObjPtr p = ALLOCATE_VAR_OBJ(ObjClass, OBJ_CLASS, methods, ObjPtr, 4);
+    ObjClass *klass = (ObjClass *)osDeref(p);
     klass->name = name;
-    initTable(&klass->methods);
-    return klass;
+    return p;
 }
 
-ObjClosure* newClosure(ObjFunction* function) {
-    ObjUpvalue** upvalues = ALLOCATE(ObjUpvalue*, function->upvalueCount);
-    for (int i = 0; i < function->upvalueCount; i++) {
-        upvalues[i] = NULL;
-    }
-
-    ObjClosure* closure = ALLOCATE_OBJ(ObjClosure, OBJ_CLOSURE);
+ObjPtr newClosure(ObjPtr function) {
+    ObjFunction const *f = (ObjFunction const *)osDeref(function);
+    int upvalueCount = f->upvalueCount;
+    ObjPtr p = ALLOCATE_VAR_OBJ(ObjClosure, OBJ_CLOSURE, upvalues, ObjPtr, upvalueCount);
+    ObjClosure* closure = (ObjClosure *)osDeref(p);
     closure->function = function;
-    closure->upvalues = upvalues;
-    closure->cUpvalueCount = function->upvalueCount;
-    return closure;
+    closure->upvalues.arrayLength = upvalueCount;
+    return p;
 }
 
-ObjFunction* newFunction(void) {
-    ObjFunction* function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
+ObjPtr newFunction(void) {
+    ObjPtr function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
     initFunction(function);
     return function;
 }
 
-void initFunction(ObjFunction* function) {
-    // may not be called after alloc, so init all fields.
-    function->arity = 0;
-    function->upvalueCount = 0;
-    function->fName = NULL;
-    initChunk(&function->chunk);
+void initFunction(ObjPtr function) {
+    ObjFunction *f = (ObjFunction *)osDerefAndModify(function);
+    initChunk(&f->chunk);
 }
 
-ObjInstance* newInstance(ObjClass* klass) {
-    ObjInstance* instance = ALLOCATE_OBJ(ObjInstance, OBJ_INSTANCE);
+ObjPtr newInstance(ObjPtr klass) {
+    ObjPtr p = ALLOCATE_VAR_OBJ(ObjInstance, OBJ_INSTANCE, fields, KeyValue, 4);
+    ObjInstance *instance = (ObjInstance *)osDeref(p);
     instance->klass = klass;
-    initTable(&instance->fields);
-    return instance;
+    return p;
 }
 
-ObjNative* newNative(NativeFn function) {
-    ObjNative* native = ALLOCATE_OBJ(ObjNative, OBJ_NATIVE);
+ObjPtr newNative(NativeFn function) {
+    ObjPtr p = ALLOCATE_OBJ(ObjNative, OBJ_NATIVE);
+    ObjNative *native = (ObjNative *)osDeref(p);
     native->function = function;
-    return native;
+    return p;
 }
 
-ObjInt* newInt(int64_t value) {
-    ObjInt *i = allocateIntObject(sizeof value / sizeof (uint16_t));
-    int_set_i(value, &i->bigInt);
-    return i;
+ObjPtr newInt(int64_t value) {
+    ObjPtr p = allocateIntObject(sizeof value / sizeof (uint16_t));
+    Int *i = &((ObjInt *)osDeref(p))->i;
+    int_set_i(value, i);
+    return p;
 }
 
-ObjInt* newIntU(uint64_t value) {
-    ObjInt *i = allocateIntObject(sizeof value / sizeof (uint16_t));
-    int_set_u(value, &i->bigInt);
-    return i;
+ObjPtr newIntU(uint64_t value) {
+    ObjPtr p = allocateIntObject(sizeof value / sizeof (uint16_t));
+    Int *i = &((ObjInt *)osDeref(p))->i;
+    int_set_u(value, i);
+    return p;
 }
 
-ObjPtr defaultIntValue() {
-    ObjInt *intObj = (ObjInt *) allocateObject(sizeof (ObjInt) + 2 * sizeof (uint16_t), OBJ_INT);
-    intObj->bigInt.m_ = 2;
-    int_init(&intObj->bigInt);
-    OBJ_VAL(r, intObj);
+void *arrayAt(DynamicArray *array, size_t index) {
+    assert(index < array->arrayLength);
+    return ((uint8_t *)array->arrayItems) + index * array->arrayItemSize;
 }
 
-PackedValue arrayElement(PackedValue array, size_t index) {
-    ObjConcreteYargTypeArray* array_type = (ObjConcreteYargTypeArray*) array.storedType;
-    
-    PackedValue el;
-    el.storedType = array_type->element_type;
-    el.storedValue = (PackedValueStore*)(((uint8_t*)array.storedValue) + arrayElementOffset(array_type, index));
-    return el;
-}
+static void initialisePackedValue(ObjPtr type, void *);
 
-size_t arrayCardinality(PackedValue array) {
-    ObjConcreteYargTypeArray* array_type = (ObjConcreteYargTypeArray*) array.storedType;
-    return array_type->cardinality;
-}
+ObjPtr newArray(ObjPtr type) {
+    ObjConcreteYargTypeArray const *t = (ObjConcreteYargTypeArray const *)osDeref(type);
+    size_t c = t->cardinality;
+    ObjPtr et = t->element_type;
+    size_t sz = yt_sizeof_type_storage(et);
 
-ObjPackedUniformArray* newPackedUniformArray(ObjConcreteYargTypeArray* type) {
-    ObjPackedUniformArray* array = ALLOCATE_OBJ(ObjPackedUniformArray, OBJ_PACKEDUNIFORMARRAY);
-    tempRootPush((Obj *)array);
+    ObjPtr p = ALLOCATE_VAR_OBJ(ObjArray, OBJ_ARRAY, elements, ObjPtr, c);
+    osNoGc(p);
+    ObjArray *a = (ObjArray *)osDeref(p);
 
-    PackedValue new_array = { .storedType = (ObjConcreteYargType*) type, .storedValue = NULL };
-    new_array.storedValue = reallocate(NULL, 0, arrayElementSize(type) * type->cardinality);
-
-    for (size_t i = 0; i < type->cardinality; i++) {
-        PackedValue el = arrayElement(new_array, i);
-        initialisePackedValue(el);
+    for (size_t i = 0; i < c; i++) {
+        void *el = arrayAt(&a->elements, i);
+        initialisePackedValue(et, el);
     }
 
-    array->store = new_array;
-    tempRootPop();
-    return array;
+    osGcOk(p);
+    return p;
 }
 
-ObjPackedUniformArray* newPackedUniformArrayAt(PackedValue location) {
-
-    ObjPackedUniformArray* array = ALLOCATE_OBJ(ObjPackedUniformArray, OBJ_UNOWNED_UNIFORMARRAY);
-    array->store = location;
-
-    return array;
+ObjPtr defaultArray(ObjPtr type) {
+    return ALLOCATE_OBJ(ObjArray, OBJ_ARRAY);
 }
 
-ObjPtr defaultArray(ObjConcreteYargType* type) {
-
-    ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*)type;
-    if (arrayType->cardinality == 0) {
-        return 0;
-    }
-    
-    return newPackedUniformArray(arrayType);
+ObjPtr newMap(ObjPtr type) {
+    return ALLOCATE_VAR_OBJ(ObjMap, OBJ_MAP, entries, KeyValue, 0);
 }
 
-ObjMap* newMap(ObjConcreteYargTypeMap* type) {
-    ObjMap* map = ALLOCATE_OBJ(ObjMap, OBJ_MAP);
-    map->type = type;
-    initTable(&map->entries);
-    return map;
+ObjPtr newPointerForHeapCell(ObjPtr type, ObjPtr location) {
+
+    ObjPtr p = ALLOCATE_OBJ(ObjPointer, OBJ_POINTER);
+    ObjPointer *ptr = (ObjPointer *)osDeref(p);
+    ptr->type = type;
+    ptr->destination = location;
+    return p;
 }
 
-ObjPackedPointer* newPointerForHeapCell(PackedValue location) {
-
-    ObjPackedPointer* ptr = ALLOCATE_OBJ(ObjPackedPointer, OBJ_PACKEDPOINTER);
-    tempRootPush((Obj *)ptr);
-    ptr->type = (ObjConcreteYargTypePointer*) newYargTypeFromType(TypePointer);
-    ptr->type->target_type = location.storedType;
-    ptr->destination = location.storedValue;
-    tempRootPop();
-    return ptr;
+ObjPtr newPointerAtHeapCell(ObjPtr type, ObjPtr location) { // returns a new ObjPlacedValue for placed-arrays/placed-structs or ObjPointer for non-placed collections
+    ObjPtr p = ALLOCATE_OBJ(ObjPointer, OBJ_POINTER);
+    osNoGc(p);
+    ObjPointer *ptr = (ObjPointer *)osDeref(p);
+    ptr->type = type;
+    ObjConcreteYargTypePointer *t = (ObjConcreteYargTypePointer *)osDeref(ptr->type);
+    t->target_type = type;
+    ptr->destination = location;
+    osGcOk(p);
+    return p;
 }
 
-ObjPackedPointer* newPointerAtHeapCell(PackedValue location) {
-    ObjPackedPointer* ptr = ALLOCATE_OBJ(ObjPackedPointer, OBJ_UNOWNED_PACKEDPOINTER);
-    tempRootPush((Obj *)ptr);
-    ptr->type = (ObjConcreteYargTypePointer*) newYargTypeFromType(TypePointer);
-    ptr->type->target_type = location.storedType;
-    ptr->destination = location.storedValue;
-    tempRootPop();
-    return ptr;
+void offsetPointerDestination(ObjPtr p, size_t offset) {
+    ObjPointer const *ptr = (ObjPointer const *)osDeref(p);
+    ObjAddress *addr = (ObjAddress *)osDerefAndModify(ptr->destination);
+    addr->a += offset;
 }
 
-void offsetPointerDestination(ObjPackedPointer* pointer, size_t offset) {
-    uintptr_t addr = (uintptr_t)(pointer->destination);
-    addr += offset;
-    pointer->destination = (PackedValueStore*) addr;
-}
+inline bool isObjOfOneType(ObjPtr obj, size_t n, ...) {
+    va_list a_list;
+    va_start(a_list, n);
 
-bool isAddressValue(Value val) {
-    if (IS_INT(val)) {
-        ObjInt *i = AS_INTOBJ(val);
-        return i->isLiteral;
-    } else if (IS_ADDRESS(val)) {
-        return true;
-    } else if (IS_POINTER(val)) {
-        return true;
-    } else {
-        return false;
-    }
-}
+    Obj const *o = osDeref(obj);
+    if (o == 0) return false;
 
-bool isArrayPointer(Value value) {
-    ObjPackedPointer* pointer = AS_POINTER(value);
-    if (IS_POINTER(value)) {
-        PackedValue target = { 
-            .storedType = pointer->type->target_type,
-            .storedValue = pointer->destination
-        };
-        return is_uniformarray(target);
+    for (size_t i = 0; i < n; i++) {
+        if (va_arg(a_list, ObjType) == o->objType) return true;
     }
     return false;
 }
 
-bool isStructPointer(Value value) {
-    ObjPackedPointer* pointer = AS_POINTER(value);
-    if (IS_POINTER(value)) {
-        PackedValue target = { 
-            .storedType = pointer->type->target_type,
-            .storedValue = pointer->destination
-        };
-        return is_struct(target);
+bool isAddressValue(ObjPtr p) {
+    Obj const *obj = osDeref(p);
+    if (obj->objType == OBJ_INT) {
+        ObjInt *i = (ObjInt *)osDerefAndModify(p);
+        return i->isLiteral && int_is_range(&i->i, 0, UINTPTR_MAX) == INT_WITHIN;
+    } else if (obj->objType == OBJ_ADDRESS) {
+        return obj->objType == OBJ_ADDRESS || obj->objType == OBJ_POINTER || obj->objType == OBJ_PLACED_VALUE;
+    }
+}
+
+bool isArrayPointer(ObjPtr p) {
+    Obj const *obj = osDeref(p);
+    if (obj->objType == OBJ_POINTER) {
+        ObjPointer const *pointer = (ObjPointer const *)obj;
+        return pointer->type == OIR_NIL && IS_ARRAY(pointer->destination) || AS_YARGTYPE(pointer->type)->yt == OBJ_ARRAY;
     }
     return false;
 }
 
-Obj* destinationObject(Value pointer) {
-    if (IS_POINTER(pointer)) {
-        ObjPackedPointer* p = AS_POINTER(pointer);
-        PackedValue dest;
-        dest.storedType = p->type->target_type;
-        dest.storedValue = p->destination;
-        Value target = unpackValue(dest);
-        if (IS_OBJ(target)) {
-            return AS_OBJ(target);
+bool isStructPointer(ObjPtr p) {
+    if (IS_POINTER(p)) {
+        ObjPointer const *pointer = AS_POINTER(p);
+        return pointer->type == OIR_NIL && IS_STRUCT(pointer->destination) || AS_YARGTYPE(pointer->type)->yt == OBJ_STRUCT;
+    }
+    return false;
+}
+
+ObjPtr destinationObject(ObjPtr p) {
+    if (IS_POINTER(p)) {
+        ObjPointer const *ptr = AS_POINTER(p);
+        return ptr->destination;
+    }
+    return OIR_NIL;
+}
+
+static ObjSize ytItemSize(ObjPtr t, ObjSize *alignment) {
+    ObjSize r;
+    ObjSize biggestItemAlignment = 0;
+
+    ObjConcreteYargType const *yt = (ObjConcreteYargType const *)osDeref(t);
+    switch (yt->yt) {
+    case OBJ_ARRAY: {
+        ObjConcreteYargTypeArray const *yt = (ObjConcreteYargTypeArray const *)osDeref(t);
+        r = yt->cardinality * ytItemSize(yt->element_type, &biggestItemAlignment);
+        break;
+    }
+    case OBJ_STRUCT: {
+        // alignment is the alignment of the most aligned member
+        // size is the multiple of alignment suficient to hold all aligned members
+        ObjConcreteYargTypeStruct const *yt = (ObjConcreteYargTypeStruct const *)osDeref(t);
+        for (int i = 0; i < yt->elements.arrayLength; i++) {
+            YargTypeStructElement const *v = (YargTypeStructElement const *)daAt(&yt->elements, i);
+            ObjSize itemAlignment;
+            ObjSize itemSize = ytItemSize(v->type, &itemAlignment);
+            biggestItemAlignment = biggestItemAlignment < itemAlignment ? itemAlignment : biggestItemAlignment;
         }
+        ObjSize offset = 0;
+        for (int i = 0; i < yt->elements.arrayLength; i++) {
+            YargTypeStructElement const *v = (YargTypeStructElement const *)daAt(&yt->elements, i);
+            ObjSize itemAlignment;
+            ObjSize itemSize = ytItemSize(v->type, &itemAlignment);
+            ObjSize padding = offset % itemAlignment;
+            if (padding > 0) padding = itemAlignment - padding;
+            offset += padding;
+            offset += itemSize;
+        }
+        ObjSize padding = offset % biggestItemAlignment;
+        if (padding > 0) padding = biggestItemAlignment - padding;
+        r = offset + padding;
+        break;
     }
-    return NULL;
+    case OBJ_I8: case OBJ_UI8: biggestItemAlignment = r = sizeof (int8_t); break;
+    case OBJ_I16: case OBJ_UI16: biggestItemAlignment = r = sizeof (int16_t); break;
+    case OBJ_I32: case OBJ_UI32: biggestItemAlignment = r = sizeof (int32_t); break;
+    case OBJ_I64: case OBJ_UI64: biggestItemAlignment = r = sizeof (int64_t); break;
+    default: biggestItemAlignment = 0; r = 0; break;
+    }
+
+    if (alignment != 0) *alignment = biggestItemAlignment;
+    return r;
 }
 
-void placeObjectAt(Value placedType, Value location, Value r) {
-    if (is_placeable_type(placedType) && IS_ADDRESS(location)) {
-        PackedValue loc;
-        loc.storedType = IS_NIL(placedType) ? NULL : AS_YARGTYPE(placedType);
-        loc.storedValue = (PackedValueStore*) AS_ADDRESS(location);
-        switch (loc.storedType->yt) {
-        case TypeArray:  // fall through
-        case TypeStruct:
-        case TypeInt8:
-        case TypeUint8:
-        case TypeInt16:
-        case TypeUint16:
-        case TypeInt32:
-        case TypeUint32:
-        case TypeInt64:
-        case TypeUint64: {
-            ObjPackedPointer* result = newPointerAtHeapCell(loc);
-            OBJ_VAL(r, result);
+ObjPtr placeObjectAt(ObjPtr type, ObjPtr location) {
+    ObjPtr r;
+
+    if (IS_ADDRESS(location)) {
+        uintptr_t loc = ((ObjAddress const *)osDeref(location))->a;
+
+        ObjConcreteYargType const *t = AS_YARGTYPE(type);
+        switch (t->yt) {
+        case OBJ_ARRAY: {
+            r = osAlloc(sizeof (ObjPlacedArray));
+            ObjPlacedArray *pa = (ObjPlacedArray *)osDeref(r);
+            pa->type = type;
+            ObjConcreteYargTypeArray *at = (ObjConcreteYargTypeArray *)t;
+            ObjSize alignment;
+            pa->elementSize = ytItemSize(at->element_type, &alignment);
+            assert(loc % alignment == 0);
+            pa->placedAddress = loc;
+            break;
+        }
+        case OBJ_STRUCT: {
+
+            break;
+        }
+        case OBJ_I8:
+        case OBJ_UI8:
+        case OBJ_I16:
+        case OBJ_UI16:
+        case OBJ_I32:
+        case OBJ_UI32:
+        case OBJ_I64:
+        case OBJ_UI64: {
+            r = osAlloc(sizeof (ObjPlacedValue));
+            ObjPlacedValue *pv = (ObjPlacedValue *)osDeref(r);
+            pv->type = type;
+            pv->placedAddress = loc;
+            break;
         }
         default:
-            NIL_VAL(r);
+            r = OIR_NIL;
         }
     }
     else {
-        NIL_VAL(r);
+        r = OIR_NIL;
+    }
+    return r;
+}
+bool structFieldIndex(ObjPtr t, ObjPtr name, ArrayItemCount *index) {
+    ObjConcreteYargTypeStruct const *structType = (ObjConcreteYargTypeStruct const *)osDeref(t);
+    for (int i = 0; i < structType->elements.arrayLength; i++) {
+        YargTypeStructElement const *se = (YargTypeStructElement const *)daAt(&structType->elements, i);
+        if (name == se->name) {
+            *index = i;
+            return true;
+        }
     }
 }
 
-ObjPackedStruct* newPackedStruct(ObjConcreteYargTypeStruct* type) {
-    ObjPackedStruct* object = ALLOCATE_OBJ(ObjPackedStruct, OBJ_PACKEDSTRUCT);
-    tempRootPush((Obj *)object);
+ObjPtr structField(DynamicArray *da, size_t i) {
+    KeyValue const *kv = (KeyValue const *)daAt(da, i);
+    return kv->value;
+}
 
-    PackedValue new_struct = { .storedType = (ObjConcreteYargType*) type, .storedValue = NULL };
-    new_struct.storedValue = reallocate(new_struct.storedValue, 0, type->storage_size);
+ObjPtr defaultStructValue(ObjPtr t) {
+    ObjConcreteYargTypeStruct* type = (ObjConcreteYargTypeStruct*)osDeref(t);
+    ArrayItemCount n = type->elements.arrayLength;
 
-    for (size_t i = 0; i < type->field_count; i++) {
-        PackedValue f = structField(new_struct, i);
-        initialisePackedValue(f);
+    ObjPtr p = ALLOCATE_VAR_OBJ(ObjStruct, OBJ_STRUCT, store, KeyValue, n);
+    ObjStruct *newStruct = (ObjStruct *)osDeref(p);
+
+    for (int i = 0; i < n; i++) {
+        KeyValue *kv = (KeyValue *)daAt(&newStruct->store, i);
+        YargTypeStructElement const *se = (YargTypeStructElement const *)daAt(&type->elements, i);
+        kv->key = se->name;
+        kv->value = OIR_NIL;
     }
 
-    object->store = new_struct;
-
-    tempRootPop();
-    return object;
-}
-
-ObjPackedStruct* newPackedStructAt(PackedValue location) {
-    ObjPackedStruct* object = ALLOCATE_OBJ(ObjPackedStruct, OBJ_UNOWNED_PACKEDSTRUCT);
-    object->store = location;
-
-    return object;
-}
-
-bool structFieldIndex(ObjConcreteYargType* type, ObjString* name, size_t* index) {
-    ObjConcreteYargTypeStruct* structType = (ObjConcreteYargTypeStruct*)type;
-    Value indexVal;
-    if (tableGet(&structType->field_names, name, &indexVal)) {
-        *index = AS_UI32(indexVal);
-        return true;
-    }
-    return false;
-}
-
-PackedValue structField(PackedValue struct_, size_t index) {
-    ObjConcreteYargTypeStruct* typeStruct = (ObjConcreteYargTypeStruct*)struct_.storedType;
-
-    PackedValue f;
-    f.storedType = typeStruct->field_types[index];
-    f.storedValue = (PackedValueStore*)((uint8_t*)struct_.storedValue + typeStruct->field_indexes[index]);
-    return f;
-}
-
-ObjPtr defaultStructValue(ObjConcreteYargType* type) {
-    ObjConcreteYargTypeStruct* typeStruct = (ObjConcreteYargTypeStruct*)type;
-    tempRootPush((Obj *)typeStruct);
-
-    ObjPackedStruct* object = newPackedStruct(typeStruct);
-
-    tempRootPop();
-    return object;
+    return p;
 }
 
 static ObjString* allocateString(char* chars, int length, uint32_t hash) {
@@ -462,7 +468,7 @@ static void printRoutine(FILE* op, ObjRoutine* routine) {
     FPRINTMSG(op, "<R%p>", routine);
 }
 
-static void printArray(FILE* op, ObjPackedUniformArray* array) {
+static void printArray(FILE* op, ObjArray* array) {
     ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*)array->store.storedType;
     printType(op, array->store.storedType);
     FPRINTMSG(op, ":[");
@@ -477,7 +483,7 @@ static void printArray(FILE* op, ObjPackedUniformArray* array) {
     FPRINTMSG(op, "]");
 }
 
-static void printPointer(FILE* op, ObjPackedPointer* ptr) {
+static void printPointer(FILE* op, ObjPointer* ptr) {
     FPRINTMSG(op, "<*");
 
     Obj *targetType = ptr->type->target_type == NULL ? 0 : (Obj *) ptr->type->target_type;
@@ -485,7 +491,7 @@ static void printPointer(FILE* op, ObjPackedPointer* ptr) {
     FPRINTMSG(op, ":%p>", (void*) ptr->destination);
 }
 
-static void printStruct(FILE* op, ObjPackedStruct* st) {
+static void printStruct(FILE* op, ObjStruct* st) {
     ObjConcreteYargTypeStruct* structType = (ObjConcreteYargTypeStruct*)st->store.storedType;
     FPRINTMSG(op, "struct{|%zu:%zu|", structType->field_count, structType->storage_size);
     for (size_t i = 0; i < structType->field_count; i++) {
@@ -538,7 +544,7 @@ void fprintObject(FILE* op, Obj *obj) {
             break;
         case OBJ_UNOWNED_UNIFORMARRAY:
         case OBJ_PACKEDUNIFORMARRAY:
-            printArray(op, ((ObjPackedUniformArray *)obj));
+            printArray(op, ((ObjPackedArray *)obj));
             break;
         case OBJ_YARGTYPE:
         case OBJ_YARGTYPE_ARRAY:
@@ -548,11 +554,11 @@ void fprintObject(FILE* op, Obj *obj) {
             break;
         case OBJ_UNOWNED_PACKEDPOINTER:
         case OBJ_PACKEDPOINTER:
-            printPointer(op, ((ObjPackedPointer *)obj));
+            printPointer(op, ((ObjPointer *)obj));
             break;
         case OBJ_UNOWNED_PACKEDSTRUCT:
         case OBJ_PACKEDSTRUCT:
-            printStruct(op, ((ObjPackedStruct *)obj));
+            printStruct(op, ((ObjStruct *)obj));
             break;
         case OBJ_INT: {
             Int *i = &((ObjInt *)obj)->bigInt;

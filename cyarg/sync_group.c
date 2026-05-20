@@ -10,14 +10,7 @@
 #include "routine.h"
 #include "memory.h"
 
-typedef struct ObjSyncGroup {
-    Obj obj;
-    platform_critical_section group_lock;
-    ObjPackedUniformArray* channel_array;
-    ObjPackedUniformArray* result_array;
-} ObjSyncGroup;
-
-ObjSyncGroup* newSyncGroup(ObjRoutine* routine, ObjPackedUniformArray* items) {
+ObjSyncGroup* newSyncGroup(ObjRoutine* routine, ObjArray* items) {
     ObjSyncGroup* group = ALLOCATE_OBJ(ObjSyncGroup, OBJ_SYNCGROUP);
     push(routine, OBJ_VAL(group));
     platform_critical_section_init(&group->group_lock);

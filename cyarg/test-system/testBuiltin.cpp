@@ -159,14 +159,14 @@ bool syncBuiltin(ObjRoutine *routineContext, int argCount, ObjPtr *result)
     ObjConcreteYargType *array{newYargArrayTypeFromType(OBJ_VAL(&emptyString))};
     ObjConcreteYargTypeArray *arrayAsArray{reinterpret_cast<ObjConcreteYargTypeArray *>(array)};
     arrayAsArray->cardinality = log.size();
-    ObjPackedUniformArray* result_array{newPackedUniformArray(arrayAsArray)};
+    ObjArray* result_array{newPackedUniformArray(arrayAsArray)};
 
     size_t index{0};
     for (auto const &i : log)
     {
 //        println("{}", i); // until log gets coppied to *result
         ObjString *s{copyString(&i[0], static_cast<int>(i.size()))};
-        PackedValue p{arrayElement(result_array->store, index)};
+        PackedValue p{arrayElement(result_array->elements, index)};
         assignToPackedValue(p, OBJ_VAL(s));
         index++;
     }

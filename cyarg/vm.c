@@ -70,7 +70,7 @@ bool removePinnedRoutine(uintptr_t address) {
 // cyarg: use ascii 'y' 'a' 'r' 'g'
 #define FLAG_VALUE 0x79617267
 
-void vmCore1Entry() {
+void vmCore1Entry(void) {
 #ifdef CYARG_PICO_SDK_TARGET
     multicore_fifo_push_blocking(FLAG_VALUE);
     uint32_t g = multicore_fifo_pop_blocking();
@@ -372,7 +372,7 @@ static bool derefArrayElement(ObjRoutine* routine) {
     Value result = NIL_VAL;
 
     if (IS_UNIFORMARRAY(peek(routine, 1))) {
-        ObjPackedUniformArray* array = AS_UNIFORMARRAY(peek(routine, 1));
+        ObjArray* array = AS_UNIFORMARRAY(peek(routine, 1));
         if (index >= arrayCardinality(array->store)) {
             runtimeError(routine, "Array index %zu out of bounds.", index);
             return false;
@@ -381,7 +381,7 @@ static bool derefArrayElement(ObjRoutine* routine) {
         result = unpackValue(element);
 
     } else {
-        ObjPackedUniformArray* arrayObj = (ObjPackedUniformArray*)destinationObject(peek(routine, 1));
+        ObjArray* arrayObj = (ObjArray*)destinationObject(peek(routine, 1));
         if (index >= arrayCardinality(arrayObj->store)) {
             runtimeError(routine, "Array index %zu out of bounds (0:%zu)", index, arrayCardinality(arrayObj->store) - 1);
             return false;
@@ -430,7 +430,7 @@ static bool derefElement(ObjRoutine* routine) {
     return false;
 }
 
-static bool setArrayElement(ObjRoutine* routine, ObjPackedUniformArray* array, Value indexVal, Value rhs) {
+static bool setArrayElement(ObjRoutine* routine, ObjArray* array, Value indexVal, Value rhs) {
 
     if (!is_positive_integer32(indexVal)) {
         runtimeError(routine, "Expected an array and a positive or unsigned integer.");
@@ -488,7 +488,7 @@ static bool setElement(ObjRoutine* routine) {
 static void derefPtr(ObjRoutine* routine) {
     Value pointerVal = peek(routine, 0);
 
-    ObjPackedPointer* pointer = AS_POINTER(pointerVal);
+    ObjPointer* pointer = AS_POINTER(pointerVal);
     PackedValue dest;
     dest.storedType = pointer->type->target_type;
     dest.storedValue = pointer->destination;
@@ -894,7 +894,7 @@ InterpretResult run(ObjRoutine* routine) {
                         return INTERPRET_RUNTIME_ERROR;
                     }
                 } else if (IS_STRUCT(peek(routine, 0))) {
-                    ObjPackedStruct* object = AS_STRUCT(peek(routine, 0));
+                    ObjStruct* object = AS_STRUCT(peek(routine, 0));
                     ObjString* name = READ_STRING();
                     size_t index;
                     if (!structFieldIndex(object->store.storedType, name, &index)) {
@@ -907,7 +907,7 @@ InterpretResult run(ObjRoutine* routine) {
                     pop(routine);
                     push(routine, result);
                 } else if (isStructPointer(peek(routine, 0))) {
-                    ObjPackedStruct* object = (ObjPackedStruct*) destinationObject(peek(routine, 0));
+                    ObjStruct* object = (ObjStruct*) destinationObject(peek(routine, 0));
                     tempRootPush(OBJ_VAL(object));
                     ObjString* name = READ_STRING();
                     size_t index;
@@ -949,7 +949,7 @@ InterpretResult run(ObjRoutine* routine) {
                     pop(routine);
                     push(routine, value);
                 } else if (IS_STRUCT(peek(routine, 1))) {
-                    ObjPackedStruct* object = AS_STRUCT(peek(routine, 1));
+                    ObjStruct* object = AS_STRUCT(peek(routine, 1));
                     ObjString* name = READ_STRING();
                     size_t index;
                     if (!structFieldIndex(object->store.storedType, name, &index)) {
@@ -1064,7 +1064,7 @@ InterpretResult run(ObjRoutine* routine) {
                     push(routine, ADDRESS_VAL(a + b));
                 } else if (IS_POINTER(peek(routine, 1)) && IS_UI32(peek(routine, 0))) {
                     uint32_t b = AS_UI32(pop(routine));
-                    ObjPackedPointer* pointer = AS_POINTER(pop(routine));
+                    ObjPtr pointer = pop(routine);
                     offsetPointerDestination(pointer, b);
                     push(routine, OBJ_VAL(pointer));
                 } else if (IS_STRING(peek(routine, 0)) && IS_STRING(peek(routine, 1))) {
@@ -1434,7 +1434,7 @@ InterpretResult run(ObjRoutine* routine) {
             case OP_SET_PTR_TARGET: {
                 Value rhs = peek(routine, 0);
                 Value lhs = peek(routine, 1);
-                ObjPackedPointer* pLhs = AS_POINTER(lhs);
+                ObjPointer* pLhs = AS_POINTER(lhs);
                 PackedValue trgLhs = { 
                     .storedType = pLhs->type->target_type, 
                     .storedValue = pLhs->destination 

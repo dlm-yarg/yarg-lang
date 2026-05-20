@@ -11,7 +11,7 @@
 #include "memory.h"
 #include "vm.h"
 
-bool addSlice(ObjRoutine* routine);
+static bool addSlice(ObjRoutine* routine);
 
 void initRoutine(ObjRoutine* routine) {
     routine->entryFunction = NULL;
@@ -269,9 +269,9 @@ void runtimeError(ObjRoutine* routine, const char* format, ...) {
 }
 
 static ValueCell* slot(ObjRoutine* routine, size_t index) {
-    size_t sliceIndex = index / SLICE_MAX;
+    size_t sliceIndex = index / SLICE_SIZE;
 
-    return &routine->stackSlices[sliceIndex]->elements[index % SLICE_MAX];
+    return &routine->stackSlices[sliceIndex]->elements[index % SLICE_SIZE];
 }
 
 void push(ObjRoutine* routine, Value value) {
@@ -281,7 +281,7 @@ void push(ObjRoutine* routine, Value value) {
     nextSlot->cellType = NULL;
     routine->stackTopIndex++;
 
-    if (((routine->stackTopIndex / SLICE_MAX) + 1) > routine->sliceCount) {
+    if (routine->stackTopIndex / SLICE_SIZE > routine->sliceCount) {
         if (routine->addSlice) {
             if (!routine->addSlice(routine)) {
                 runtimeError(routine, "Value stack size exceeded.");
@@ -298,7 +298,7 @@ void pushTyped(ObjRoutine* routine, Value value, Value type) {
     top->cellType = IS_NIL(type) ? NULL : AS_YARGTYPE(type);
 }
 
-Value pop(ObjRoutine* routine) {
+ObjPtr pop(ObjRoutine* routine) {
 
     Value ret = peek(routine, 0);
     routine->stackTopIndex--;

@@ -69,7 +69,7 @@ bool readBinaryBuiltin(ObjRoutine* routineContext, int argCount, Value* result) 
     tempRootPush(OBJ_VAL(arrayType));
 
     arrayType->cardinality = file_size;
-    ObjPackedUniformArray* array = newPackedUniformArray(arrayType);
+    ObjPackedArray* array = newPackedUniformArray(arrayType);
     tempRootPush(OBJ_VAL(array));
 
     readFileIntoBuffer(c_pathString, (uint8_t*)array->store.storedValue, file_size);
@@ -117,7 +117,7 @@ bool loadBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     ObjFunction* function = NULL;
     
     if (IS_UNIFORMARRAY(arg)) {
-        ObjPackedUniformArray* array = AS_UNIFORMARRAY(arg);
+        ObjPackedArray* array = AS_UNIFORMARRAY(arg);
         uintptr_t addr = pinUniformArray(array);
         function = loadPackageFromBuffer((uint8_t*)addr, arrayCardinality(array->store));
     } else if (IS_STRING(arg)) {
@@ -234,7 +234,7 @@ bool makeSyncGroupBuiltin(ObjRoutine* routineContext, int argCount, ObjPtr resul
         runtimeError(routineContext, "Expected an array.");
         return false;
     }
-    ObjPackedUniformArray* array = AS_UNIFORMARRAY(items);
+    ObjPackedArray* array = AS_UNIFORMARRAY(items);
     ObjConcreteYargTypeArray* t = (ObjConcreteYargTypeArray*)array->store.storedType;
     if (t->element_type == NULL) {
         for (size_t i = 0; i < arrayCardinality(array->store); i++) {
@@ -399,7 +399,7 @@ bool lenBuiltin(ObjRoutine* routineContext, int argCount, ObjPtr result) {
         *result = OBJ_VAL(newIntU(length));
         return true;
     } else if (IS_UNIFORMARRAY(arg)) {
-        ObjPackedUniformArray* array = AS_UNIFORMARRAY(arg);
+        ObjPackedArray* array = AS_UNIFORMARRAY(arg);
         *result = OBJ_VAL(newIntU(arrayCardinality(array->store)));
         return true;
     } else if (IS_MAP(arg)) {
@@ -436,7 +436,7 @@ bool pinBuiltin(ObjRoutine* routineContext, int argCount, ObjPtr result) {
             return false;
         }
     } else if (IS_UNIFORMARRAY(arg)) {
-        ObjPackedUniformArray* array = AS_UNIFORMARRAY(arg);
+        ObjPackedArray* array = AS_UNIFORMARRAY(arg);
         uintptr_t addr = pinUniformArray(array);
         *result = ADDRESS_VAL(addr);
         return true;
@@ -466,23 +466,16 @@ bool newBuiltin(ObjRoutine* routineContext, int argCount, ObjPtr result) {
         case TypeInt32:
         case TypeUint32:
         case TypeInt64:
-        case TypeUint64: {
-            PackedValue heapValue = allocPackedValue(typeToCreate);
-            initialisePackedValue(heapValue);
-            *result = OBJ_VAL(newPointerForHeapCell(heapValue));
+        case TypeUint64:
+            *result = OBJ_VAL(newPointerForHeapCell(typeToCreate, heapValue));
             return true;
-        }
-        case TypeStruct: {
-            PackedValue heapValue = allocPackedValue(typeToCreate);
-            initialisePackedValue(heapValue);
-            *result = OBJ_VAL(newPointerForHeapCell(heapValue));
+        case TypeStruct:
+            *result = OBJ_VAL(newPointerForHeapCell(typeToCreate, heapValue));
             return true;
-        }
-        case TypeArray: {
+        case TypeArray:
             *result = defaultValue(typeToCreate);
             return true;
-        }
-        case TypeMap: {
+        case TypeMap:
             if (isSupportedMapKeyType(typeToCreate)) {
                 *result = OBJ_VAL(newMap((ObjConcreteYargTypeMap*)AS_YARGTYPE(typeToCreate)));
                 return true;
@@ -490,7 +483,6 @@ bool newBuiltin(ObjRoutine* routineContext, int argCount, ObjPtr result) {
                 runtimeError(routineContext, "Unsupported map key type.");
                 return false;
             }
-        }
         case TypeInt:
         case TypeString:
         case TypeClass:
