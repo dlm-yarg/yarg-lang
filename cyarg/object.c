@@ -373,53 +373,9 @@ ObjPtr defaultStructValue(ObjPtr t) {
     return p;
 }
 
-static ObjString* allocateString(char* chars, int length, uint32_t hash) {
-    ObjString* string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
-    string->length = length;
-    string->chars = chars;
-    string->hash = hash;
-    tempRootPush((Obj *)(string));
-    struct AbstractValue v;
-    NIL_VAL(&v);
-    tableSet(&vm.strings, string, &v);
-    tempRootPop();
-    return string;
-}
-
-static uint32_t hashString(const char* key, int length) {
-    uint32_t hash = 2166136261u;
-    for (int i = 0; i < length; i++) {
-        hash ^= (uint8_t)key[i];
-        hash += 16777619;
-    }
-    return hash;
-}
-
-ObjString* takeString(char* chars, int length) {
-    uint32_t hash = hashString(chars, length);
-    ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
-    if (interned != NULL) {
-        FREE_ARRAY(char, chars, length + 1);
-        return interned;
-    }
-
-    return allocateString(chars, length, hash);
-}
-
-ObjString* copyString(const char* chars, int length) {
-    uint32_t hash = hashString(chars, length);
-    ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
-    if (interned != NULL) return interned;
-
-    char* heapChars = ALLOCATE(char, length + 1);
-    memcpy(heapChars, chars, length);
-    heapChars[length] = '\0';
-    return allocateString(heapChars, length, hash);
-}
-
-ObjString* copyStringWithEscapes(const char* chars, int length)
+ObjPtr newStringWithEscapes(const char* chars, int length)
 {
-    char* heapChars = ALLOCATE(char, length + 1);
+    char* heapChars = malloc(length + 1);
 
     char const *in = chars;
     char *out = heapChars;
@@ -434,16 +390,12 @@ ObjString* copyStringWithEscapes(const char* chars, int length)
         *out++ = *in++;
         lengthOut++;
     }
-    uint32_t hash = hashString(heapChars, lengthOut);
-    ObjString* interned = tableFindString(&vm.strings, heapChars, lengthOut, hash);
-    if (interned != NULL)
-    {
-        FREE(char, heapChars);
-        return interned;
-    }
 
     *out = '\0';
-    return allocateString(heapChars, lengthOut, hash);
+    ObjPtr p = osStoreString(out);
+
+    free(heapChars);
+    return p;
 }
 
 ObjUpvalue* newUpvalue(ValueCell* slot, size_t stackOffset) {

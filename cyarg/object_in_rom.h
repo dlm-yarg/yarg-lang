@@ -46,7 +46,7 @@ enum {
     OIR_YT_YARGTYPE,
 
     OS_NOT_COPIED = 65535
-};
+} /* ObjPtr */;
 
 _Static_assert(OIR_YT_ANY < OS_NOT_COPIED, "run out of object names -- make objTyp uint16_t");
 

@@ -19,6 +19,7 @@ void osExtend(void); // defrags, rebalances and/or extends the pools; it may nop
 
 ObjPtr osAlloc(ObjSize);
 void osRealloc(ObjPtr, ObjSize);
+ObjPtr osStoreString(char *);
 void osFree(ObjPtr); // called on uncaptured objects when a stack frame collapses. if arg has been lazy copied the copy takes ownership of the Obj. nop if ObjPtr is a ROM object
 
 void osNoGc(ObjPtr); // arg not liable for GC. Call osGcOk() when eligible for GC. Use to ensure Obj * is valid over osAlloc()/osRealloc() or for very long lived objects to optimise GC

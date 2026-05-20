@@ -379,7 +379,7 @@ ObjPtr newArray(ObjPtr type);
 ObjPtr newMap(ObjPtr type);
 ObjPtr takeString(char *chars, int length);
 ObjPtr copyString(const char *chars, int length);
-ObjPtr copyStringWithEscapes(const char *chars, int length);
+ObjPtr newStringWithEscapes(const char *chars, int length);
 ObjPtr newUpvalue(size_t stackOffset);
 ObjPtr newInt(int64_t value);
 ObjPtr newIntU(uint64_t value);

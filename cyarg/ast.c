@@ -177,7 +177,7 @@ ObjExprString* newExprString(const char* str, int strLength) {
     string->expr.nextExpr = NULL;
     string->string = NULL;
     tempRootPush(&string->expr.obj);
-    string->string = copyStringWithEscapes(str, strLength);
+    string->string = newStringWithEscapes(str, strLength);
     tempRootPop();
     return string;
 }
