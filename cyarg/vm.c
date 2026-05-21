@@ -136,8 +136,8 @@ void initVMMemory() {
 
     vm.nextGC = FIRST_GC_AT;
 
-    platform_mutex_init(&vm.heap);
-    platform_mutex_init(&vm.env);
+    platform_critical_section_init(&vm.heap);
+    platform_critical_section_init(&vm.env);
 }
 
 void initVMRuntime() {
@@ -802,28 +802,28 @@ InterpretResult run(ObjRoutine* routine) {
                 break;
             }
             case OP_GET_GLOBAL: {
-                platform_mutex_enter(&vm.env);
+                platform_critical_section_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
                 ValueCell cell;
                 if (!tableCellGet(&vm.globals, name, &cell)) {
                     runtimeError(routine, "Undefined variable (OP_GET_GLOBAL) '%s'.", name->chars);
-                    platform_mutex_leave(&vm.env);
+                    platform_critical_section_exit(&vm.env);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 push(routine, cell.value);
-                platform_mutex_leave(&vm.env);
+                platform_critical_section_exit(&vm.env);
                 break;
             }
             case OP_DEFINE_GLOBAL: {
-                platform_mutex_enter(&vm.env);
+                platform_critical_section_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
                 tableCellSet(&vm.globals, name, *peekCell(routine, 0));
                 pop(routine);
-                platform_mutex_leave(&vm.env);
+                platform_critical_section_exit(&vm.env);
                 break;
             }
             case OP_SET_GLOBAL: {
-                platform_mutex_enter(&vm.env);
+                platform_critical_section_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
                 ValueCell* lhs = NULL;
                 if (tableCellGetPlace(&vm.globals, name, &lhs)) {
@@ -832,15 +832,15 @@ InterpretResult run(ObjRoutine* routine) {
 
                     if (!assignToValueCellTarget(lhsTrg, rhs->value)) {
                         runtimeError(routine, "Cannot set global variable to incompatible type.");
-                        platform_mutex_leave(&vm.env);
+                        platform_critical_section_exit(&vm.env);
                         return INTERPRET_RUNTIME_ERROR;
                     }
                 } else {
                     runtimeError(routine, "Undefined variable (OP_SET_GLOBAL) '%s'.", name->chars);
-                    platform_mutex_leave(&vm.env);
+                    platform_critical_section_exit(&vm.env);
                     return INTERPRET_RUNTIME_ERROR;
                 }
-                platform_mutex_leave(&vm.env);
+                platform_critical_section_exit(&vm.env);
                 break;
             }
             case OP_INITIALISE: {
@@ -1496,7 +1496,7 @@ static void bindBootstrapCode(const char* name, size_t nameLength,
 // produce a compile error. (use --compile to check this when editing the script)
 uint8_t bootstrap[] = {
     OP_GET_BUILTIN, BUILTIN_LOAD,
-    OP_GET_BUILTIN, BUILTIN_READ_SOURCE,
+    OP_GET_BUILTIN, BUILTIN_READ_YARG_SOURCE,
     OP_CONSTANT, 0,
     OP_CALL, 1,
     OP_CALL, 1,
@@ -1508,7 +1508,7 @@ size_t bootstrap_parameter_offset = 5;
 
 uint8_t compile_bootstrap[] = {
     OP_GET_BUILTIN, BUILTIN_COMPILE,
-    OP_GET_BUILTIN, BUILTIN_READ_SOURCE,
+    OP_GET_BUILTIN, BUILTIN_READ_YARG_SOURCE,
     OP_CONSTANT, 0,
     OP_CALL, 1,
     OP_CALL, 1,
@@ -1516,18 +1516,6 @@ uint8_t compile_bootstrap[] = {
 };
 
 size_t compile_bootstrap_parameter_offset = 5;
-
-uint8_t load_bootstrap[] = {
-    OP_GET_BUILTIN, BUILTIN_LOAD,
-    OP_GET_BUILTIN, BUILTIN_READ_BINARY,
-    OP_CONSTANT, 0,
-    OP_CALL, 1,
-    OP_CALL, 1,
-    OP_CALL, 0,
-    OP_RETURN
-};
-
-size_t load_bootstrap_parameter_offset = 5;
 
 InterpretResult bootstrapVM(Value* bootstrapResult, ObjString* script) {
     ObjClosure* closure = newClosure(&vm.bootFunction);
@@ -1546,30 +1534,20 @@ InterpretResult bootstrapVM(Value* bootstrapResult, ObjString* script) {
     return result;
 }
 
-InterpretResult bootScript(ObjString* script) {
-    bindBootstrapCode("boot", 4, bootstrap, sizeof(bootstrap), script, bootstrap_parameter_offset);
+InterpretResult bootYargSourceFile(ObjString* filename) {
+    bindBootstrapCode("boot", 4, bootstrap, sizeof(bootstrap), filename, bootstrap_parameter_offset);
 
     // Yarg scripts do not return values, so the bootstrap result is discarded.
     Value discardedResult;
-    InterpretResult runResult = bootstrapVM(&discardedResult, script);
+    InterpretResult runResult = bootstrapVM(&discardedResult, filename);
     return runResult;
 }
 
-InterpretResult bootBinary(ObjString *script) {
-    bindBootstrapCode("boot", 4, load_bootstrap, sizeof(load_bootstrap), script, load_bootstrap_parameter_offset);
-
-    // Yarg scripts do not return values, so the bootstrap result is discarded.
-    Value discardedResult;
-    InterpretResult result = bootstrapVM(&discardedResult, script);
-    tempRootPop();
-    return result;
-}
-
-InterpretResult compileScript(ObjString* script, Value* result) {
-    bindBootstrapCode("compiler-host", 13, compile_bootstrap, sizeof(compile_bootstrap), script, compile_bootstrap_parameter_offset);
+InterpretResult compileScript(ObjString* filename, Value* result) {
+    bindBootstrapCode("compiler-host", 13, compile_bootstrap, sizeof(compile_bootstrap), filename, compile_bootstrap_parameter_offset);
 
     // Treat the compile bootstrap as a function, so we get a result.
-    InterpretResult runResult = bootstrapVM(result, script);
+    InterpretResult runResult = bootstrapVM(result, filename);
     return runResult;
 }
 
