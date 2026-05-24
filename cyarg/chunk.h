@@ -1,7 +1,6 @@
 #ifndef cyarg_chunk_h
 #define cyarg_chunk_h
 
-#include "common.h"
 #include "dynamic_array.h"
 
 typedef enum {

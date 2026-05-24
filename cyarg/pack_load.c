@@ -2,7 +2,6 @@
 #include "pack_format.h"
 
 #include "object.h"
-#include "memory.h"
 
 #include <stdlib.h>
 #include <stdio.h>

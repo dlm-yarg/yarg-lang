@@ -54,7 +54,7 @@ bool bindEntryFn(ObjRoutine* routine, ObjClosure* closure);
 void bindEntryArgs(ObjRoutine* routine, ObjPtr entryArg);
 void pushEntryElements(ObjRoutine* routine);
 void enterEntryFunction(ObjRoutine* routine);
-ValueCell* frameSlot(ObjRoutine* routine, CallFrame* frame, size_t index);
+ObjPtr frameSlot(ObjRoutine* routine, CallFrame* frame, size_t index);
 ObjPtr nativeArgument(ObjRoutine* routine, size_t argCount, size_t argument);
 size_t stackOffsetOf(CallFrame* frame, size_t frameIndex);
 
@@ -75,8 +75,8 @@ ObjPtr pop(ObjRoutine* routine);
 void popN(ObjRoutine* routine, size_t count);
 void popFrame(ObjRoutine* routine, CallFrame* frame);
 ObjPtr peek(ObjRoutine* routine, int distance);
-ValueCell* peekCell(ObjRoutine* routine, int distance);
-ValueCell* peekCellTarget(ObjRoutine* routine, int distance);
+ObjPtr peekCell(ObjRoutine* routine, int distance);
+ObjPtr peekCellTarget(ObjRoutine* routine, int distance);
 
 void runtimeError(ObjRoutine* routine, const char* format, ...);
 

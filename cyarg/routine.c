@@ -1,15 +1,14 @@
+#include "routine.h"
+
+#include "common.h"
+#include "vm.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 
-#include "common.h"
-
-#include "routine.h"
-
-#include "memory.h"
-#include "vm.h"
 
 static bool addSlice(ObjRoutine* routine);
 

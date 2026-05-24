@@ -1,19 +1,17 @@
+#include "channel.h"
+
+#include "platform_hal.h"
+#include "vm.h"
+#include "debug.h"
+#include "yargtype.h"
+#include "sync_group.h"
+
 #include <stdio.h>
 #ifdef CYARG_PTHREADS_SYNC
 #include <semaphore.h>
 #include <fcntl.h>   // for O_CREAT
 #include <sys/stat.h> // for S_IRUSR and S_IWUSR
 #endif
-
-#include "common.h"
-#include "platform_hal.h"
-
-#include "channel.h"
-#include "memory.h"
-#include "vm.h"
-#include "debug.h"
-#include "yargtype.h"
-#include "sync_group.h"
 
 typedef struct ObjChannelContainer {
     Obj obj;

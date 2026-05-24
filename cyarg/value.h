@@ -41,11 +41,6 @@ bool valuesEqual(ObjPtr, ObjPtr);
 void printValue(ObjPtr);
 void fprintValue(FILE *, ObjPtr);
 
-bool is_uniformarray(ObjPtr);
-bool is_struct(ObjPtr);
-bool is_nil(ObjPtr);
-bool is_channel(ObjPtr);
-
 uintptr_t pinUniformArray(ObjPtr);
 
 #endif

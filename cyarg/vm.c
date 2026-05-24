@@ -1,27 +1,27 @@
-#include <stdarg.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
-#ifdef CYARG_PICO_SDK_TARGET
-#include <pico/multicore.h>
-#endif
+#include "vm.h"
 
-#ifdef CYARG_FEATURE_TEST_SYSTEM
-#include "test-system/testSystem.h"
-#endif
-
-#include "common.h"
 #include "compiler.h"
 #include "debug.h"
 #include "object.h"
-#include "memory.h"
-#include "vm.h"
 #include "native.h"
 #include "builtin.h"
 #include "routine.h"
 #include "channel.h"
 #include "yargtype.h"
+
+#ifdef CYARG_FEATURE_TEST_SYSTEM
+#include "test-system/testSystem.h"
+#endif
+
+#ifdef CYARG_PICO_SDK_TARGET
+#include <pico/multicore.h>
+#endif
+
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <assert.h>
 
 VM vm;
 

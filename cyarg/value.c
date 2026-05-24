@@ -1,14 +1,15 @@
-#include <stdio.h>
+#include "value.h"
+
+#include "object.h"
+#include "dynamic_array.h"
+#include "print.h"
+
+#include <assert.h>
 #include <string.h>
 #include <inttypes.h>
 
-#include "object.h"
-#include "memory.h"
-#include "value.h"
-#include "yargtype.h"
-
 ObjPtr copyValue(ObjPtr p) {
-    
+    return osCopy(p);
 }
 
 bool is_positive_integer32(ObjPtr p) {
@@ -36,7 +37,6 @@ bool is_positive_integer32(ObjPtr p) {
 
 uint32_t as_positive_integer32(ObjPtr p) {
     Obj const *obj = osDeref(p);
-    ObjType t = obj->objType;
 
     switch (obj->objType) {
     case OBJ_UI32: return ((ObjUi32 const *)obj)->i;
@@ -119,52 +119,49 @@ void fprintValue(FILE* op, ObjPtr p) {
     }
 }
 
-bool is_uniformarray(ObjPtr p) {
-    Obj const *obj = osDeref(p);
-
-    if (val.storedType == NULL) {
-        return IS_UNIFORMARRAY(val.storedValue->asValue);
-    } else if (val.storedType->yt == TypeArray) {
-        return true;
-    } else {
-        return false;
-    }
-}
-
-bool is_struct(PackedValue val) {
-    if (val.storedType == NULL) {
-        return IS_STRUCT(val.storedValue->asValue);
-    } else if (val.storedType->yt == TypeStruct) {
-        return true;
-    } else {
-        return false;
-    }
-}
-
-bool is_nil(PackedValue val) {
-    if (val.storedType == NULL) {
-        return IS_NIL(val.storedValue->asValue);
-    } else if (val.storedType->yt == TypeAny) {
-        return IS_NIL(val.storedValue->asValue);
-    } else if (type_packs_as_obj(val.storedType)
-               && val.storedValue == NULL) {
-        return true;
-    } else {
-        return false;
-    }
-}
-
-bool is_channel(PackedValue val) {
-    if (val.storedType == NULL) {
-        return IS_CHANNEL(val.storedValue->asValue);
-    } else if (val.storedType->yt == TypeChannel) {
-        return true;
-    } else {
-        return false;
-    }
-}
-
 uintptr_t pinUniformArray(ObjPtr array) {
-    pinObj((Obj*)array);
-    return (uintptr_t) array->store.storedValue;
+    ObjArray const *a = (ObjArray const *)osDeref(array);
+    assert(a->obj.objType == OBJ_ARRAY);
+    ObjPtr const *first = daAt(&a->elements, 0);
+    Obj const *obj0 = osDeref(*first);
+
+    size_t elementSize = 0u;
+    uint8_t *elementOffset = 0;
+    switch (obj0->objType) {
+    case OBJ_BOOL: elementSize = sizeof (bool); elementOffset = (uint8_t *)&((ObjBool *)0)->b; break;
+    case OBJ_DOUBLE: elementSize = sizeof (double); elementOffset = (uint8_t *)&((ObjDouble *)0)->d; break;
+    case OBJ_I8: case OBJ_UI8: elementSize = sizeof (uint8_t); elementOffset = (uint8_t *)&((ObjI8 *)0)->i; break;
+    case OBJ_I16: case OBJ_UI16: elementSize = sizeof (uint16_t); elementOffset = (uint8_t *)&((ObjI16 *)0)->i; break;
+    case OBJ_I32: case OBJ_UI32: elementSize = sizeof (uint32_t); elementOffset = (uint8_t *)&((ObjI32 *)0)->i; break;
+    case OBJ_I64: case OBJ_UI64: elementSize = sizeof (uint64_t); elementOffset = (uint8_t *)&((ObjI64 *)0)->i; break;
+    case OBJ_ADDRESS: elementSize = sizeof (uintptr_t); elementOffset = (uint8_t *)&((ObjAddress *)0)->a; break;
+    default: return 0;
+    }
+
+    for (int i = 1; i < a->elements.arrayLength; i++) {
+        ObjPtr const *item = daAt(&a->elements, i);
+        Obj const *obj = osDeref(*item);
+        if (obj0->objType != obj->objType) {
+            return 0;
+        }
+    }
+
+    osNoGc(array);
+    ObjPtr placedArray = ALLOCATE_OBJ(ObjPlacedArray, OBJ_PLACED_ARRAY);
+    ObjPlacedArray *pa = (ObjPlacedArray *)osDeref(*first);
+    osNoGc(placedArray);
+    pa->blob = ALLOCATE_BLOB(elementSize, a->elements.arrayLength);
+    ObjBlob *b = (ObjBlob *)osDeref(pa->blob);
+    b->length = a->elements.arrayLength;
+
+    for (int i = 0; i < a->elements.arrayLength; i++) {
+        uintptr_t item = (uintptr_t)daAt(&a->elements, i);
+        memcpy(b->memory + i * elementSize, item + elementOffset, elementSize);
+    }
+
+    osGcOk(placedArray);
+    osGcOk(array);
+    osNoGc(pa->blob);
+    pa->placedAddress = (uintptr_t)b->memory;
+    return pa->placedAddress;
 }

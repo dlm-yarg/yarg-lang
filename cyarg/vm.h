@@ -1,12 +1,11 @@
 #ifndef cyarg_vm_h
 #define cyarg_vm_h
 
+#include "vm-result.h"
+
 #include "object.h"
 #include "table.h"
 #include "value.h"
-#include "vm-result.h"
-
-#include "memory.h"
 #include "routine.h"
 #include "platform_hal.h"
 

@@ -1,11 +1,11 @@
+#include "ast.h"
+
+#include "big-int/big-int.h"
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <inttypes.h>
 #include <assert.h>
-
-#include "ast.h"
-#include "memory.h"
-#include "big-int/big-int.h"
 
 ObjAst* newObjAst(void) {
     ObjAst* ast = ALLOCATE_OBJ(ObjAst, OBJ_AST);

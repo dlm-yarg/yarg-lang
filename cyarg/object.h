@@ -8,11 +8,14 @@
 #include "big-int/big-int.h"
 #include "chunk.h"
 
+#include <stdio.h>
+
 // Objects are stored in the object store
 
 #define ALLOCATE_OBJ(type, objType) allocateObject(sizeof (type), (objType))
 #define ALLOCATE_VAR_OBJ(type, objType, arrayMember, itemType, numItems) allocateVarObject(sizeof (type), (objType), sizeof (itemType), (size_t)(uint8_t *)&((type *)0)->arrayMember, (numItems))
 #define EXTEND_VAR_OBJ(ptr, type, arrayMember, numItems) extendVarObject((ptr), sizeof (type), (size_t)(uint8_t *)&(((type) *)0)->(arrayMember), (numItems))
+#define ALLOCATE_BLOB(itemSize, numItems) allocateObject(sizeof (ObjBlob) + (itemSize) * (numItems), OBJ_BLOB)
 
 #define IS_ADDRESS(obj)      isObjOfType((obj), OBJ_ADDRESS)
 #define IS_BOUND_METHOD(obj) isObjOfType((obj), OBJ_BOUND_METHOD)
@@ -314,6 +317,7 @@ typedef struct ObjArray {
 typedef struct ObjPlacedArray {
     Obj obj;
     ObjPtr type;
+    ObjPtr blob; // if an ObjArray is copyed because it is pinned
     uintptr_t placedAddress;
     ObjSize elementSize;
 } ObjPlacedArray;
@@ -329,6 +333,12 @@ typedef struct ObjPlacedValue {
     ObjPtr type;
     uintptr_t placedAddress;
 } ObjPlacedValue;
+
+typedef struct ObjBlob {
+    Obj obj;
+    ObjSize length;
+    uint64_t memory[];
+} ObjBlob;
 
 typedef struct ObjPackedUniformArrayUnowned {
     Obj obj;

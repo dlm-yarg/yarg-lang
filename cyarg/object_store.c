@@ -11,7 +11,6 @@
 #include "yargtype.h"
 
 #include <stdlib.h>
-#include <memory.h>
 #include <assert.h>
 
 #define HASH_MAX 256

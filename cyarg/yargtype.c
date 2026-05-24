@@ -1,7 +1,6 @@
-#include "common.h"
-
 #include "yargtype.h"
-#include "memory.h"
+
+#include "common.h"
 #include "vm.h"
 
 #include <assert.h>

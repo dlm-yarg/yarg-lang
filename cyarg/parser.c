@@ -1,15 +1,14 @@
+#include "parser.h"
+#include "ast.h"
+#include "scanner.h"
+
+#include <stdbool.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
 #include <assert.h>
 
-#include "parser.h"
-#include "ast.h"
-#include "memory.h"
-
-#include "scanner.h"
-#include <stdbool.h>
-#include <limits.h>
 
 typedef enum {
     PREC_NONE,

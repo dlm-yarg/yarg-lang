@@ -1,14 +1,13 @@
+#include "compiler.h"
+
+#include "parser.h"
+#include "ast.h"
+#include "object.h"
+#include "scanner.h"
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
-
-#include "common.h"
-#include "compiler.h"
-#include "parser.h"
-#include "ast.h"
-#include "memory.h"
-#include "object.h"
-#include "scanner.h"
 
 static void generateExpr(ObjExpr* expr);
 

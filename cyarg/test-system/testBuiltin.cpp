@@ -13,7 +13,6 @@ extern "C" {
 #include "../routine.h"
 #include "../yargtype.h"
 #include "../object.h"
-#include "../memory.h"
 }
 
 #include "testIntrinsics.hpp"

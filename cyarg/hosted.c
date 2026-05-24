@@ -1,14 +1,13 @@
-#include <stdlib.h>
-#include <sysexits.h>
-#include <assert.h>
-
-#include "common.h"
 #include "hosted.h"
+
 #include "object.h"
-#include "memory.h"
 #include "debug.h"
 #include "pack.h"
 #include "vm.h"
+
+#include <stdlib.h>
+#include <sysexits.h>
+#include <assert.h>
 
 Host vmHost;
 

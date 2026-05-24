@@ -1,7 +1,6 @@
 #ifndef cyarg_table_h
 #define cyarg_table_h
 
-#include "common.h"
 #include "value.h"
 
 typedef struct {
@@ -26,8 +25,8 @@ void tableRemoveWhite(ValueTable* table);
 void markTable(ValueTable* table);
 
 typedef struct {
-    ObjString* key;
-    ValueCell cell;
+    ObjPtr key;
+    ObjPtr cell;
 } EntryCell;
 
 typedef struct {
@@ -38,10 +37,10 @@ typedef struct {
 
 void initCellTable(ValueCellTable* table);
 void freeCellTable(ValueCellTable* table);
-bool tableCellGet(ValueCellTable* table, ObjString* key, ValueCell* value);
-bool tableCellGetPlace(ValueCellTable* table, ObjString* key, ValueCell** place);
-bool tableCellSet(ValueCellTable* table, ObjString* key, ValueCell value);
-bool tableCellDelete(ValueCellTable* table, ObjString* key);
+bool tableCellGet(ValueCellTable* table, ObjPtr key, ObjPtr* value);
+bool tableCellGetPlace(ValueCellTable* table, ObjString* key, ObjPtr* place);
+bool tableCellSet(ValueCellTable* table, ObjPtr key, ObjPtr value);
+bool tableCellDelete(ValueCellTable* table, ObjPtr key);
 void tableCellAddAll(ValueCellTable* from, ValueCellTable* to);
 ObjString* tableCellFindString(ValueCellTable* table, const char* chars, int length, uint32_t hash);
 void tableCellRemoveWhite(ValueCellTable* table);

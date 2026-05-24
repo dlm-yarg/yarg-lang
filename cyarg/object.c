@@ -2,7 +2,6 @@
 
 #include "object_in_rom.h"
 
-#include "memory.h"
 #include "vm.h"
 #include "yargtype.h"
 #include "channel.h"

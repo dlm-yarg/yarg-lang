@@ -1,5 +1,3 @@
-#include <stdio.h>
-
 #include "sync_group.h"
 
 #include "common.h"
@@ -8,7 +6,8 @@
 #include "channel.h"
 #include "yargtype.h"
 #include "routine.h"
-#include "memory.h"
+
+#include <stdio.h>
 
 ObjSyncGroup* newSyncGroup(ObjRoutine* routine, ObjArray* items) {
     ObjSyncGroup* group = ALLOCATE_OBJ(ObjSyncGroup, OBJ_SYNCGROUP);
