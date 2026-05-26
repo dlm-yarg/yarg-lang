@@ -8,8 +8,8 @@
 #include "testSystem.h"
 
 #include "testIntrinsics.h"
-#include "object.h"
-#include "memory.h"
+#include "../object.h"
+#include "../memory.h"
 
 #include <pthread.h>
 #include <stdbool.h>

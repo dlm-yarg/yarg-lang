@@ -6,13 +6,15 @@ package devicerunner
 
 import (
 	"fmt"
+	"io"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
+	"github.com/yarg-lang/yarg-lang/hostyarg/internal/deviceutil"
 	"github.com/yarg-lang/yarg-lang/hostyarg/internal/runbinary"
-
-	"go.bug.st/serial/enumerator"
 
 	"go.bug.st/serial"
 )
@@ -64,145 +66,198 @@ func CmdFlashBinary(binaryPath string) (ok bool) {
 	return result == 0
 }
 
-type PicoPort struct {
-	name         string
-	serialNumber string
-	pid          string
-	vid          string
-}
+func GetSerialOutput(portName string, sourcePath string) (err error, output []string) {
 
-const (
-	RaspberryPiVID = "2E8A" // https://github.com/raspberrypi/usb-pid
-	PicoPID        = "000A" // Raspberry Pi Pico SDK CDC UART (RP2040)
-	DebugProbePID  = "000C" // Raspberry Pi RP2040 CMSIS-DAP debug adapter
-)
-
-func (p PicoPort) String() string {
-	if p.vid == RaspberryPiVID && p.pid == DebugProbePID {
-		return fmt.Sprintf("%s, Serial=%s, VID:PID=%s:%s (Debug Probe)", p.name, p.serialNumber, p.vid, p.pid)
-	} else if p.vid == RaspberryPiVID && p.pid == PicoPID {
-		return fmt.Sprintf("%s, Serial=%s, VID:PID=%s:%s (Pico)", p.name, p.serialNumber, p.vid, p.pid)
-	} else {
-		return fmt.Sprintf("%s, Serial=%s, VID:PID=%s:%s", p.name, p.serialNumber, p.vid, p.pid)
-	}
-}
-
-func (p PicoPort) Name() string {
-	return p.name
-}
-
-func GetSerialOutput(portName string, sourcePath string, done chan error) (output []string) {
-
-	var result_error error
-
-	defer func() { done <- result_error }()
-
-	serial, result_error := serial.Open(portName, &serial.Mode{BaudRate: 115200})
-	if result_error != nil {
-		return nil
+	serial, err := serial.Open(portName, &serial.Mode{BaudRate: 115200})
+	if err != nil {
+		log.Println("Failed to open serial port:", err)
+		return err, nil
 	}
 	defer serial.Close()
+	serial.ResetInputBuffer()
+	serial.ResetOutputBuffer()
 
-	fmt.Fprintf(serial, "exec(read_source(\"%s\"));\n", sourcePath)
+	fmt.Fprintf(serial, "exec(read_yarg_source(\"%s\"));\n", sourcePath)
+	output = make([]string, 0)
 
-	buff := make([]byte, 100)
-	for {
-		n, err := serial.Read(buff)
-		if err != nil {
-			result_error = err
-			return nil
-		}
-		if n == 0 {
-			fmt.Println("No data read from serial port, exiting.")
-			break
-		}
+	output_error := make(chan error)
 
-		input := string(buff[:n])
-		lines := strings.SplitSeq(input, "\n")
-		for line := range lines {
-			if strings.HasSuffix(line, "> ") {
-				return output
+	go func() {
+
+		linebuffer := ""
+		buff := make([]byte, 1)
+		for {
+			n, err := serial.Read(buff)
+			if err == io.EOF {
+				output_error <- nil
+				return
 			}
-			output = append(output, line)
+			if err != nil {
+				output_error <- err
+				return
+			}
+			linebuffer += string(buff[:n])
+			if strings.HasSuffix(linebuffer, "\r\n") {
+				linebuffer = strings.TrimSuffix(linebuffer, "\r\n")
+				output = append(output, linebuffer)
+				linebuffer = ""
+			}
+			if strings.HasSuffix(linebuffer, "yarg> ") {
+				output_error <- nil
+				return
+			}
 		}
-	}
-	return output
+	}()
+
+	err = <-output_error
+	return err, output
 }
 
-func DefaultPort() (p PicoPort, ok bool) {
+func streamSerialOutput(portName string, sourcePath string, outputstream io.Writer) (err error) {
 
-	detailedports, err := enumerator.GetDetailedPortsList()
+	serial, err := serial.Open(portName, &serial.Mode{BaudRate: 115200})
 	if err != nil {
-		log.Println(err)
-		return p, false
+		log.Println("Failed to open serial port:", err)
+		return err
 	}
-	if len(detailedports) == 0 {
-		log.Println("No serial ports found!")
-		return p, false
-	}
+	defer serial.Close()
+	serial.ResetInputBuffer()
+	serial.ResetOutputBuffer()
 
-	picoPorts := []PicoPort{}
+	fmt.Fprintf(serial, "exec(read_yarg_source(\"%s\"));\n", sourcePath)
 
-	// prefer debug probe connections, since they have a more stable serial connection.
-	// scan twice, looking for debug probe first, and then direct Pico connections.
+	output_error := make(chan error)
 
-	for _, port := range detailedports {
-		if port.IsUSB && port.VID == RaspberryPiVID && port.PID == DebugProbePID {
-			log.Printf("Found Debug Probe port: %s\n", port.Name)
-			debugprobe := PicoPort{
-				name:         port.Name,
-				serialNumber: port.SerialNumber,
-				pid:          port.PID,
-				vid:          port.VID,
+	go func() {
+
+		linebuffer := ""
+		buff := make([]byte, 1)
+		for {
+			n, err := serial.Read(buff)
+			if err == io.EOF {
+				output_error <- nil
+				return
 			}
-			picoPorts = append(picoPorts, debugprobe)
-		}
-	}
-
-	for _, port := range detailedports {
-		if port.IsUSB && port.VID == RaspberryPiVID && port.PID == PicoPID {
-			log.Printf("Found Pico port: %s\n", port.Name)
-			pico := PicoPort{
-				name:         port.Name,
-				serialNumber: port.SerialNumber,
-				pid:          port.PID,
-				vid:          port.VID,
+			if err != nil {
+				output_error <- err
+				return
 			}
-			picoPorts = append(picoPorts, pico)
+			linebuffer += string(buff[:n])
+			if strings.HasSuffix(linebuffer, "\r\n") {
+				linebuffer = strings.TrimSuffix(linebuffer, "\r\n")
+				outputstream.Write([]byte(linebuffer + "\n"))
+				linebuffer = ""
+			}
+			if strings.HasSuffix(linebuffer, "yarg> ") {
+				output_error <- nil
+				return
+			}
 		}
-	}
+	}()
 
-	if len(picoPorts) == 0 {
-		return p, false
-	}
-
-	return picoPorts[0], true
+	err = <-output_error
+	return err
 }
 
-func PicoPortFor(name string) (p PicoPort, ok bool) {
-
-	detailedports, err := enumerator.GetDetailedPortsList()
+func StreamSerialIO(portName string) error {
+	serial, err := serial.Open(portName, &serial.Mode{BaudRate: 115200})
 	if err != nil {
-		log.Println(err)
-		return p, false
+		log.Println("Failed to open serial port:", err)
+		return err
 	}
-	if len(detailedports) == 0 {
-		log.Println("No serial ports found!")
-		return p, false
-	}
+	defer serial.Close()
+	serial.ResetInputBuffer()
+	serial.ResetOutputBuffer()
 
-	for _, port := range detailedports {
-		if port.Name == name && port.IsUSB {
-			log.Printf("Found port: %s\n", port.Name)
-			picoPort := PicoPort{
-				name:         port.Name,
-				serialNumber: port.SerialNumber,
-				pid:          port.PID,
-				vid:          port.VID,
+	fmt.Fprint(serial, "\r\n")
+
+	input_error := make(chan error)
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		defer wg.Done()
+		buff := make([]byte, 1)
+		for {
+			n, err := os.Stdin.Read(buff)
+			if err != nil {
+				input_error <- err
+				return
 			}
-			return picoPort, true
+			if buff[:n][0] == '\n' {
+				fmt.Fprint(serial, "\r\n")
+				continue
+			}
+			serial.Write(buff[:n])
 		}
+	})
+
+	output_error := make(chan error)
+
+	wg.Go(func() {
+		defer wg.Done()
+
+		buff := make([]byte, 1)
+		for {
+			n, err := serial.Read(buff)
+			if err == io.EOF {
+				output_error <- nil
+				return
+			}
+			if err != nil {
+				output_error <- err
+				return
+			}
+			fmt.Print(string(buff[:n]))
+		}
+	})
+
+	wg.Wait()
+	ine := <-input_error
+	oute := <-output_error
+	if ine != nil {
+		return ine
+	} else if oute != nil {
+		return oute
+	} else {
+		return nil
+	}
+}
+
+type DeviceRunner struct {
+	Port deviceutil.PicoPort
+}
+
+func (d *DeviceRunner) RunInteractively(source string) (err error) {
+
+	if !deviceutil.IsDevicePath(source) {
+		return fmt.Errorf("source must be a device path starting with 'device:'")
+	}
+	source = deviceutil.DevicePath(source)
+
+	fmt.Println(d.Port)
+	err = streamSerialOutput(d.Port.Name, source, os.Stdout)
+	return err
+}
+
+func (d *DeviceRunner) REPL() error {
+	return StreamSerialIO(d.Port.Name)
+}
+
+func (d *DeviceRunner) CmdExpectTest(hostsource string) (error, int) {
+	return nil, 0
+}
+
+func (d *DeviceRunner) RunBatch(source string) (output []string, errors []string, returncode int, ok bool) {
+	if !deviceutil.IsDevicePath(source) {
+		return nil, []string{fmt.Errorf("source must be a device path starting with 'device:'").Error()}, -1, false
+	}
+	source = deviceutil.DevicePath(source)
+
+	err, output := GetSerialOutput(d.Port.Name, source)
+
+	if err != nil {
+		return output, []string{err.Error()}, -1, false
 	}
 
-	return p, false
+	return output, nil, 0, true
 }

@@ -54,8 +54,7 @@ typedef enum {
 } ExprLiteral;
 
 typedef enum {
-    EXPR_BUILTIN_IMPORT,
-    EXPR_BUILTIN_READ_SOURCE,
+    EXPR_BUILTIN_READ_YARG_SOURCE,
     EXPR_BUILTIN_COMPILE,
     EXPR_BUILTIN_MAKE_ROUTINE,
     EXPR_BUILTIN_MAKE_CHANNEL,
@@ -85,7 +84,8 @@ typedef enum {
     EXPR_BUILTIN_TS_SYNC,
     EXPR_BUILTIN_INT,
     EXPR_BUILTIN_MFLOAT64,
-    EXPR_BUILTIN_STRING
+    EXPR_BUILTIN_STRING,
+    EXPR_BUILTIN_LOAD
 } ExprBuiltin;
 
 typedef struct {
@@ -105,12 +105,6 @@ typedef struct {
     ObjString* name;
     ObjExpr* assignment;
 } ObjExprNamedVariable;
-
-typedef struct {
-    ObjExpr expr;
-    ObjString* name;
-    ObjExpr* value;
-} ObjExprNamedConstant;
 
 typedef struct {
     ObjExpr expr;
@@ -197,7 +191,6 @@ typedef enum {
     EXPR_TYPE_LITERAL_UINT64,
     EXPR_TYPE_LITERAL_MFLOAT64,
     EXPR_TYPE_LITERAL_STRING,
-    EXPR_TYPE_MODIFIER_CONST,
     EXPR_TYPE_LITERAL_INT
 } ExprTypeLiteral;
 
@@ -306,7 +299,6 @@ ObjExprPair* newExprPair(ObjExpr* a, ObjExpr* b);
 ObjExprOperation* newExprOperation(ObjExpr* rhs, ExprOp op);
 ObjExprGrouping* newExprGrouping(ObjExpr* expression);
 ObjExprNamedVariable* newExprNamedVariable(const char* name, int nameLength);
-ObjExprNamedConstant* newExprNamedConstant(const char* name, int nameLength);
 ObjExprCall* newExprCall();
 ObjExprCollectionInitializer* newExprCollectionInitializer();
 ObjExprCollectionElement* newExprCollectionElement();

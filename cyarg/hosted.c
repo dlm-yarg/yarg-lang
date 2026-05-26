@@ -1,11 +1,13 @@
 #include <stdlib.h>
 #include <sysexits.h>
+#include <assert.h>
 
 #include "common.h"
 #include "hosted.h"
 #include "object.h"
 #include "memory.h"
 #include "debug.h"
+#include "pack.h"
 #include "vm.h"
 
 Host vmHost;
@@ -16,7 +18,7 @@ static char* libraryNameFor(const char* importname, const char* libraryPath) {
     if (libraryPath) {
         pathlen = strlen(libraryPath);
     }
-    char* filename = malloc(pathlen + 1 +namelen + 1);
+    char* filename = malloc(pathlen + 1 + namelen + 1);
     if (filename) {
         if (libraryPath) {
             strcpy(filename, libraryPath);
@@ -34,13 +36,13 @@ static char* libraryNameFor(const char* importname, const char* libraryPath) {
 int runHostedFile(const char* libraryPath, const char* path) {
 
     char* replPath = libraryNameFor(path, libraryPath);
-    ObjString* replPathString = copyString(replPath, strlen(replPath));
+    ObjString* replPathString = copyString(replPath, (int) strlen(replPath));
     tempRootPush(OBJ_VAL(replPathString));
     free(replPath);
 
     vmHost.exitCode = EX_OK;
 
-    InterpretResult result = bootScript(replPathString);
+    InterpretResult result = bootYargSourceFile(replPathString);
 
     tempRootPop();
     if (result == INTERPRET_RUNTIME_ERROR) {
@@ -50,9 +52,9 @@ int runHostedFile(const char* libraryPath, const char* path) {
     }
 }
 
-int compileFile(const char* path) {
+int compileFile(const char* path, const char* outputPath) {
 
-    ObjString* pathString = copyString(path, strlen(path));
+    ObjString* pathString = copyString(path, (int) strlen(path));
     tempRootPush(OBJ_VAL(pathString));
 
     Value compilerResult;
@@ -65,7 +67,9 @@ int compileFile(const char* path) {
     } else if (result == INTERPRET_OK && IS_NIL(compilerResult)) {
         exitCode = EX_DATAERR;
     } else {
-        exitCode = EX_OK;
+        if (outputPath && IS_CLOSURE(compilerResult)) {
+            exitCode = packScript(path, AS_CLOSURE(compilerResult)->function, true, outputPath);
+        }
     }
 
     tempRootPop();
@@ -75,12 +79,19 @@ int compileFile(const char* path) {
 
 int disassembleFile(const char* path) {
 
-    ObjString* pathString = copyString(path, strlen(path));
+    ObjString* pathString = copyString(path, (int)strlen(path));
     tempRootPush(OBJ_VAL(pathString));
 
     Value compilerResult;
     InterpretResult result = compileScript(pathString, &compilerResult);
     tempRootPush(compilerResult);
+
+    char const *file = strrchr(path, '/');
+    if (file == 0) {
+        file = path;
+    } else {
+        file++;
+    }
 
     int returnCode = EX_OK;
 
@@ -92,13 +103,7 @@ int disassembleFile(const char* path) {
         returnCode = EX_OK;
         ObjFunction* function = AS_CLOSURE(compilerResult)->function;
 
-        disassembleChunk(&function->chunk, path);
-        for (int i = 0; i < function->chunk.constants.count; i++) {
-            if (IS_FUNCTION(function->chunk.constants.values[i])) {
-                ObjFunction* fun = AS_FUNCTION(function->chunk.constants.values[i]);
-                disassembleChunk(&fun->chunk, fun->name->chars);
-            }
-        }
+        disassembleChunk(&function->chunk, file);
     }
 
     tempRootPop();

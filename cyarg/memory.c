@@ -16,8 +16,20 @@
 
 #define GC_HEAP_GROW_FACTOR 2
 
+// can only be called during gc, so the heap critical section is already held.
+void* gc_free(void* pointer, size_t oldSize, size_t newSize) {
+    if (newSize != 0) {
+        PRINTERR("help! bad free.\n");
+        exit(1);
+    }
+    vm.bytesAllocated += newSize - oldSize;
+
+    free(pointer);
+    return NULL;
+}
+
 void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
-    platform_mutex_enter(&vm.heap);
+    platform_critical_section_enter_blocking(&vm.heap);
 
     vm.bytesAllocated += newSize - oldSize;
     if (newSize > oldSize) {
@@ -30,10 +42,9 @@ void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
         }
     }
 
-    platform_mutex_leave(&vm.heap);
-
     if (newSize == 0) {
         free(pointer);
+        platform_critical_section_exit(&vm.heap);
         return NULL;
     }
 
@@ -42,12 +53,13 @@ void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
         PRINTERR("help! no memory.");
         exit(1);
     }
+    platform_critical_section_exit(&vm.heap);
     return result;
 }
 
 void tempRootPush(Value value) {
 
-    platform_mutex_enter(&vm.heap);
+    platform_critical_section_enter_blocking(&vm.heap);
 
     *vm.tempRootsTop = value;
     vm.tempRootsTop++;
@@ -56,14 +68,14 @@ void tempRootPush(Value value) {
         fatalVMError("Allocation Stash Max Exeeded.");
     }
 
-    platform_mutex_leave(&vm.heap);
+    platform_critical_section_exit(&vm.heap);
 }
 
 Value tempRootPop() {
-    platform_mutex_enter(&vm.heap);
+    platform_critical_section_enter_blocking(&vm.heap);
     vm.tempRootsTop--;
     Value result = *vm.tempRootsTop;
-    platform_mutex_leave(&vm.heap);
+    platform_critical_section_exit(&vm.heap);
     return result;
 }
 
@@ -121,7 +133,7 @@ void markDynamicObjArray(DynamicObjArray* array) {
 }
 
 void markFunction(ObjFunction* function) {
-    markObject((Obj*)function->name);
+    markObject((Obj*)function->fName);
     markArray(&function->chunk.constants);
 }
 
@@ -148,14 +160,14 @@ static void blackenObject(Obj* object) {
         case OBJ_CLOSURE: {
             ObjClosure* closure = (ObjClosure*)object;
             markObject((Obj*)closure->function);
-            for (int i = 0; i < closure->upvalueCount; i++) {
+            for (int i = 0; i < closure->cUpvalueCount; i++) {
                 markObject((Obj*)closure->upvalues[i]);
             }
             break;
         }
         case OBJ_FUNCTION: {
             ObjFunction* function = (ObjFunction*)object;
-            markObject((Obj*)function->name);
+            markObject((Obj*)function->fName);
             markArray(&function->chunk.constants);
             break;
         }
@@ -368,13 +380,6 @@ static void blackenObject(Obj* object) {
             markObject((Obj*)var->name);
             break;
         }
-        case OBJ_EXPR_NAMEDCONSTANT: {
-            markExpr(object);
-            ObjExprNamedConstant* const_ = (ObjExprNamedConstant*)object;
-            markObject((Obj*)const_->value);
-            markObject((Obj*)const_->name);
-            break;
-        }
         case OBJ_EXPR_LITERAL: {
             ObjExprLiteral* lit = (ObjExprLiteral*)object;
             markObject((Obj*)lit->expr.nextExpr);
@@ -467,7 +472,7 @@ static void freeObject(Obj* object) {
         }
         case OBJ_CLOSURE: {
             ObjClosure* closure = (ObjClosure*)object;
-            FREE_ARRAY(ObjUpvalue*, closure->upvalues, closure->upvalueCount);
+            FREE_ARRAY(ObjUpvalue*, closure->upvalues, closure->cUpvalueCount);
             FREE(ObjClosure, object);
             break;
         }
@@ -499,7 +504,7 @@ static void freeObject(Obj* object) {
         case OBJ_PACKEDPOINTER: {
             ObjPackedPointer* ptr = (ObjPackedPointer*) object;
             Value targetType = ptr->type->target_type == NULL ? NIL_VAL : OBJ_VAL(ptr->type->target_type);
-            ptr->destination = reallocate(ptr->destination, yt_sizeof_type_storage(targetType), 0);
+            ptr->destination = gc_free(ptr->destination, yt_sizeof_type_storage(targetType), 0);
             FREE(ObjPackedPointer, object); 
             break;
         }
@@ -508,14 +513,14 @@ static void freeObject(Obj* object) {
             ObjPackedUniformArray* array = (ObjPackedUniformArray*)object;
             ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*)array->store.storedType;
             size_t element_size = arrayElementSize(arrayType);
-            array->store.storedValue = reallocate(array->store.storedValue, arrayType->cardinality * element_size, 0);
+            array->store.storedValue = gc_free(array->store.storedValue, arrayType->cardinality * element_size, 0);
             FREE(ObjPackedUniformArray, object);
             break;
         }
         case OBJ_UNOWNED_PACKEDSTRUCT: FREE(ObjPackedStruct, object); break;
         case OBJ_PACKEDSTRUCT: {
             ObjPackedStruct* struct_ = (ObjPackedStruct*) object;
-            struct_->store.storedValue = reallocate(struct_->store.storedValue, ((ObjConcreteYargTypeStruct*)(struct_->store.storedType))->storage_size, 0);
+            struct_->store.storedValue = gc_free(struct_->store.storedValue, ((ObjConcreteYargTypeStruct*)(struct_->store.storedType))->storage_size, 0);
             FREE(ObjPackedStruct, object);
             break;            
         }
@@ -575,7 +580,6 @@ static void freeObject(Obj* object) {
         case OBJ_EXPR_OPERATION: FREE(ObjExprOperation, object); break;
         case OBJ_EXPR_GROUPING: FREE(ObjExprGrouping, object); break;
         case OBJ_EXPR_NAMEDVARIABLE: FREE(ObjExprNamedVariable, object); break;
-        case OBJ_EXPR_NAMEDCONSTANT: FREE(ObjExprNamedConstant, object); break;
         case OBJ_EXPR_LITERAL: FREE(ObjExprLiteral, object); break;
         case OBJ_EXPR_STRING: FREE(ObjExprString, object); break;
         case OBJ_EXPR_CALL: {
@@ -643,8 +647,6 @@ static void sweep() {
 
 void collectGarbage() {
 
-    platform_mutex_enter(&vm.heap);
-
 #ifdef DEBUG_LOG_GC
     PRINTERR("-- gc begin\n");
     size_t before = vm.bytesAllocated;
@@ -665,7 +667,6 @@ void collectGarbage() {
              vm.nextGC);
 #endif
 
-    platform_mutex_leave(&vm.heap);
 }
 
 void freeObjects() {
@@ -691,4 +692,8 @@ void printObjects() {
         count++;
     }
     PRINTERR("=== End Objects (%zu) ===\n", count);
+}
+
+void pinObj(Obj* object) {
+    ; // currently a nop.
 }

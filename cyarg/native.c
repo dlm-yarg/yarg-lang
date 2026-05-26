@@ -7,6 +7,7 @@
 #include "native.h"
 #include "routine.h"
 #include "vm.h"
+#include "fs/fs.h"
 #if defined(CYARG_FEATURE_HOSTED_REPL)
 #include "hosted.h"
 #endif
@@ -41,9 +42,9 @@ bool irq_add_shared_handlerNative(ObjRoutine* routine, int argCount, Value* resu
 
     unsigned int num = as_positive_integer32(numVal);
     uintptr_t isrRoutine = AS_ADDRESS(address);
-    unsigned int prio = as_positive_integer32(prioVal);
 
 #if defined(CYARG_PICO_SDK_TARGET)
+    unsigned int prio = as_positive_integer32(prioVal);
     irq_add_shared_handler(num, (irq_handler_t) isrRoutine, prio);
 #elif defined(CYARG_FEATURE_TEST_SYSTEM)
     tsAddInterruptHandler(num, (void *) isrRoutine);
@@ -123,16 +124,16 @@ bool stdin_getsNative(ObjRoutine* routine, int argCount, Value* result) {
     }
 
     char buffer[4096];
-    if (fgets(buffer, sizeof(buffer), stdin) == NULL) {
+    while (fgets(buffer, sizeof(buffer), stdin) == NULL) {
         *result = NIL_VAL;
-        return true;
+//        return true;
     }
     size_t length = strlen(buffer);
     if (length > 0 && buffer[length - 1] == '\n') {
         buffer[length - 1] = '\0';
         length--;
     }
-    *result = OBJ_VAL(copyString(buffer, length));
+    *result = OBJ_VAL(copyString(buffer, (int) length));
     return true;
 }
 
@@ -190,7 +191,7 @@ bool host_argnNative(ObjRoutine* routine, int argCount, Value* result) {
         return false;
     }
 
-    *result = OBJ_VAL(copyString(vmHost.argv[index], strlen(vmHost.argv[index])));
+    *result = OBJ_VAL(copyString(vmHost.argv[index], (int) strlen(vmHost.argv[index])));
     return true;
 }
 
@@ -211,3 +212,73 @@ bool host_exitCodeNative(ObjRoutine* routine, int argCount, Value* result) {
     return true;
 }
 #endif
+
+bool readFileIntoBufferNative(ObjRoutine* routine, int argCount, Value* result) {
+    if (argCount != 3) {
+        runtimeError(routine, "Expected 3 arguments but got %d.", argCount);
+        return false;
+    }
+
+    Value pathVal = nativeArgument(routine, argCount, 0);
+    Value bufferVal = nativeArgument(routine, argCount, 1);
+    Value bufferSizeVal = nativeArgument(routine, argCount, 2);
+
+    if (!is_positive_integer32(bufferSizeVal)) {
+        runtimeError(routine, "Expected a positive integer for the buffer size.");
+        return false;
+    }
+
+    if (!IS_STRING(pathVal)) {
+        runtimeError(routine, "Expected a string for the file path.");
+        return false;
+    }
+    if (!IS_ADDRESS(bufferVal)) {
+        runtimeError(routine, "Expected an address for the buffer.");
+        return false;
+    }
+
+    const char* path = AS_CSTRING(pathVal);
+    size_t bufferSize = as_positive_integer32(bufferSizeVal);
+    uint8_t* buf = (uint8_t*) AS_ADDRESS(bufferVal);
+
+    readFileIntoBuffer(path, buf, bufferSize);
+
+    return true;
+
+}
+
+bool fileSizeNative(ObjRoutine* routine, int argCount, Value* result) {
+    if (argCount != 1) {
+        runtimeError(routine, "Expected 1 argument but got %d.", argCount);
+        return false;
+    }
+
+    Value pathVal = nativeArgument(routine, argCount, 0);
+    if (!IS_STRING(pathVal)) {
+        runtimeError(routine, "Expected a string.");
+        return false;
+    }
+    const char* path = AS_CSTRING(pathVal);
+
+    size_t size = fileSize(path);
+
+    *result = SIZE_T_UI_VAL(size);
+    return true;
+}
+
+bool fileExistsNative(ObjRoutine* routine, int argCount, Value* result) {
+    if (argCount != 1) {
+        runtimeError(routine, "Expected 1 argument but got %d.", argCount);
+        return false;
+    }
+
+    Value pathVal = nativeArgument(routine, argCount, 0);
+    if (!IS_STRING(pathVal)) {
+        runtimeError(routine, "Expected a string.");
+        return false;
+    }
+    const char* path = AS_CSTRING(pathVal);
+
+    *result = BOOL_VAL(fileExists(path));
+    return true;
+}

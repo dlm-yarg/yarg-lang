@@ -97,7 +97,6 @@ typedef enum {
     OBJ_EXPR_OPERATION,
     OBJ_EXPR_GROUPING,
     OBJ_EXPR_NAMEDVARIABLE,
-    OBJ_EXPR_NAMEDCONSTANT,
     OBJ_EXPR_LITERAL,
     OBJ_EXPR_STRING,
     OBJ_EXPR_CALL,
@@ -126,12 +125,12 @@ typedef struct {
     int objectCount;
 } DynamicObjArray;
 
-typedef struct {
+typedef struct ObjFunction {
     Obj obj;
     int arity;
     int upvalueCount;
     Chunk chunk;
-    ObjString* name;
+    ObjString* fName;
 } ObjFunction;
 
 typedef bool (*NativeFn)(ObjRoutine* routine, int argCount, Value* result);
@@ -148,7 +147,7 @@ struct ObjString {
     uint32_t hash;
 };
 
-typedef struct {
+typedef struct ObjInt {
     Obj obj;
     bool isLiteral;
     Int bigInt;
@@ -162,11 +161,11 @@ typedef struct ObjUpvalue {
     struct ObjUpvalue* next;
 } ObjUpvalue;
 
-typedef struct {
+typedef struct ObjClosure {
     Obj obj;
     ObjFunction* function;
     ObjUpvalue** upvalues;
-    int upvalueCount;
+    int cUpvalueCount;
 } ObjClosure;
 
 typedef struct {
@@ -213,6 +212,7 @@ typedef struct {
     (type*)allocateObject(sizeof(type), objectType)
 
 Obj* allocateObject(size_t size, ObjType type);
+ObjInt* allocateIntObject(size_t numDigits);
 
 void initDynamicObjArray(DynamicObjArray* array);
 void freeDynamicObjArray(DynamicObjArray* array);

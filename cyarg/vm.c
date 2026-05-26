@@ -27,6 +27,7 @@ VM vm;
 
 static void binaryIntOp(ObjRoutine* routine, char const *c);
 static void binaryIntBoolOp(ObjRoutine* routine, char const *c);
+static void unaryIntOp(ObjRoutine* routine, int op);
 
 void vmPinnedRoutineHandler(size_t handler) {
     ObjRoutine* routine = vm.pinnedRoutines[handler];
@@ -135,8 +136,8 @@ void initVMMemory() {
 
     vm.nextGC = FIRST_GC_AT;
 
-    platform_mutex_init(&vm.heap);
-    platform_mutex_init(&vm.env);
+    platform_critical_section_init(&vm.heap);
+    platform_critical_section_init(&vm.env);
 }
 
 void initVMRuntime() {
@@ -159,7 +160,6 @@ void initVMRuntime() {
     initFunction(&vm.bootFunction);
 
     initCellTable(&vm.globals);
-    initTable(&vm.imports);
     initTable(&vm.strings);
     
     vm.initString = copyString("init", 4);
@@ -174,6 +174,10 @@ void initVMRuntime() {
     defineNative("c_stdin_eof", stdin_eofNative);
     defineNative("c_stdout_puts", stdout_putsNative);
 
+    defineNative("c_readFileIntoBuffer", readFileIntoBufferNative);
+    defineNative("c_fileSize", fileSizeNative);
+    defineNative("c_fileExists", fileExistsNative);
+
 #if defined(CYARG_FEATURE_HOSTED_REPL)
     defineNative("host_argc", host_argcNative);
     defineNative("host_argn", host_argnNative);
@@ -184,7 +188,6 @@ void initVMRuntime() {
 void freeVM() {
     freeCellTable(&vm.globals);
     freeTable(&vm.strings);
-    freeTable(&vm.imports);
     vm.initString = NULL;
     vm.libraryPath = NULL;
     freeObjects();
@@ -206,7 +209,6 @@ void markVMRoots() {
         markValue(*slot);
     }
 
-    markTable(&vm.imports);
     markObject((Obj*)vm.libraryPath);
     markCellTable(&vm.globals);
     markObject((Obj*)vm.initString);
@@ -259,17 +261,13 @@ static InterpretResult callValue(ObjRoutine* routine, Value callee, int argCount
                 return callfn(routine, AS_CLOSURE(callee), argCount) ? INTERPRET_OK : INTERPRET_RUNTIME_ERROR;
             case OBJ_NATIVE: {
                 NativeFn native = AS_NATIVE(callee);
-                if (native == importBuiltinDummy) {
-                    return importBuiltin(routine, argCount);
+                Value result = NIL_VAL;
+                if (native(routine, argCount, &result)) {
+                    popN(routine, argCount + 1);
+                    push(routine, result);
+                    return INTERPRET_OK;
                 } else {
-                    Value result = NIL_VAL; 
-                    if (native(routine, argCount, &result)) {
-                        popN(routine, argCount + 1);
-                        push(routine, result);
-                        return INTERPRET_OK;
-                    } else {
-                        return INTERPRET_RUNTIME_ERROR;
-                    }
+                    return INTERPRET_RUNTIME_ERROR;
                 }
             }
             default:
@@ -520,20 +518,6 @@ static void concatenate(ObjRoutine* routine) {
     push(routine, OBJ_VAL(result));
 }
 
-static void makeConcreteTypeConst(ObjRoutine* routine) {
-    if (IS_NIL(peek(routine, 0))) {
-        pop(routine);
-        ObjConcreteYargType* typeObject = newYargTypeFromType(TypeAny);
-        typeObject->isConst = true;
-        push(routine, OBJ_VAL(typeObject));
-        return;
-    } else {
-        ObjConcreteYargType* typeObj = (ObjConcreteYargType*) AS_OBJ(peek(routine, 0));
-        typeObj->isConst = true;
-        return;
-    }
-}
-
 static void promote(Value *left, Value *right)
 {
     assert(left != 0 && right != 0);
@@ -676,7 +660,7 @@ InterpretResult run(ObjRoutine* routine) {
         } else if (IS_INT(peek(routine, 0)) && IS_INT(peek(routine, 1))) { \
             binaryIntOp(routine, #op); \
         } else { \
-            runtimeError(routine, "Operands must both be numbers, integers or unsigned integers."); \
+            runtimeError(routine, #op " Operands %d %d must both be numbers, integers or unsigned integers.", peek(routine, 0).type, peek(routine, 1).type); \
             return INTERPRET_RUNTIME_ERROR; \
         } \
     } while (false)
@@ -721,7 +705,7 @@ InterpretResult run(ObjRoutine* routine) {
         } else if (IS_INT(peek(routine, 0)) && IS_INT(peek(routine, 1))) { \
             binaryIntBoolOp(routine, #op); \
         } else { \
-            runtimeError(routine, "Operands must both be numbers, integers or unsigned integers."); \
+            runtimeError(routine, #op " Operands %d %d must both be numbers, integers or unsigned integers.", peek(routine, 0).type, peek(routine, 1).type); \
             return INTERPRET_RUNTIME_ERROR; \
         } \
     } while (false)
@@ -749,14 +733,16 @@ InterpretResult run(ObjRoutine* routine) {
             uint64_t c = a op b; \
             push(routine, UI64_VAL(c)); \
         } else { \
-            runtimeError(routine, "Operands must be unsigned integers."); \
+            runtimeError(routine, #op " Operands %d %d must be unsigned integers.", peek(routine, 0).type, peek(routine, 1).type); \
             return INTERPRET_RUNTIME_ERROR; \
         } \
     } while (false)
 
     for (;;) {
-        if (routine->state == EXEC_ERROR) return INTERPRET_RUNTIME_ERROR;
-
+        if (routine->state == EXEC_ERROR) {
+            runtimeError(routine, "Error");
+            return INTERPRET_RUNTIME_ERROR;
+        }
         if (routine->traceExecution) {
             PRINTERR("[%p]", routine);
             printValueStack(routine, "          ");
@@ -782,10 +768,8 @@ InterpretResult run(ObjRoutine* routine) {
                 {
                     num += 65536 * READ_BYTE();
                 }
-                ObjInt *i = (ObjInt *) allocateObject(sizeof (ObjInt) + 2 * sizeof (uint16_t), OBJ_INT);
+                ObjInt *i = newIntU(num);
                 i->isLiteral = true;
-                i->bigInt.m_ = 2;
-                int_set_u(num, &i->bigInt);
                 i->bigInt.neg_ = instruction == OP_IMMEDIATE_N8 || instruction == OP_IMMEDIATE_N16 || instruction == OP_IMMEDIATE_N24;
                 push(routine, OBJ_VAL(i));
                 break;
@@ -818,28 +802,28 @@ InterpretResult run(ObjRoutine* routine) {
                 break;
             }
             case OP_GET_GLOBAL: {
-                platform_mutex_enter(&vm.env);
+                platform_critical_section_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
                 ValueCell cell;
                 if (!tableCellGet(&vm.globals, name, &cell)) {
                     runtimeError(routine, "Undefined variable (OP_GET_GLOBAL) '%s'.", name->chars);
-                    platform_mutex_leave(&vm.env);
+                    platform_critical_section_exit(&vm.env);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 push(routine, cell.value);
-                platform_mutex_leave(&vm.env);
+                platform_critical_section_exit(&vm.env);
                 break;
             }
             case OP_DEFINE_GLOBAL: {
-                platform_mutex_enter(&vm.env);
+                platform_critical_section_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
                 tableCellSet(&vm.globals, name, *peekCell(routine, 0));
                 pop(routine);
-                platform_mutex_leave(&vm.env);
+                platform_critical_section_exit(&vm.env);
                 break;
             }
             case OP_SET_GLOBAL: {
-                platform_mutex_enter(&vm.env);
+                platform_critical_section_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
                 ValueCell* lhs = NULL;
                 if (tableCellGetPlace(&vm.globals, name, &lhs)) {
@@ -848,15 +832,15 @@ InterpretResult run(ObjRoutine* routine) {
 
                     if (!assignToValueCellTarget(lhsTrg, rhs->value)) {
                         runtimeError(routine, "Cannot set global variable to incompatible type.");
-                        platform_mutex_leave(&vm.env);
+                        platform_critical_section_exit(&vm.env);
                         return INTERPRET_RUNTIME_ERROR;
                     }
                 } else {
                     runtimeError(routine, "Undefined variable (OP_SET_GLOBAL) '%s'.", name->chars);
-                    platform_mutex_leave(&vm.env);
+                    platform_critical_section_exit(&vm.env);
                     return INTERPRET_RUNTIME_ERROR;
                 }
-                platform_mutex_leave(&vm.env);
+                platform_critical_section_exit(&vm.env);
                 break;
             }
             case OP_INITIALISE: {
@@ -906,6 +890,7 @@ InterpretResult run(ObjRoutine* routine) {
                     }
 
                     if (!bindMethod(routine, instance->klass, name)) {
+                        runtimeError(routine, "Error");
                         return INTERPRET_RUNTIME_ERROR;
                     }
                 } else if (IS_STRUCT(peek(routine, 0))) {
@@ -987,24 +972,44 @@ InterpretResult run(ObjRoutine* routine) {
                 ObjClass* superclass = AS_CLASS(pop(routine));
 
                 if (!bindMethod(routine, superclass, name)) {
+                    runtimeError(routine, "Error");
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
             }
-            case OP_EQUAL: {
+            case OP_EQUAL: case OP_GREATER: case OP_LESS: {
                 if (IS_INT(peek(routine, 0)) && IS_INT(peek(routine, 1))) {
-                    binaryIntBoolOp(routine, "==");
+                    switch (instruction) {
+                    case OP_EQUAL:
+                        binaryIntBoolOp(routine, "==");
+                        break;
+                    case OP_GREATER:
+                        binaryIntBoolOp(routine, ">");
+                        break;
+                    case OP_LESS:
+                        binaryIntBoolOp(routine, "<");
+                        break;
+                    }
                 } else {
                     promote(&peekCell(routine, 1)->value, &peekCell(routine, 0)->value);
 
-                    Value b = pop(routine);
-                    Value a = pop(routine);
-                    push(routine, BOOL_VAL(valuesEqual(a, b)));
+                    switch (instruction) {
+                    case OP_EQUAL: {
+                        Value b = pop(routine);
+                        Value a = pop(routine);
+                        push(routine, BOOL_VAL(valuesEqual(a, b)));
+                        break;
+                    }
+                    case OP_GREATER:
+                        BINARY_BOOLEAN_OP(routine, >);
+                        break;
+                    case OP_LESS:
+                        BINARY_BOOLEAN_OP(routine, <);
+                        break;
+                    }
                 }
                 break;
             }
-            case OP_GREATER:  BINARY_BOOLEAN_OP(routine, >); break;
-            case OP_LESS:     BINARY_BOOLEAN_OP(routine, <); break;
             case OP_LEFT_SHIFT:  BINARY_UINT_OP(routine, <<); break;
             case OP_RIGHT_SHIFT: BINARY_UINT_OP(routine, >>); break;
             case OP_BITOR:       BINARY_UINT_OP(routine, |); break;
@@ -1080,7 +1085,7 @@ InterpretResult run(ObjRoutine* routine) {
                     int32_t b = AS_I32(pop(routine));
                     int32_t a = AS_I32(pop(routine));
                     int32_t r = a % b;
-                    if (r < 0) {
+                    if (a < 0 && b > 0 || a > 0  && b < 0) {
                         r += b;
                     }
                     push(routine, I32_VAL(r));
@@ -1088,7 +1093,7 @@ InterpretResult run(ObjRoutine* routine) {
                     int8_t b = AS_I8(pop(routine));
                     int8_t a = AS_I8(pop(routine));
                     int8_t r = a % b;
-                    if (r < 0) {
+                    if (a < 0 && b > 0 || a > 0  && b < 0) {
                         r += b;
                     }
                     push(routine, I8_VAL(r));
@@ -1096,7 +1101,7 @@ InterpretResult run(ObjRoutine* routine) {
                     int16_t b = AS_I16(pop(routine));
                     int16_t a = AS_I16(pop(routine));
                     int16_t r = a % b;
-                    if (r < 0) {
+                    if (a < 0 && b > 0 || a > 0  && b < 0) {
                         r += b;
                     }
                     push(routine, I16_VAL(r));
@@ -1104,7 +1109,7 @@ InterpretResult run(ObjRoutine* routine) {
                     int64_t b = AS_I64(pop(routine));
                     int64_t a = AS_I64(pop(routine));
                     int64_t r = a % b;
-                    if (r < 0) {
+                    if (a < 0 && b > 0 || a > 0  && b < 0) {
                         r += b;
                     }
                     push(routine, I64_VAL(r));
@@ -1150,8 +1155,7 @@ InterpretResult run(ObjRoutine* routine) {
                 } else if (IS_I64(peek(routine, 0))) {
                     push(routine, I64_VAL(-AS_I64(pop(routine))));
                 } else if (IS_INT(peek(routine, 0))) {
-                    Int *b = AS_INT(peek(routine, 0));
-                    int_neg(b);
+                    unaryIntOp(routine, OP_NEGATE);
                 } else {
                     runtimeError(routine, "Operand must be a number or integer.");
                     return INTERPRET_RUNTIME_ERROR;
@@ -1191,7 +1195,9 @@ InterpretResult run(ObjRoutine* routine) {
                 {
                     nominal_address = int_to_u64(AS_INT(location));
                 }
+#if defined (CYARG_SELF_HOSTED)
                 volatile uint32_t* reg = (volatile uint32_t*) nominal_address;
+#endif
 
                 uint32_t val = 0;
 
@@ -1269,7 +1275,7 @@ InterpretResult run(ObjRoutine* routine) {
                 ObjFunction* function = AS_FUNCTION(READ_CONSTANT());
                 ObjClosure* closure = newClosure(function);
                 push(routine, OBJ_VAL(closure));
-                for (int i = 0; i < closure->upvalueCount; i++) {
+                for (int i = 0; i < closure->cUpvalueCount; i++) {
                     uint8_t isLocal = READ_BYTE();
                     uint8_t index = READ_BYTE();
                     if (isLocal) {
@@ -1327,12 +1333,14 @@ InterpretResult run(ObjRoutine* routine) {
                 break;
             case OP_ELEMENT: {
                 if (!derefElement(routine)) {
+                    runtimeError(routine, "Error");
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
             }
             case OP_SET_ELEMENT: {
                 if (!setElement(routine)) {
+                    runtimeError(routine, "Error");
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -1359,13 +1367,6 @@ InterpretResult run(ObjRoutine* routine) {
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 push(routine, OBJ_VAL(typeObj));
-                break;
-            }
-            case OP_TYPE_MODIFIER: {
-                uint8_t typeCode = READ_BYTE();
-                switch (typeCode) {
-                    case TYPE_MODIFIER_CONST: makeConcreteTypeConst(routine); break;
-                }
                 break;
             }
             case OP_TYPE_STRUCT: {
@@ -1483,7 +1484,7 @@ typedef void (*bindBootstrapFunction)(ObjString* script);
 static void bindBootstrapCode(const char* name, size_t nameLength, 
                               const uint8_t code[], size_t codeLength, 
                               ObjString* script, size_t constantIndex) {
-    vm.bootFunction.name = copyString(name, nameLength);
+    vm.bootFunction.fName = copyString(name, (int)nameLength);
 
     for (size_t i = 0; i < codeLength; i++) {
         writeChunk(&vm.bootFunction.chunk, code[i], 0);
@@ -1495,8 +1496,8 @@ static void bindBootstrapCode(const char* name, size_t nameLength,
 // note that it is assumed that the initial script is well-formed and won't
 // produce a compile error. (use --compile to check this when editing the script)
 uint8_t bootstrap[] = {
-    OP_GET_BUILTIN, BUILTIN_COMPILE,
-    OP_GET_BUILTIN, BUILTIN_READ_SOURCE,
+    OP_GET_BUILTIN, BUILTIN_LOAD,
+    OP_GET_BUILTIN, BUILTIN_READ_YARG_SOURCE,
     OP_CONSTANT, 0,
     OP_CALL, 1,
     OP_CALL, 1,
@@ -1508,7 +1509,7 @@ size_t bootstrap_parameter_offset = 5;
 
 uint8_t compile_bootstrap[] = {
     OP_GET_BUILTIN, BUILTIN_COMPILE,
-    OP_GET_BUILTIN, BUILTIN_READ_SOURCE,
+    OP_GET_BUILTIN, BUILTIN_READ_YARG_SOURCE,
     OP_CONSTANT, 0,
     OP_CALL, 1,
     OP_CALL, 1,
@@ -1534,23 +1535,32 @@ InterpretResult bootstrapVM(Value* bootstrapResult, ObjString* script) {
     return result;
 }
 
-InterpretResult bootScript(ObjString* script) {
-    bindBootstrapCode("boot", 4, bootstrap, sizeof(bootstrap), script, bootstrap_parameter_offset);
+InterpretResult bootYargSourceFile(ObjString* filename) {
+    bindBootstrapCode("boot", 4, bootstrap, sizeof(bootstrap), filename, bootstrap_parameter_offset);
 
     // Yarg scripts do not return values, so the bootstrap result is discarded.
     Value discardedResult;
-    InterpretResult runResult = bootstrapVM(&discardedResult, script);
+    InterpretResult runResult = bootstrapVM(&discardedResult, filename);
     return runResult;
 }
 
-InterpretResult compileScript(ObjString* script, Value* result) {
-    bindBootstrapCode("compiler-host", 13, compile_bootstrap, sizeof(compile_bootstrap), script, compile_bootstrap_parameter_offset);
+InterpretResult compileScript(ObjString* filename, Value* result) {
+    bindBootstrapCode("compiler-host", 13, compile_bootstrap, sizeof(compile_bootstrap), filename, compile_bootstrap_parameter_offset);
 
     // Treat the compile bootstrap as a function, so we get a result.
-    InterpretResult runResult = bootstrapVM(result, script);
+    InterpretResult runResult = bootstrapVM(result, filename);
     return runResult;
 }
 
+void unaryIntOp(ObjRoutine* routine, int op) {
+    assert(op == OP_NEGATE);
+    Int* a = AS_INT(peek(routine, 0));
+    ObjInt *r = allocateIntObject(a->d_);
+    int_set_t(a, &r->bigInt);
+    int_neg(&r->bigInt);
+    pop(routine);
+    push(routine, OBJ_VAL(r));
+}
 
 void binaryIntOp(ObjRoutine* routine, char const *c)
 {
@@ -1570,15 +1580,13 @@ void binaryIntOp(ObjRoutine* routine, char const *c)
         s = a->m_ ;
         break;
     case '%':
-        s = a->m_ > b->m_ ? a->m_ : b->m_;
+        s = 1 + (a->m_ > b->m_ ? a->m_ : b->m_);
         break;
     default:
         assert(!"IntOp");
     }
     if (s > 254) s = 254;
-    s += s % 2;
-    ObjInt *r = (ObjInt *)allocateObject(sizeof (ObjInt) + s * sizeof (uint16_t), OBJ_INT);
-    r->bigInt.m_ = s;
+    ObjInt *r = allocateIntObject(s);
     int_init(&r->bigInt);
 
     switch (*c)
@@ -1617,7 +1625,7 @@ void binaryIntBoolOp(ObjRoutine* routine, char const *op)
         r = ic == INT_GT;
         break;
     case '=':
-        assert(op[1] == '=');
+        assert(op[1] == '=' && op[2] == 0);
         r = ic == INT_EQ;
         break;
     default:

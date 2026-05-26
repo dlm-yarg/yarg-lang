@@ -73,7 +73,7 @@ static void initCompiler(Compiler* compiler, FunctionType type, ObjString* name)
     compiler->function = newFunction();
 
     if (type != TYPE_SCRIPT) {
-        current->function->name = name;
+        current->function->fName = name;
     }
 
     Local* local = &current->locals[current->localCount++];
@@ -227,27 +227,23 @@ static uint8_t makeConstant(Value value) {
 }
 
 #define UINT24_MAX 16777215
+static void emitImmediateConstant(int32_t);
 static void emitConstant(Value value) {
     // DOUBLE_VAL, ADDRESS_VAL or OBJ_VAL(String or Int)
     int32_t v = 0;
     bool asObject = true;
-    switch (value.type)
-    {
+    switch (value.type) {
     case VAL_ADDRESS: // fall through
     case VAL_DOUBLE:
         break;
     case VAL_OBJ:
-        if (IS_INT(value))
-        {
+        if (IS_INT(value)) {
             ObjInt *oi = (ObjInt *) value.as.obj;
-            if (int_is_range(&oi->bigInt, -UINT24_MAX, UINT24_MAX) == INT_WITHIN)
-            {
+            if (int_is_range(&oi->bigInt, -UINT24_MAX, UINT24_MAX) == INT_WITHIN) {
                 v = int_to_i32(&oi->bigInt);
                 asObject = false;
             }
-        }
-        else
-        {
+        } else {
             assert(value.as.obj->type == OBJ_STRING);
         }
         break;
@@ -256,49 +252,36 @@ static void emitConstant(Value value) {
         break;
     }
 
-    if (asObject)
-    {
+    if (asObject) {
         emitBytes(OP_CONSTANT, makeConstant(value));
+    } else {
+        emitImmediateConstant(v);
     }
-    else
-    {
-        if (v >= -UINT8_MAX && v <= UINT8_MAX)
-        {
-            if (v < 0)
-            {
-                emitBytes(OP_IMMEDIATE_N8, (uint8_t) (-v));
-            }
-            else
-            {
-                emitBytes(OP_IMMEDIATE_P8, (uint8_t) v);
-            }
+}
+
+static void emitImmediateConstant(int32_t v) {
+    if (v >= -UINT8_MAX && v <= UINT8_MAX) {
+        if (v < 0) {
+            emitBytes(OP_IMMEDIATE_N8, (uint8_t) (-v));
+        } else {
+            emitBytes(OP_IMMEDIATE_P8, (uint8_t) v);
         }
-        else if (v >= -UINT16_MAX && v <= UINT16_MAX)
-        {
-            if (v < 0)
-            {
-                v = -v;
-                emitBytes(OP_IMMEDIATE_N16, (uint8_t) (v % 256));
-            }
-            else
-            {
-                emitBytes(OP_IMMEDIATE_P16, (uint16_t) (v % 256));
-            }
-            emitByte((uint8_t) (v / 256));
+    } else if (v >= -UINT16_MAX && v <= UINT16_MAX) {
+        if (v < 0) {
+            v = -v;
+            emitBytes(OP_IMMEDIATE_N16, (uint8_t) (v % 256));
+        } else {
+            emitBytes(OP_IMMEDIATE_P16, (uint16_t) (v % 256));
         }
-        else // if (v >= -UINT24_MAX && v < UINT24_MAX)
-        {
-            if (v < 0)
-            {
-                v = -v;
-                emitBytes(OP_IMMEDIATE_N24, (uint8_t) (v % 256));
-            }
-            else
-            {
-                emitBytes(OP_IMMEDIATE_P24, (uint16_t) (v % 256));
-            }
-            emitBytes((uint8_t) ((v / 256) % 256), (uint8_t) (v / 65536));
+        emitByte((uint8_t) (v / 256));
+    } else { // if (v >= -UINT24_MAX && v < UINT24_MAX)
+        if (v < 0) {
+            v = -v;
+            emitBytes(OP_IMMEDIATE_N24, (uint8_t) (v % 256));
+        } else {
+            emitBytes(OP_IMMEDIATE_P24, (uint16_t) (v % 256));
         }
+        emitBytes((uint8_t) ((v / 256) % 256), (uint8_t) (v / 65536));
     }
 }
 
@@ -369,8 +352,7 @@ static void generateNumber(ObjExprNumber* num) {
         emitConstant(DOUBLE_VAL(num->dbl));
         break;
     case NUMBER_INT: {
-        ObjInt *objInt = (ObjInt *) allocateObject(sizeof (ObjInt) + num->bigInt.m_ * sizeof (uint16_t), OBJ_INT);
-        objInt->bigInt.m_ = num->bigInt.m_;
+        ObjInt *objInt = allocateIntObject(num->bigInt.d_);
         objInt->isLiteral = true;
         int_set_t(&num->bigInt, &objInt->bigInt);
         emitConstant(OBJ_VAL(objInt));
@@ -507,11 +489,6 @@ static void generateExprNamedVariable(ObjExprNamedVariable* var) {
     }
 }
 
-static void generateExprNamedConstant(ObjExprNamedConstant* const_) {
-
-        generateExpr(const_->value);
-}
-
 static void generateExprLiteral(ObjExprLiteral* lit) {
     switch (lit->literal) {
         case EXPR_LITERAL_FALSE: emitByte(OP_FALSE); break;
@@ -575,8 +552,7 @@ static void generateExprCollectionElement(ObjExprCollectionElement* collection) 
 
 static void generateExprBuiltin(ObjExprBuiltin* fn) {
     switch(fn->builtin) {
-        case EXPR_BUILTIN_IMPORT: emitBytes(OP_GET_BUILTIN, BUILTIN_IMPORT); break;
-        case EXPR_BUILTIN_READ_SOURCE: emitBytes(OP_GET_BUILTIN, BUILTIN_READ_SOURCE); break;
+        case EXPR_BUILTIN_READ_YARG_SOURCE: emitBytes(OP_GET_BUILTIN, BUILTIN_READ_YARG_SOURCE); break;
         case EXPR_BUILTIN_COMPILE: emitBytes(OP_GET_BUILTIN, BUILTIN_COMPILE); break;
         case EXPR_BUILTIN_MAKE_ROUTINE: emitBytes(OP_GET_BUILTIN, BUILTIN_MAKE_ROUTINE); break;
         case EXPR_BUILTIN_MAKE_CHANNEL: emitBytes(OP_GET_BUILTIN, BUILTIN_MAKE_CHANNEL); break;
@@ -607,6 +583,7 @@ static void generateExprBuiltin(ObjExprBuiltin* fn) {
         case EXPR_BUILTIN_INT: emitBytes(OP_GET_BUILTIN, BUILTIN_INT); break;
         case EXPR_BUILTIN_MFLOAT64: emitBytes(OP_GET_BUILTIN, BUILTIN_MFLOAT64); break;
         case EXPR_BUILTIN_STRING: emitBytes(OP_GET_BUILTIN, BUILTIN_STRING); break;
+        case EXPR_BUILTIN_LOAD: emitBytes(OP_GET_BUILTIN, BUILTIN_LOAD); break;
     }
 }
 
@@ -669,7 +646,6 @@ static void generateExprType(ObjExprTypeLiteral* type) {
         case EXPR_TYPE_LITERAL_INT64: emitBytes(OP_TYPE_LITERAL, TYPE_LITERAL_INT64); return;
         case EXPR_TYPE_LITERAL_UINT64: emitBytes(OP_TYPE_LITERAL, TYPE_LITERAL_UINT64); return;
         case EXPR_TYPE_LITERAL_STRING: emitBytes(OP_TYPE_LITERAL, TYPE_LITERAL_STRING); return;
-        case EXPR_TYPE_MODIFIER_CONST: emitBytes(OP_TYPE_MODIFIER, TYPE_MODIFIER_CONST); return;
         case EXPR_TYPE_LITERAL_INT: emitBytes(OP_TYPE_LITERAL, TYPE_LITERAL_INT); return;
         default: return; // unreachable.
     }
@@ -716,11 +692,6 @@ static void generateExprElt(ObjExpr* expr) {
         case OBJ_EXPR_NAMEDVARIABLE: {
             ObjExprNamedVariable* var = (ObjExprNamedVariable*)expr;
             generateExprNamedVariable(var);
-            break;
-        }
-        case OBJ_EXPR_NAMEDCONSTANT: {
-            ObjExprNamedConstant* const_ = (ObjExprNamedConstant*)expr;
-            generateExprNamedConstant(const_);
             break;
         }
         case OBJ_EXPR_LITERAL: {
@@ -1080,6 +1051,18 @@ static void generateStmtFieldDeclaration(ObjStmtFieldDeclaration* stmt) {
 }
 
 static void generateStmt(ObjStmt* stmt) {
+#ifndef COMPILE_EXCLUDE_LINE_NUMBERS
+    if (current->function->chunk.numLines == 0 ||
+        current->function->chunk.lines[current->function->chunk.numLines - 1].line != stmt->line) {
+        if (current->function->chunk.numLines == current->function->chunk.lineCapacity) {
+            int capacity = current->function->chunk.lineCapacity;
+            int newCapacity = capacity + 16;
+            current->function->chunk.lineCapacity = newCapacity;
+            current->function->chunk.lines = GROW_ARRAY(ChunkSource, current->function->chunk.lines, capacity, newCapacity);
+        }
+        current->function->chunk.lines[current->function->chunk.numLines++] = (ChunkSource){current->function->chunk.count, stmt->line};
+    }
+#endif
     current->panicMode = false;
     current->recent = stmt;
     switch (stmt->obj.type) {
@@ -1149,6 +1132,7 @@ static ObjFunction* endCompiler() {
     ObjFunction* function = current->function;
 
     current = current->enclosing;
+
     return function;
 }
 
@@ -1178,7 +1162,7 @@ ObjFunction* compile(const char* source) {
     }
 
     ObjFunction* function = endCompiler();
-
+    
     bool compileError = parseError || hadCompilerError;
 
     return compileError ? NULL : function;

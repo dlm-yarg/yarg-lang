@@ -22,15 +22,14 @@ typedef struct {
     ObjRoutine* pinnedRoutines[MAX_PINNED_ROUTINES];
     PinnedRoutineHandler pinnedRoutineHandlers[MAX_PINNED_ROUTINES];
     
-    platform_mutex env;
+    platform_critical_section env;
     
     ValueCellTable globals;
     ValueTable strings;
     ObjString* initString;
     ObjString* libraryPath;
-    ValueTable imports;
 
-    platform_mutex heap;
+    platform_critical_section heap;
 
     Value tempRoots[TEMP_ROOTS_MAX];
     Value* tempRootsTop;
@@ -44,7 +43,6 @@ typedef struct {
 } VM;
 
 extern VM vm;
-extern uint8_t compile_bootstrap[];
 
 // two-phase init, broadly get the memory manager up, and then get the yarg env up.
 void initVMMemory();
@@ -52,8 +50,8 @@ void initVMRuntime();
 void freeVM();
 void markVMRoots();
 
-InterpretResult bootScript(ObjString* script);
-InterpretResult compileScript(ObjString* script, Value* compileResult);
+InterpretResult bootYargSourceFile(ObjString* filename);
+InterpretResult compileScript(ObjString* filename, Value* compileResult);
 
 InterpretResult run(ObjRoutine* routine);
 bool callfn(ObjRoutine* routine, ObjClosure* closure, int argCount);

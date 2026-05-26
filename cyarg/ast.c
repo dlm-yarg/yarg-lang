@@ -159,15 +159,6 @@ ObjExprNamedVariable* newExprNamedVariable(const char* name, int nameLength) {
     return var;
 }
 
-ObjExprNamedConstant* newExprNamedConstant(const char* name, int nameLength) {
-    ObjExprNamedConstant* var = ALLOCATE_OBJ(ObjExprNamedConstant, OBJ_EXPR_NAMEDCONSTANT);
-    tempRootPush(OBJ_VAL(var));
-    var->name = copyString(name, nameLength);
-    tempRootPop();
-    return var;
-}
-
-
 ObjExprLiteral* newExprLiteral(ExprLiteral literal) {
     ObjExprLiteral* lit = ALLOCATE_OBJ(ObjExprLiteral, OBJ_EXPR_LITERAL);
     lit->expr.nextExpr = NULL;
@@ -340,8 +331,7 @@ void printExprSuper(ObjExprSuper* expr) {
 
 void printExprBuiltin(ObjExprBuiltin* fn) {
     switch (fn->builtin) {
-        case EXPR_BUILTIN_IMPORT: printf("import"); break;
-        case EXPR_BUILTIN_READ_SOURCE: printf("read_source"); break;
+        case EXPR_BUILTIN_READ_YARG_SOURCE: printf("read_yarg_source"); break;
         case EXPR_BUILTIN_COMPILE: printf("compile"); break;
         case EXPR_BUILTIN_MAKE_ROUTINE: printf("make_routine"); break;
         case EXPR_BUILTIN_MAKE_CHANNEL: printf("make_channel"); break;
@@ -372,6 +362,7 @@ void printExprBuiltin(ObjExprBuiltin* fn) {
         case EXPR_BUILTIN_INT: printf("int"); break;
         case EXPR_BUILTIN_MFLOAT64: printf("mfloat64"); break;
         case EXPR_BUILTIN_STRING: printf("string"); break;
+        case EXPR_BUILTIN_LOAD: printf("load"); break;
     }
 }
 
@@ -397,7 +388,6 @@ static void printExprType(ObjExpr* type) {
             case EXPR_TYPE_LITERAL_UINT64: printf("uint64"); break;
             case EXPR_TYPE_LITERAL_BOOL: printf("bool"); break;
             case EXPR_TYPE_LITERAL_STRING: printf("string"); break;
-            case EXPR_TYPE_MODIFIER_CONST: printf("<const>"); break;
             case EXPR_TYPE_LITERAL_INT: printf("int"); break;
             default: printf("<unknown>"); break;
         }

@@ -15,117 +15,66 @@
 #include "channel.h"
 #include "yargtype.h"
 #include "sync_group.h"
+#include "pack.h"
 
 #ifdef CYARG_FEATURE_TEST_SYSTEM
 #include "test-system/testSystem.h"
 #include "test-system/testBuiltin.h"
 #endif
 
-bool importBuiltinDummy(ObjRoutine* routineContext, int argCount, Value* result) {
-    *result = NIL_VAL;
-    return true;
-}
-
-static char* libraryNameFor(const char* importname, const char* libraryPath) {
-    size_t namelen = strlen(importname);
-    size_t pathlen = 0;
-    if (libraryPath) {
-        pathlen = strlen(libraryPath);
-    }
-    char* filename = malloc(pathlen + 1 +namelen + 3 + 1);
-    if (filename) {
-        if (libraryPath) {
-            strcpy(filename, libraryPath);
-            if (libraryPath[pathlen - 1] != '/') {
-                strcat(filename, "/");
-            }
-        } else {
-            strcpy(filename, "");
-        }
-        strcat(filename, importname);
-        strcat(filename, ".ya");
-    }
-    return filename;
-}
-
-InterpretResult importBuiltin(ObjRoutine* routineContext, int argCount) {
-    if (argCount != 1) {
-        runtimeError(routineContext, "Expected 1 arguments but got %d.", argCount);
-        return INTERPRET_RUNTIME_ERROR;
-    }
-    if (!IS_STRING(peek(routineContext, 0))) {
-        runtimeError(routineContext, "Argument to import must be string.");
-        return INTERPRET_RUNTIME_ERROR;
-    }
-
-    Value val;
-    if (tableGet(&vm.imports, AS_STRING(peek(routineContext, 0)), &val)) {
-        pop(routineContext);
-        pop(routineContext);
-        push(routineContext, NIL_VAL);
-        return INTERPRET_OK;
-    }
-
-    char* source = NULL;
-    char* inmportLibrary = vm.libraryPath ? AS_CSTRING(OBJ_VAL(vm.libraryPath)) : NULL;
-    char* library = libraryNameFor(AS_CSTRING(peek(routineContext, 0)), inmportLibrary);
-    if (library) {
-        source = readFile(library);
-        free(library);
-    }
-
-    if (source) {
-        ObjFunction* function = compile(source);
-        free(source);
-        if (function == NULL) {
-            return INTERPRET_RUNTIME_ERROR;
-        }
-
-        tempRootPush(OBJ_VAL(function));
-
-        Value libstring = pop(routineContext);
-        tempRootPush(libstring);
-        pop(routineContext);
-
-        ObjClosure* closure = newClosure(function);
-        push(routineContext, OBJ_VAL(closure));
-
-        tableSet(&vm.imports, AS_STRING(libstring), BOOL_VAL(true));
-
-        tempRootPop();
-        tempRootPop();
-
-        callfn(routineContext, closure, 0);
-        return INTERPRET_OK;
-    }
-    else {
-        runtimeError(routineContext, "source not found");
-        return INTERPRET_RUNTIME_ERROR;
-    }
-
-}
-
-bool readSourceBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
+// read from the filesystem, into memory.
+// Long term, to be replaced with native yarg, and less
+// assumptions about where filesystems live.
+// reads:
+//  - yarg binary files (returned as uint8[])
+//  - text files (returned as string)
+// Both are suitable input to load().
+bool readYargSourceBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     if (argCount != 1) {
         runtimeError(routineContext, "Expected 1 argument but got %d.", argCount);
         return false;
     }
     if (!IS_STRING(nativeArgument(routineContext, argCount, 0))) {
-        runtimeError(routineContext, "Argument to read_source must be string.");
+        runtimeError(routineContext, "Argument to read_yarg_source must be string.");
         return false;
     }
 
     const char* filename = AS_CSTRING(nativeArgument(routineContext, argCount, 0));
-    char* source = readFile(filename);
-    if (source == NULL) {
-        runtimeError(routineContext, "Could not read source file '%s'.", filename);
-        return false;
+    char const *dotOn = strrchr(filename, '.');
+    if (dotOn != 0 && strcmp(dotOn, ".yb") == 0) {
+        size_t file_size = fileSize(filename);
+
+        ObjConcreteYargType* byteType = newYargTypeFromType(TypeUint8);
+        tempRootPush(OBJ_VAL(byteType));
+
+        ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*)newYargArrayTypeFromType(OBJ_VAL(byteType));
+        tempRootPush(OBJ_VAL(arrayType));
+
+        arrayType->cardinality = file_size;
+        ObjPackedUniformArray* array = newPackedUniformArray(arrayType);
+        tempRootPush(OBJ_VAL(array));
+
+        readFileIntoBuffer(filename, (uint8_t*)array->store.storedValue, file_size);
+
+        *result = OBJ_VAL(array);
+
+        tempRootPop();
+        tempRootPop();
+        tempRootPop();
     }
+    else {
+        // assume a text file
+        char* source = readFile(filename);
+        if (source == NULL) {
+            runtimeError(routineContext, "Could not read source file '%s'.", filename);
+            return false;
+        }
 
-    ObjString* sourceString = copyString(source, (int)strlen(source));
-    free(source);
+        ObjString* sourceString = copyString(source, (int)strlen(source));
+        free(source);
 
-    *result = OBJ_VAL(sourceString);
+        *result = OBJ_VAL(sourceString);
+    }
     return true;
 }
 
@@ -152,6 +101,37 @@ bool compileBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     return true;
 }
 
+bool loadBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
+    if (argCount != 1) {
+        runtimeError(routineContext, "Expected 1 arguments but got %d.", argCount);
+        return false;
+    }
+    Value arg = nativeArgument(routineContext, argCount, 0);
+    ObjFunction* function = NULL;
+    
+    if (IS_UNIFORMARRAY(arg)) {
+        ObjPackedUniformArray* array = AS_UNIFORMARRAY(arg);
+        uintptr_t addr = pinUniformArray(array);
+        function = loadPackageFromBuffer((uint8_t*)addr, arrayCardinality(array->store));
+    } else if (IS_STRING(arg)) {
+        const char* source = AS_CSTRING(arg);
+        function = compile(source);
+    } else {
+        runtimeError(routineContext, "Argument to load must be a byte array or a string.");
+        return false;
+    }
+
+    if (function == NULL) {
+        *result = NIL_VAL;
+    } else {
+        push(routineContext, OBJ_VAL(function));
+        ObjClosure* closure = newClosure(function);
+        *result = OBJ_VAL(closure);
+        pop(routineContext);
+    }
+    return true;
+}
+
 bool makeChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
     if (argCount >= 2) {
         runtimeError(routine, "Expected 0 or 1 arguments but got %d.", argCount);
@@ -164,6 +144,7 @@ bool makeChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         Value arg1 = nativeArgument(routine, argCount, 0);
         if (!is_positive_integer32(arg1)) {
             runtimeError(routine, "Expected a positive integer");
+            return false;
         }
         valCapacity = arg1;
     }
@@ -278,7 +259,7 @@ bool makeRoutineBuiltin(ObjRoutine* routineContext, int argCount, Value* result)
     }
 
     ObjClosure* closure = AS_CLOSURE(nativeArgument(routineContext, argCount, 0));
-    bool isISR = AS_BOOL(nativeArgument(routineContext, argCount, 1));
+    [[maybe_unused]] bool isISR = AS_BOOL(nativeArgument(routineContext, argCount, 1));
 
     ObjRoutine* routine = newRoutine();
 
@@ -432,23 +413,28 @@ bool pinBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     }
 
     Value arg = nativeArgument(routineContext, argCount, 0);
+    if (IS_ROUTINE(arg)) {
+        ObjRoutine* isrRoutine = AS_ROUTINE(arg);
+        if (isrRoutine->entryFunction->function->arity != 0) {
+            runtimeError(routineContext, "Can only pin routines with 0 argument entry functions.");
+            return false;        
+        }
 
-    if (!IS_ROUTINE(arg)) {
-        runtimeError(routineContext, "Argument to pin must be a routine.");
-        return false;
-    }
-    ObjRoutine* isrRoutine = AS_ROUTINE(arg);
-    if (isrRoutine->entryFunction->function->arity != 0) {
-        runtimeError(routineContext, "Can only pin routines with 0 argument entry functions.");
-        return false;        
-    }
-
-    uintptr_t addr;
-    if (pinRoutine(isrRoutine, &addr)) {
+        uintptr_t addr;
+        if (pinRoutine(isrRoutine, &addr)) {
+            *result = ADDRESS_VAL(addr);
+            return true;
+        } else {
+            runtimeError(routineContext, "No more pinned routines available.");
+            return false;
+        }
+    } else if (IS_UNIFORMARRAY(arg)) {
+        ObjPackedUniformArray* array = AS_UNIFORMARRAY(arg);
+        uintptr_t addr = pinUniformArray(array);
         *result = ADDRESS_VAL(addr);
         return true;
     } else {
-        runtimeError(routineContext, "No more pinned routines available.");
+        runtimeError(routineContext, "Expected a routine or uniform array.");
         return false;
     }
 }
@@ -456,7 +442,7 @@ bool pinBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
 bool newBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
 
     Value typeToCreate = NIL_VAL;
-    if (   argCount == 1
+    if (argCount == 1
         && IS_YARGTYPE(nativeArgument(routineContext, argCount, 0))) {
         typeToCreate = nativeArgument(routineContext, argCount, 0);
     }
@@ -897,21 +883,17 @@ bool intBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     } else if (IS_STRING(arg)) {
         char *s = AS_CSTRING(arg);
         int il = INT_DIGITS_FOR_S(strlen(s));
-        il += il % 2;
-        ObjInt *newObj = (ObjInt *)allocateObject(sizeof (ObjInt) + il * sizeof (uint16_t), OBJ_INT);
+        ObjInt *newObj = allocateIntObject(il);
         result->as.obj = &newObj->obj;
         result->type = VAL_OBJ;
-        newObj->bigInt.m_ = il;
         int_set_s(s, &newObj->bigInt);
         return true;
     } else if (IS_INT(arg)) {
         Int *from = AS_INT(arg);
         int il = from->d_;
-        il += il % 2;
-        ObjInt *newObj = (ObjInt *)allocateObject(sizeof (ObjInt) + il * sizeof (uint16_t), OBJ_INT);
+        ObjInt *newObj = allocateIntObject(il);
         result->as.obj = &newObj->obj;
         result->type = VAL_OBJ;
-        newObj->bigInt.m_ = il;
         int_set_t(from, &newObj->bigInt);
         return true;
     } else {
@@ -919,6 +901,52 @@ bool intBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     }
 
     *result = OBJ_VAL(newInt(i));
+    return true;
+}
+
+bool floatBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
+    Value arg = nativeArgument(routineContext, argCount, 0);
+    double f;
+    if (IS_I8(arg)) {
+        f = AS_I8(arg);
+    } else if (IS_I16(arg)) {
+        f = AS_I16(arg);
+    } else if (IS_I32(arg)) {
+        f = AS_I32(arg);
+    } else if (IS_I64(arg)) {
+        f = AS_I64(arg);
+    } else if (IS_UI8(arg)) {
+        f = AS_UI8(arg);
+    } else if (IS_UI16(arg)) {
+        f = AS_UI16(arg);
+    } else if (IS_UI32(arg)) {
+        f = AS_UI32(arg);
+    } else if (IS_UI64(arg)) {
+        f = AS_UI64(arg);
+    } else if (IS_STRING(arg))  {
+        char *end;
+        f = strtod(AS_CSTRING(arg), &end);
+        if (*end != 0)
+        {
+            return false;
+        }
+    } else if (IS_INT(arg)) {
+        char sb[INT_STRLEN_FOR_INT254];
+        Int *i = AS_INT(arg);
+        char const *s = int_to_s(i, sb, INT_STRLEN_FOR_INT254);
+        char *end;
+        f = strtod(s, &end);
+        if (*end != 0)
+        {
+            return false;
+        }
+    } else if (IS_DOUBLE(arg)) {
+        f = AS_DOUBLE(arg);
+    } else {
+        return false;
+    }
+    result->as.dbl = f;
+    result->type = VAL_DOUBLE;
     return true;
 }
 
@@ -946,7 +974,7 @@ bool stringBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     } else if (IS_UI64(arg)) {
         uint64_t i = AS_UI64(arg);
         char sb[22];
-        int l = sprintf(sb, "%" PRIu64, i);
+        int l = snprintf(sb, 22, "%" PRIu64, i);
         ObjString* string = copyString(sb, l);
         result->as.obj = &string->obj;
         result->type = VAL_OBJ;
@@ -968,7 +996,7 @@ bool stringBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     } else if (IS_DOUBLE(arg)) {
         char sb[22];
         double f = AS_DOUBLE(arg);
-        int l = sprintf(sb, "%#g", f);
+        int l = snprintf(sb, 22, "%#g", f);
         ObjString* string = copyString(sb, l);
         result->as.obj = &string->obj;
         result->type = VAL_OBJ;
@@ -977,7 +1005,7 @@ bool stringBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         return false;
     }
     char sb[22];
-    int l = sprintf(sb, "%" PRId64, i);
+    int l = snprintf(sb, 22, "%" PRId64, i);
     ObjString* string = copyString(sb, l);
     result->as.obj = &string->obj;
     result->type = VAL_OBJ;
@@ -987,8 +1015,7 @@ bool stringBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
 Value getBuiltin(uint8_t builtin) {
     switch (builtin) {
         case BUILTIN_PEEK: return OBJ_VAL(newNative(peekBuiltin));
-        case BUILTIN_IMPORT: return OBJ_VAL(newNative(importBuiltinDummy));
-        case BUILTIN_READ_SOURCE: return OBJ_VAL(newNative(readSourceBuiltin));
+        case BUILTIN_READ_YARG_SOURCE: return OBJ_VAL(newNative(readYargSourceBuiltin));
         case BUILTIN_COMPILE: return OBJ_VAL(newNative(compileBuiltin));
         case BUILTIN_MAKE_ROUTINE: return OBJ_VAL(newNative(makeRoutineBuiltin));
         case BUILTIN_RESUME: return OBJ_VAL(newNative(resumeBuiltin));
@@ -1011,7 +1038,9 @@ Value getBuiltin(uint8_t builtin) {
         case BUILTIN_INT64: return OBJ_VAL(newNative(int64Builtin));
         case BUILTIN_UINT64: return OBJ_VAL(newNative(uint64Builtin));
         case BUILTIN_INT: return OBJ_VAL(newNative(intBuiltin));
+        case BUILTIN_MFLOAT64: return OBJ_VAL(newNative(floatBuiltin));
         case BUILTIN_STRING: return OBJ_VAL(newNative(stringBuiltin));
+        case BUILTIN_LOAD: return OBJ_VAL(newNative(loadBuiltin));
 #ifndef CYARG_FEATURE_TEST_SYSTEM
         default: return NIL_VAL;
 #else

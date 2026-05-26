@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
 
 #include "debug.h"
 #include "object.h"
@@ -11,11 +13,49 @@ void disassembleChunk(Chunk* chunk, const char* name) {
     for (int offset = 0; offset < chunk->count;) {
         offset = disassembleInstruction(chunk, offset);
     }
+    for (int i = 0; i < chunk->constants.count; i++) {
+        if (IS_FUNCTION(chunk->constants.values[i])) {
+            ObjFunction *fun = AS_FUNCTION(chunk->constants.values[i]);
+            char *funNameC = realloc(0, fun->fName->length + 1);
+            memcpy(funNameC, fun->fName->chars, fun->fName->length + 1);
+            int line = fun->chunk.numLines > 0 ? fun->chunk.lines[0].line : 0;
+            size_t l = snprintf(0, 0, "%s/%s(%d)", name, funNameC, line);
+            char *funName = realloc(0, l + 1);
+            snprintf(funName, l + 1, "%s/%s(%d)", name, funNameC, line);
+            disassembleChunk(&fun->chunk, funName);
+            free(funName);
+            free(funNameC);
+        }
+    }
+}
+
+static char const *valueType(Value *v) {
+    switch (v->type) {
+    case VAL_BOOL: return "bool";
+    case VAL_NIL: return "";
+    case VAL_DOUBLE: return "double";
+    case VAL_I8: return "i8";
+    case VAL_UI8: return "ui8";
+    case VAL_I16: return "i16";
+    case VAL_UI16: return "ui16";
+    case VAL_I32: return "i32";
+    case VAL_UI32: return "ui32";
+    case VAL_UI64: return "ui64";
+    case VAL_I64: return "i64";
+    case VAL_ADDRESS: return "address";
+    case VAL_OBJ:
+        switch (AS_OBJ(*v)->type) {
+        case OBJ_INT: return "int";
+        case OBJ_STRING: return "string";
+        default: return "valueType.Obj?";
+        }
+    default: return "valueType?";
+    }
 }
 
 static int constantInstruction(const char* name, Chunk* chunk, int offset) {
     uint8_t constant = chunk->code[offset + 1];
-    printf("%-16s %4d:'", name, constant);
+    printf("%-16s %4d %s:'", name, constant, valueType(&chunk->constants.values[constant]));
     printValue(chunk->constants.values[constant]);
     printf("'\n");
     return offset + 2;
@@ -68,8 +108,7 @@ static int builtinInstruction(const char* name, Chunk* chunk, int offset) {
     printf("%-16s ", name);
     switch (slot) {
         case BUILTIN_PEEK: printf("peek"); break;
-        case BUILTIN_IMPORT: printf("import"); break;
-        case BUILTIN_READ_SOURCE: printf("read_source"); break;
+        case BUILTIN_READ_YARG_SOURCE: printf("read_yarg_source"); break;
         case BUILTIN_COMPILE: printf("compile"); break;
         case BUILTIN_MAKE_ROUTINE: printf("make_routine"); break;
         case BUILTIN_MAKE_CHANNEL: printf("make_channel"); break;
@@ -97,8 +136,9 @@ static int builtinInstruction(const char* name, Chunk* chunk, int offset) {
         case BUILTIN_TS_INTERRUPT: printf("test_interrupt"); break;
         case BUILTIN_TS_SYNC: printf("test_sync"); break;
         case BUILTIN_INT: printf("int"); break;
-        case BUILTIN_MFLOAT64: printf("mfloat64"); break;
+        case BUILTIN_MFLOAT64:  printf("mfloat64"); break;
         case BUILTIN_STRING: printf("string"); break;
+        case BUILTIN_LOAD: printf("load"); break;
         default: printf("<unknown %4d>", slot); break;
     }
     printf("\n");
@@ -109,7 +149,6 @@ static int typeLiteralInstruction(const char* name, Chunk* chunk, int offset) {
     uint8_t type = chunk->code[offset + 1];
     printf("%-16s ", name);
     switch (type) {
-        case TYPE_MODIFIER_CONST: printf("const"); break;
         case TYPE_LITERAL_BOOL: printf("bool"); break;
         case TYPE_LITERAL_INT8: printf("int8"); break;
         case TYPE_LITERAL_UINT8: printf("uint8"); break;
@@ -130,10 +169,14 @@ static int typeLiteralInstruction(const char* name, Chunk* chunk, int offset) {
 
 int disassembleInstruction(Chunk* chunk, int offset) {
     printf("%04d ", offset);
-    if (offset > 0 && chunk->lines[offset] == chunk->lines[offset - 1]) {
-        printf("   | ");
-    } else {
-        printf("%4d ", chunk->lines[offset]);
+    for (int s = 0;; s++) {
+        if (s != chunk->numLines && chunk->lines != 0 && chunk->lines[s].address == offset) {
+            printf("%4d ", chunk->lines[s].line);
+            break;
+        } else if (s == chunk->numLines || chunk->lines[s].address > offset) {
+            printf("   | ");
+            break;
+        }
     }
 
     uint8_t instruction = chunk->code[offset];
@@ -266,8 +309,6 @@ int disassembleInstruction(Chunk* chunk, int offset) {
             return threeByteInstruction("OP_IMMEDIATE_P24", chunk, offset);
         case OP_TYPE_LITERAL:
             return typeLiteralInstruction("OP_TYPE_LITERAL", chunk, offset);
-        case OP_TYPE_MODIFIER:
-            return typeLiteralInstruction("OP_TYPE_MODIFIER", chunk, offset);
         case OP_TYPE_STRUCT:
             return byteInstruction("OP_TYPE_STRUCT", chunk, offset);
         case OP_TYPE_INDEXED_COLLECTION:

@@ -61,7 +61,6 @@ typedef enum {
     OP_IMMEDIATE_N16,
     OP_IMMEDIATE_N24,
     OP_TYPE_LITERAL,
-    OP_TYPE_MODIFIER,
     OP_TYPE_STRUCT,
     OP_TYPE_INDEXED_COLLECTION,
     OP_SET_CELL_TYPE,
@@ -71,16 +70,23 @@ typedef enum {
 } OpCode;
 
 typedef struct {
+    uint16_t address;
+    uint16_t line;
+} ChunkSource;
+
+typedef struct Chunk {
     int count;
     int capacity;
     uint8_t* code;
-    int* lines;
+    int numLines;
+    int lineCapacity;
+    ChunkSource *lines;
     DynamicValueArray constants;
+    bool xip;
 } Chunk;
 
 typedef enum {
-    BUILTIN_IMPORT,
-    BUILTIN_READ_SOURCE,
+    BUILTIN_READ_YARG_SOURCE,
     BUILTIN_COMPILE,
     BUILTIN_MAKE_ROUTINE,
     BUILTIN_MAKE_CHANNEL,
@@ -110,7 +116,8 @@ typedef enum {
     BUILTIN_TS_SYNC,
     BUILTIN_INT,
     BUILTIN_MFLOAT64,
-    BUILTIN_STRING
+    BUILTIN_STRING,
+    BUILTIN_LOAD
 } BuiltinFn;
 
 typedef enum {
@@ -125,7 +132,6 @@ typedef enum {
     TYPE_LITERAL_UINT64,
     TYPE_LITERAL_MACHINE_FLOAT64,
     TYPE_LITERAL_STRING,
-    TYPE_MODIFIER_CONST,
     TYPE_LITERAL_INT
 } BuiltinType;
 

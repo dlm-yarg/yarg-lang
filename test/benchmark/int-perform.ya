@@ -1,9 +1,8 @@
-const reps_addsub = 90;
-const reps_mul = 500;
-const reps_div = 500;
+var int32 job_size = 280;
+var uint32 max_job_length = 30;
 
 // https://github.com/kraj/uClibc/blob/master/libc/stdlib/rand_r.c#L25
-const maxRand = uint32(0x7fffffff);
+var maxRand = uint32(0x7fffffff);
 var uint32 seed = 173993;
 fun rand()
 {
@@ -28,11 +27,10 @@ fun rand()
     return next & maxRand;
 }
 
-const shifter = 0x80000000;
-var temp = new(int[4]);
 fun int_rand()
 {
-    const size = int(rand() % uint32(33)); // max 33 * 31 => 1023 bits
+    var shifter = 0x80000000;
+    var size = int(rand() % uint32(33)); // max 33 * 31 => 1023 bits
     var int x = int(rand());
 
     for (var i = 0; i < size; i = 1 + i)
@@ -58,78 +56,116 @@ fun int_rand()
     }
 }
 
-var rts = new(int[500]);
-const zint = int(0);
+var int[job_size] rts;
+print "int-perform benchmark: job size: " + string(job_size) + ", max job length: " + string(max_job_length) + "secs";
 
-for (var x = 0; x < 500; x = 1 + x)
-{
-    var i = int_rand();
-    if (i == zint)
-    {
-        print string(x) + " " + string(i);
+var int32 count = 0;
+var int32 rand_calls = 0;
+while (count < int32(job_size)) {
+    var candidate = int_rand();
+    rand_calls = rand_calls + 1;
+    if (candidate != 0) {
+        rts[count] = candidate;
+        count = count + 1;
     }
-    rts[x] = i;
+}
+print "Generated " + string(job_size) + " non-zero random numbers in " + string(rand_calls) + " calls to int_rand()";
+
+fun add_job(i, n) {
+    for (var int32 j = 0; j < n; j = 1 + j)
+    {
+        rts[i] + rts[j];
+    }
 }
 
-//print "out";
-//for (var x = 0; x < 500; x = x + 1)
-//{
-//    var i = rts[x];
-//    print x;
-//    }
-//}
-//print rts[0];
-//print rts[499];
-
-var s1 = clock();
-print "Add";
-for (var i = 0; i < 500; i = 1 + i) for (var j = 0; j < 500; j = 1 + j) for (var k = 0; k < reps_addsub; k = 1 + k)
-{
-    rts[i] + rts[j];
+fun sub_job(i, n) {
+    for (var int32 j = 0; j < n; j = 1 + j)
+    {
+        rts[i] - rts[j];
+    }
 }
-var t = clock() - s1;
-var ti = 10000000 * int(t);
-ti = ti / 500 / 500 / reps_addsub;
-print string(ti / 1000) + "." + string (ti % 1000) + " ms / add";
 
-s1 = clock();
-print "Sub";
-for (var i = 0; i < 500; i = 1 + i) for (var j = 0; j < 500; j = 1 + j) for (var k = 0; k < reps_addsub; k = 1 + k)
-{
-    rts[i] - rts[j];
+fun mul_job(i, n) {
+    for (var int32 j = 0; j < n; j = 1 + j)
+    {
+        rts[i] * rts[j];
+    }
 }
-t = clock() - s1;
-ti = 10000000 * int(t);
-ti = ti / 500 / 500 / reps_addsub;
-print string(ti / 1000) + "." + string (ti % 1000) + " ms / sub";
 
-s1 = clock();
-print "Mul";
-for (var i = 0; i < reps_mul; i = 1 + i) for (var j = 500 - reps_mul; j < 500; j = 1 + j)
-{
-    rts[i] * rts[j];
-}
-t = clock() - s1;
-ti = 10000000 * int(t);
-ti = ti / reps_mul / reps_mul;
-print string(ti / 1000) + "." + string (ti % 1000) + " ms / mul";
-
-const zint = int(0);
-s1 = clock();
-print "Div";
-for (var i = 0; i < reps_div; i = 1 + i) for (var j = 500 - reps_div; j < 500; j = 1 + j)
-{
-    if (rts[j] != zint)
+fun div_job(i, n) {
+    for (var int32 j = 0; j < n; j = 1 + j)
     {
         rts[i] / rts[j];
     }
-    else
+}
+
+fun mod_job(i, n) {
+    for (var int32 j = 0; j < n; j = 1 + j)
     {
-        print string(i) + " " + string(rts[i]);
-        print "/ " + string(j) + " " + string(rts[j]);
+        rts[i] % rts[j];
     }
 }
-t = clock() - s1;
-ti = 10000000 * int(t);
-ti = ti / reps_div / reps_div;
-print string(ti / 1000) + "." + string (ti % 1000) + " ms / div";
+
+fun negate_job(i, n) {
+    for (var int32 j = 0; j < n; j = 1 + j)
+    {
+        -rts[j];
+    }
+}
+
+var x;
+fun assign_job(i, n) {
+    for (var int32 j = 0; j < n; j = 1 + j)
+    {
+        x = rts[j];
+        x = rts[i];
+    }
+}
+
+fun read_job(i, n) {
+    for (var int32 j = 0; j < n; j = 1 + j)
+    {
+        rts[j];
+        rts[i];
+    }
+}
+
+fun null_job(i, n) {
+    for (var int32 j = 0; j < n; j = 1 + j)
+    {
+    }
+}
+
+fun bench_job(job_size, op_job, limit) {
+    for (var int32 i = 0; i < job_size; i = 1 + i)
+    {
+        op_job(i, job_size);
+        if (uint32(clock()) > limit) {
+            return i * job_size;
+        }
+    }
+    return job_size * job_size;
+}
+
+fun bench_op(name, batch_fun) {
+    var start_time = uint32(clock());
+    var total_ops = int(bench_job(job_size, batch_fun, start_time + max_job_length));
+    var time_taken = uint32(clock()) - start_time;
+    var us_per_op = 1000000 * int(time_taken) / total_ops;
+    if (time_taken > 0) {
+        var ops_per_s = total_ops / int(time_taken);
+        print name + " time:" + string(time_taken) + "s, ops:" + string(total_ops) + ", rate:"  + string(ops_per_s) + " ops/s, duration:" + string(us_per_op) + " µs";
+    } else {
+        print name + " time:" + string(time_taken) + "s, ops:" + string(total_ops) + ", rate:∞ ops/s, duration:" + string(us_per_op) + " µs";
+    }
+}
+
+bench_op("Add (x+y)", add_job);
+bench_op("Sub (x-y)", sub_job);
+bench_op("Mul (x*y)", mul_job);
+bench_op("Div (x/y)", div_job);
+bench_op("Mod (x%y)", mod_job);
+bench_op("Negate (-x)", negate_job);
+bench_op("Assign (g = x)", assign_job);
+bench_op("Read (x)", read_job);
+bench_op("Null ()", null_job);
