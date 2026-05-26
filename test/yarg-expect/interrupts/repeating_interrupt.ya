@@ -22,8 +22,4 @@ print test_sync();  // expect: Waiting for interrupts to be simulated - handler
 // expect: done
 // expect: Type:any[]:[]
 
-irq_remove_handler(1, handler_address1);
-// expect: Undefined variable (OP_GET_GLOBAL) 'handler_address1'.
-// expect: [line 25] in script
-// expect: [line 43] in script
-// expect: [line 0] in boot()
+irq_remove_handler(1, handler_address);
