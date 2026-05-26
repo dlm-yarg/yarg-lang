@@ -8,7 +8,6 @@
 #include "sync_group.h"
 #include "dynamic_array.h"
 
-#include <stdio.h>
 #include <string.h>
 #include <assert.h>
 #include <stdarg.h>
@@ -216,9 +215,8 @@ bool isAddressValue(ObjPtr p) {
     if (obj->objType == OBJ_INT) {
         ObjInt *i = (ObjInt *)osDerefAndModify(p);
         return i->isLiteral && int_is_range(&i->i, 0, UINTPTR_MAX) == INT_WITHIN;
-    } else if (obj->objType == OBJ_ADDRESS) {
-        return obj->objType == OBJ_ADDRESS || obj->objType == OBJ_POINTER || obj->objType == OBJ_PLACED_VALUE;
     }
+    return obj->objType == OBJ_ADDRESS || obj->objType == OBJ_POINTER || obj->objType == OBJ_PLACED_VALUE;
 }
 
 bool isArrayPointer(ObjPtr p) {
