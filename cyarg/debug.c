@@ -137,10 +137,14 @@ static int typeLiteralInstruction(const char* name, Chunk* chunk, int offset) {
 
 int disassembleInstruction(Chunk* chunk, int offset) {
     printf("%04d ", offset);
-    if (offset > 0 && LINE[offset] == LINE[offset - 1]) {
-        printf("   | ");
-    } else {
-        printf("%4d ", LINE[offset]);
+    for (int s = 0;; s++) {
+        if (s != chunk->numLines && chunk->lines != 0 && chunk->lines[s].address == offset) {
+            printf("%4d ", chunk->lines[s].line);
+            break;
+        } else if (s == chunk->numLines || chunk->lines != 0 && chunk->lines[s].address > offset) {
+            printf("   | ");
+            break;
+        }
     }
 
     uint8_t instruction = CODE[offset];

@@ -67,7 +67,7 @@ int main() {
 int main(int argc, const char* argv[]) {
     platform_hal_init();
 
-    if (argv[1] && strcmp(argv[1], "--help") == 0) {
+    if (argc > 1 && strcmp(argv[1], "--help") == 0) {
         usageMessage(stdout);
         return EX_OK;
     }
@@ -86,11 +86,11 @@ int main(int argc, const char* argv[]) {
     
     int returnCode = EX_OK;
 
-    if ((argv[1] && strcmp(argv[1], "--compile") == 0) && argc == 3) {
+    if (argc == 3 && strcmp(argv[1], "--compile") == 0) {
         returnCode = compileFile(argv[2], NULL);
-    } else if ((argv[1] && strcmp(argv[1], "--compile") == 0) && argc == 4) {
+    } else if (argc == 4 && strcmp(argv[1], "--compile") == 0) {
         returnCode = compileFile(argv[2], argv[3]);
-    } else if ((argv[1] && strcmp(argv[1], "--bootstrap") == 0) && argc == 3) {
+    } else if (argc == 3 && strcmp(argv[1], "--bootstrap") == 0) {
         returnCode = runHostedFile(NULL, argv[2]);
     } else if (argc == 3 && strcmp(argv[1], "--disassemble") == 0) {
         returnCode = disassembleFile(argv[2]);
