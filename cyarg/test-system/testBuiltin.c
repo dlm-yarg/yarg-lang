@@ -1,26 +1,19 @@
 //
-//  testBuiltin.cpp
+//  testBuiltin.c
 //  xcode-yarg
 //
 //  Created by dlm on 12/12/2025.
 //
 
 #include "testBuiltin.h"
+#include "testIntrinsics.h"
 
-extern "C" {
 #include "../chunk.h"
 #include "../object.h"
 #include "../routine.h"
 #include "../yargtype.h"
 #include "../object.h"
-}
-
-#include "testIntrinsics.hpp"
-#include <map>
-#include <vector>
-#include <print>
-
-using namespace std;
+#include "../memory.h"
 
 static bool setBuiltin(ObjPtr, int, ObjPtr *);
 static bool readBuiltin(ObjPtr, int, ObjPtr *);
@@ -55,7 +48,7 @@ bool setBuiltin(ObjPtr r, int argCount, ObjPtr* result)
             uint32_t address = AS_UI32(arg0);
             uint32_t value = AS_UI32(arg1);
             
-            TestIntrinsics::setMemory(address, value);
+            testIntrinsicsSetMemory(address, value);
             ok = true;
         }
     }
@@ -75,8 +68,7 @@ bool readBuiltin(ObjPtr r, int argCount, ObjPtr *result) {
         ObjPtr arg0 = nativeArgument(routineContext, argCount, 0);
         if (argCount == 1 && arg0 != 0)
         {
-            uint32_t address = AS_UI32(arg0);
-            TestIntrinsics::expectReadAnyValue(address);
+            testIntrinsicsExpectReadAnyValue(address);
             ok = true;
         }
         else if (argCount == 2)
@@ -85,8 +77,7 @@ bool readBuiltin(ObjPtr r, int argCount, ObjPtr *result) {
             if (arg0 != 0 && arg1 != 0)
             {
                 uint32_t value = AS_UI32(arg1);
-                uint32_t address = AS_UI32(arg0);
-                TestIntrinsics::expectRead(address, value);
+                testIntrinsicsExpectRead(address, value);
                 ok = true;
             }
         }
@@ -106,7 +97,7 @@ bool writeBuiltin(ObjRoutine *routineContext, int argCount, ObjPtr *result) {
         uint32_t address = AS_UI32(arg0);
         if (argCount == 1 && !IS_OBJ(arg0))
         {
-            TestIntrinsics::expectWriteAnyValue(address);
+            testIntrinsicsExpectWriteAnyValue(address);
             ok = true;
         }
         else if (argCount == 2)
@@ -115,7 +106,7 @@ bool writeBuiltin(ObjRoutine *routineContext, int argCount, ObjPtr *result) {
             if (!IS_OBJ(arg0) && ! IS_OBJ(arg1))
             {
                 uint32_t value = AS_UI32(arg1);
-                TestIntrinsics::expectWrite(address, value);
+                testIntrinsicsExpectWrite(address, value);
                 ok = true;
             }
         }
@@ -135,12 +126,12 @@ bool interruptBuiltin(ObjRoutine *routineContext, int argCount, ObjPtr *result) 
         if (is_positive_integer32(arg0))
         {
             uint32_t interruptNumber = as_positive_integer32(arg0);
-            ok = TestIntrinsics::triggerInterrupt(interruptNumber);
+            ok = testIntrinsicsTriggerInterrupt(interruptNumber);
         }
         else if (IS_STRING(arg0))
         {
-            ObjString *name = (ObjString *)AS_OBJ(arg0);
-            ok = TestIntrinsics::triggerInterrupt(string((char *)name->s.arrayItems, name->s.arrayLength));
+            char *name = AS_CSTRING(arg0);
+            ok = testIntrinsicsTriggerInterruptNamed(name);
         }
     }
     if (!ok)
@@ -152,26 +143,32 @@ bool interruptBuiltin(ObjRoutine *routineContext, int argCount, ObjPtr *result) 
 
 bool syncBuiltin(ObjRoutine *routineContext, int argCount, ObjPtr *result)
 {
-    vector<string> &log = TestIntrinsics::sync();
-        
-    Obj emptyString;
-    ObjConcreteYargType *array{newYargArrayTypeFromType(OBJ_VAL(&emptyString))};
-    ObjConcreteYargTypeArray *arrayAsArray{reinterpret_cast<ObjConcreteYargTypeArray *>(array)};
-    arrayAsArray->cardinality = log.size();
-    ObjArray* result_array{newPackedUniformArray(arrayAsArray)};
+    TsLog *log = testIntrinsicsSync();
 
-    size_t index{0};
-    for (auto const &i : log)
+    Obj emptyString;
+    ObjConcreteYargType *array = newYargArrayTypeFromType(OBJ_VAL(&emptyString));
+    tempRootPush(OBJ_VAL(array));
+
+    ObjConcreteYargTypeArray *arrayAsArray = (ObjConcreteYargTypeArray *)array;
+    arrayAsArray->cardinality = log->n_;
+    ObjPackedUniformArray* result_array = newPackedUniformArray(arrayAsArray);
+    tempRootPop(); // array
+    tempRootPush(OBJ_VAL(result_array));
+
+    for (size_t i = 0; i < log->n_; i++)
     {
-//        println("{}", i); // until log gets coppied to *result
-        ObjString *s{copyString(&i[0], static_cast<int>(i.size()))};
-        PackedValue p{arrayElement(result_array->elements, index)};
+//        printf("%s\n", log->i_[i]); // until log gets coppied to *result
+        ObjString *s = copyString(log->i_[i], (int)strlen(log->i_[i]));
+        tempRootPush(OBJ_VAL(s));
+        reallocate(log->i_[i], (int)strlen(log->i_[i]) + 1, 0);
+        PackedValue p = arrayElement(result_array->store, i);
         assignToPackedValue(p, OBJ_VAL(s));
-        index++;
+        tempRootPop(); // s
     }
 
+    tempRootPop(); // array
     *result = OBJ_VAL(result_array);
-    log.clear();
-    
+    log->n_ = 0;
+
     return true;
 }

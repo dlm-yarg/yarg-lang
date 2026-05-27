@@ -23,63 +23,59 @@
 #include "test-system/testBuiltin.h"
 #endif
 
-bool readSourceBuiltin(ObjRoutine* routineContext, int argCount, ObjPtr result) {
+// read from the filesystem, into memory.
+// Long term, to be replaced with native yarg, and less
+// assumptions about where filesystems live.
+// reads:
+//  - yarg binary files (returned as uint8[])
+//  - text files (returned as string)
+// Both are suitable input to load().
+bool readYargSourceBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     if (argCount != 1) {
         runtimeError(routineContext, "Expected 1 argument but got %d.", argCount);
         return false;
     }
     if (!IS_STRING(nativeArgument(routineContext, argCount, 0))) {
-        runtimeError(routineContext, "Argument to read_source must be string.");
+        runtimeError(routineContext, "Argument to read_yarg_source must be string.");
         return false;
     }
 
     const char* filename = AS_CSTRING(nativeArgument(routineContext, argCount, 0));
-    char* source = readFile(filename);
-    if (source == NULL) {
-        runtimeError(routineContext, "Could not read source file '%s'.", filename);
-        return false;
+    char const *dotOn = strrchr(filename, '.');
+    if (dotOn != 0 && strcmp(dotOn, ".yb") == 0) {
+        size_t file_size = fileSize(filename);
+
+        ObjConcreteYargType* byteType = newYargTypeFromType(TypeUint8);
+        tempRootPush(OBJ_VAL(byteType));
+
+        ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*)newYargArrayTypeFromType(OBJ_VAL(byteType));
+        tempRootPush(OBJ_VAL(arrayType));
+
+        arrayType->cardinality = file_size;
+        ObjPackedUniformArray* array = newPackedUniformArray(arrayType);
+        tempRootPush(OBJ_VAL(array));
+
+        readFileIntoBuffer(filename, (uint8_t*)array->store.storedValue, file_size);
+
+        *result = OBJ_VAL(array);
+
+        tempRootPop();
+        tempRootPop();
+        tempRootPop();
     }
+    else {
+        // assume a text file
+        char* source = readFile(filename);
+        if (source == NULL) {
+            runtimeError(routineContext, "Could not read source file '%s'.", filename);
+            return false;
+        }
 
-    ObjString* sourceString = copyString(source, (int)strlen(source));
-    free(source);
+        ObjString* sourceString = copyString(source, (int)strlen(source));
+        free(source);
 
-    *result = OBJ_VAL(sourceString);
-    return true;
-}
-
-bool readBinaryBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
-    if (argCount != 1) {
-        runtimeError(routineContext, "Expected 1 argument but got %d.", argCount);
-        return false;
+        *result = OBJ_VAL(sourceString);
     }
-    if (!IS_STRING(nativeArgument(routineContext, argCount, 0))) {
-        runtimeError(routineContext, "Argument must be a string.");
-        return false;
-    }
-
-    Value pathVal = nativeArgument(routineContext, argCount, 0);
-    const char* c_pathString = AS_CSTRING(pathVal);
-
-    size_t file_size = fileSize(c_pathString);
-
-    ObjConcreteYargType* byteType = newYargTypeFromType(TypeUint8);
-    tempRootPush(OBJ_VAL(byteType));
-
-    ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*)newYargArrayTypeFromType(OBJ_VAL(byteType));
-    tempRootPush(OBJ_VAL(arrayType));
-
-    arrayType->cardinality = file_size;
-    ObjPackedArray* array = newPackedUniformArray(arrayType);
-    tempRootPush(OBJ_VAL(array));
-
-    readFileIntoBuffer(c_pathString, (uint8_t*)array->store.storedValue, file_size);
-
-    *result = OBJ_VAL(array);
-
-    tempRootPop();
-    tempRootPop();
-    tempRootPop();
-
     return true;
 }
 
@@ -1010,8 +1006,7 @@ bool stringBuiltin(ObjRoutine* routineContext, int argCount, ObjPtr result) {
 ObjPtr getBuiltin(uint8_t builtin) {
     switch (builtin) {
         case BUILTIN_PEEK: return OBJ_VAL(newNative(peekBuiltin));
-        case BUILTIN_READ_BINARY: return OBJ_VAL(newNative(readBinaryBuiltin));
-        case BUILTIN_READ_SOURCE: return OBJ_VAL(newNative(readSourceBuiltin));
+        case BUILTIN_READ_YARG_SOURCE: return OBJ_VAL(newNative(readYargSourceBuiltin));
         case BUILTIN_COMPILE: return OBJ_VAL(newNative(compileBuiltin));
         case BUILTIN_MAKE_ROUTINE: return OBJ_VAL(newNative(makeRoutineBuiltin));
         case BUILTIN_RESUME: return OBJ_VAL(newNative(resumeBuiltin));

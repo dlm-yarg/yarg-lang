@@ -477,18 +477,24 @@ void int_mul(Int const *a, Int const *b, Int *r)
  */
 void int_div(Int const *n, Int const *d, Int *q, Int *r)
 {
+    bool nSign = n->neg_;
+    bool dSign = d->neg_;
+
     if (int_is_abs(n, d) == INT_LT)
     {
         if (r != 0)
         {
-            int_set_t(n, r);
-            int_init(q);
-            // adjust for yarg’s weird %
-            if (n->neg_)
+            if (!int_is_zero(n) && ((nSign && !dSign) || (!nSign && dSign)))
             {
-                int_add(r, d, r);
+                // adjust for yarg’s weird %
+                int_add(n, d, r);
+            }
+            else
+            {
+                int_set_t(n, r);
             }
         }
+        int_init(q);
         return;
     }
 
@@ -497,9 +503,6 @@ void int_div(Int const *n, Int const *d, Int *q, Int *r)
         r->overflow_ = true;
         return;
     }
-
-    bool nSign = n->neg_;
-    bool dSign = d->neg_;
 
     IntConcrete254 qDigit;
     int_init_concrete254(&qDigit);
@@ -603,7 +606,7 @@ void int_div(Int const *n, Int const *d, Int *q, Int *r)
         int_set_t((Int *) &reducingNumerator, r);
         r->neg_ = nSign;
         // adjust for yarg’s weird %
-        if (nSign)
+        if (!int_is_zero(n) && ((nSign && !dSign) || (!nSign && dSign)))
         {
             int_add(r, d, r);
         }

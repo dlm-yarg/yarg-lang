@@ -17,7 +17,15 @@ ObjPtr allocateObject(size_t size, ObjType type) {
     Obj *obj = (Obj *)osDeref(p);
     memset(obj, 0, size);
 
-    obj->objType = type;
+    object->type = type;
+    object->isMarked = false;
+
+    platform_critical_section_enter_blocking(&vm.heap);
+
+    object->next = vm.objects;
+    vm.objects = object;
+    
+    platform_critical_section_exit(&vm.heap);
 
 #ifdef DEBUG_LOG_GC
     PRINTERR("%p allocate %zu for %d\n", obj, size, type);

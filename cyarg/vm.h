@@ -21,14 +21,14 @@ typedef struct {
     ObjRoutine* pinnedRoutines[MAX_PINNED_ROUTINES];
     PinnedRoutineHandler pinnedRoutineHandlers[MAX_PINNED_ROUTINES];
     
-    platform_mutex env;
+    platform_critical_section env;
     
     ValueCellTable globals;
     ValueTable strings;
     ObjPtr initString;
     ObjPtr libraryPath;
 
-    platform_mutex heap;
+    platform_critical_section heap;
 
     size_t bytesAllocated;
     size_t nextGC;
@@ -46,9 +46,8 @@ void initVMRuntime(void);
 void freeVM(void);
 void markVMRoots(void);
 
-InterpretResult bootScript(ObjString* script);
-InterpretResult compileScript(ObjString* script, ObjPtr* compileResult);
-InterpretResult bootBinary(ObjString *script);
+InterpretResult bootYargSourceFile(ObjString* filename);
+InterpretResult compileScript(ObjString* filename, Value* compileResult);
 
 InterpretResult run(ObjRoutine* routine);
 bool callfn(ObjRoutine* routine, ObjClosure* closure, int argCount);
