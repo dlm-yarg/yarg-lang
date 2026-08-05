@@ -110,7 +110,7 @@ bool bindEntryFn(ObjRoutine* routine, ObjClosure* closure) {
 
 }
 
-void bindEntryArgs(ObjRoutine* routine, Value entryArg) {
+void bindEntryArgs(ObjRoutine* routine, ObjPtr entryArg) {
 
     CopyValue(&routine->entryArg, entryArg);
 }
@@ -127,7 +127,7 @@ void enterEntryFunction(ObjRoutine* routine) {
     callfn(routine, routine->entryFunction, routine->entryFunction->function->arity);
 }
 
-bool resumeRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Value const argument, Value result) {
+bool resumeRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, ObjPtr const argument, ObjPtr result) {
     if (target->state == EXEC_UNBOUND) {
         push(target, OBJ_VAL(target->entryFunction));
     }
@@ -156,13 +156,13 @@ void yieldFromRoutine(ObjRoutine* context) {
     context->state = EXEC_SUSPENDED;
 }
 
-void returnFromRoutine(ObjRoutine* context, Value result) {
+void returnFromRoutine(ObjRoutine* context, ObjPtr result) {
     assert(context->frameCount == 0);
     context->result = result;
     context->state = EXEC_CLOSED;
 }
 
-bool startRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Value argument) {
+bool startRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, ObjPtr argument) {
 
     if (target->state != EXEC_UNBOUND) {
         return false;
@@ -184,7 +184,7 @@ bool startRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Valu
     return true;
 }
 
-bool receiveFromRoutine(ObjRoutine* routine, Value* result) {
+bool receiveFromRoutine(ObjRoutine* routine, ObjPtr* result) {
 
 #ifdef CYARG_PICO_BUSY_SYNC
     while (routine->state == EXEC_RUNNING) {
@@ -207,7 +207,7 @@ ValueCell* frameSlot(ObjRoutine* routine, CallFrame* frame, size_t index) {
     return peekCell(routine, (int) (routine->stackTopIndex - (stackElementIndex + 1)));
 }
 
-Value nativeArgument(ObjRoutine* routine, size_t argCount, size_t argument) {
+ObjPtr nativeArgument(ObjRoutine* routine, size_t argCount, size_t argument) {
     return peek(routine, (int)argCount - 1 - (int)argument);
 }
 
@@ -273,7 +273,7 @@ static ValueCell* slot(ObjRoutine* routine, size_t index) {
     return &routine->stackSlices[sliceIndex]->elements[index % SLICE_SIZE];
 }
 
-void push(ObjRoutine* routine, Value value) {
+void push(ObjRoutine* routine, ObjPtr value) {
     ValueCell* nextSlot = slot(routine, routine->stackTopIndex);
 
     nextSlot->value = value;
@@ -283,15 +283,15 @@ void push(ObjRoutine* routine, Value value) {
     if (routine->stackTopIndex / SLICE_SIZE > routine->sliceCount) {
         if (routine->addSlice) {
             if (!routine->addSlice(routine)) {
-                runtimeError(routine, "Value stack size exceeded.");
+                runtimeError(routine, "ObjPtr stack size exceeded.");
             }
         } else {
-            runtimeError(routine, "Fixed Value stack size exceeded.");
+            runtimeError(routine, "Fixed ObjPtr stack size exceeded.");
         }
     }
 }
 
-void pushTyped(ObjRoutine* routine, Value value, Value type) {
+void pushTyped(ObjRoutine* routine, ObjPtr value, ObjPtr type) {
     push(routine, value);
     ValueCell* top = peekCell(routine, 0);
     top->cellType = IS_NIL(type) ? NULL : AS_YARGTYPE(type);
@@ -299,7 +299,7 @@ void pushTyped(ObjRoutine* routine, Value value, Value type) {
 
 ObjPtr pop(ObjRoutine* routine) {
 
-    Value ret = peek(routine, 0);
+    ObjPtr ret = peek(routine, 0);
     routine->stackTopIndex--;
 
     return ret;
@@ -315,7 +315,7 @@ void popFrame(ObjRoutine* routine, CallFrame* frame) {
     routine->stackTopIndex = frame->stackEntryIndex;
 }
 
-Value peek(ObjRoutine* routine, int distance) {
+ObjPtr peek(ObjRoutine* routine, int distance) {
     ValueCell* cell = peekCell(routine, distance);
     return cell->value;
 }

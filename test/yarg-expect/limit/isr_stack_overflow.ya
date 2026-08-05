@@ -10,7 +10,7 @@ fun foo() {
   var a9;
   var a10;
   var a11;
-  var a12;  // expect runtime error: Fixed Value stack size exceeded.
+  var a12;  // expect runtime error: Fixed ObjPtr stack size exceeded.
   var a13;
   var a14;
   var a15;

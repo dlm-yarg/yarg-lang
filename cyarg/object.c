@@ -7,25 +7,19 @@
 #include "channel.h"
 #include "sync_group.h"
 #include "dynamic_array.h"
+#include "print.h"
 
 #include <string.h>
 #include <assert.h>
 #include <stdarg.h>
+#include <stdlib.h>
 
 ObjPtr allocateObject(size_t size, ObjType type) {
     ObjPtr p = osAlloc(size);
     Obj *obj = (Obj *)osDeref(p);
     memset(obj, 0, size);
 
-    object->type = type;
-    object->isMarked = false;
-
-    platform_critical_section_enter_blocking(&vm.heap);
-
-    object->next = vm.objects;
-    vm.objects = object;
-    
-    platform_critical_section_exit(&vm.heap);
+    obj->objType = type;
 
 #ifdef DEBUG_LOG_GC
     PRINTERR("%p allocate %zu for %d\n", obj, size, type);
@@ -51,17 +45,16 @@ void extendVarObject(ObjPtr p, size_t size, size_t arrayOffset, size_t numItems)
     Obj const *obj = osDeref(p);
     DynamicArray *da = (DynamicArray *)((uint8_t *) obj + arrayOffset);
     osRealloc(p, size + numItems * da->arrayItemSize);
-    Obj *newObj = (Obj *)osDeref(p);
-    da = (DynamicArray *)((uint8_t *) newObj + arrayOffset);
+    Obj const *newObj = osDeref(p);
+    da = (DynamicArray *)((uint8_t *)newObj + arrayOffset);
     da->arrayCapacity = numItems;
 }
 
 ObjPtr allocateIntObject(size_t numDigits) {
     numDigits += numDigits % 2; // numDigits is always even
     assert(numDigits <= 254 && numDigits >= 2);
-    ObjPtr p = osAlloc(sizeof (ObjInt) + numDigits * sizeof (uint16_t));
+    ObjPtr p = allocateObject(sizeof (ObjInt) + numDigits * sizeof (uint16_t), OBJ_INT);
     ObjInt *obj = (ObjInt *)osDeref(p);
-    obj->obj.objType = OBJ_INT;
     obj->i.m_ = numDigits;
     return p;
 }
@@ -79,7 +72,7 @@ ObjPtr removeLastFromDynamicObjArray(DynamicArray* array) {
 }
 
 
-// ObjBoundMethod* newBoundMethod(Value receiver, ObjClosure* method) {
+// ObjBoundMethod* newBoundMethod(ObjPtr receiver, ObjClosure* method) {
 ObjPtr newBoundMethod(ObjPtr receiver, ObjPtr method) {
     ObjPtr p = ALLOCATE_OBJ(ObjBoundMethod, OBJ_BOUND_METHOD);
     ObjBoundMethod *bound = (ObjBoundMethod *)osDeref(p);
@@ -96,7 +89,7 @@ ObjPtr newClass(ObjPtr name) {
 }
 
 ObjPtr newClosure(ObjPtr function) {
-    ObjFunction const *f = (ObjFunction const *)osDeref(function);
+    ObjFunction const *f = osDeref(function);
     int upvalueCount = f->upvalueCount;
     ObjPtr p = ALLOCATE_VAR_OBJ(ObjClosure, OBJ_CLOSURE, upvalues, ObjPtr, upvalueCount);
     ObjClosure* closure = (ObjClosure *)osDeref(p);
@@ -152,7 +145,7 @@ void *arrayAt(DynamicArray *array, size_t index) {
 static void initialisePackedValue(ObjPtr type, void *);
 
 ObjPtr newArray(ObjPtr type) {
-    ObjConcreteYargTypeArray const *t = (ObjConcreteYargTypeArray const *)osDeref(type);
+    ObjConcreteYargTypeArray const *t = osDeref(type);
     size_t c = t->cardinality;
     ObjPtr et = t->element_type;
     size_t sz = yt_sizeof_type_storage(et);
@@ -200,7 +193,7 @@ ObjPtr newPointerAtHeapCell(ObjPtr type, ObjPtr location) { // returns a new Obj
 }
 
 void offsetPointerDestination(ObjPtr p, size_t offset) {
-    ObjPointer const *ptr = (ObjPointer const *)osDeref(p);
+    ObjPointer const *ptr = osDeref(p);
     ObjAddress *addr = (ObjAddress *)osDerefAndModify(ptr->destination);
     addr->a += offset;
 }
@@ -213,7 +206,7 @@ inline bool isObjOfOneType(ObjPtr obj, size_t n, ...) {
     if (o == 0) return false;
 
     for (size_t i = 0; i < n; i++) {
-        if (va_arg(a_list, ObjType) == o->objType) return true;
+        if ((ObjType)va_arg(a_list, int) == o->objType) return true;
     }
     return false;
 }
@@ -224,14 +217,14 @@ bool isAddressValue(ObjPtr p) {
         ObjInt *i = (ObjInt *)osDerefAndModify(p);
         return i->isLiteral && int_is_range(&i->i, 0, UINTPTR_MAX) == INT_WITHIN;
     }
-    return obj->objType == OBJ_ADDRESS || obj->objType == OBJ_POINTER || obj->objType == OBJ_PLACED_VALUE;
+    return obj->objType == OBJ_ADDRESS || obj->objType == OBJ_POINTER || obj->objType == OBJ_PLACED;
 }
 
 bool isArrayPointer(ObjPtr p) {
     Obj const *obj = osDeref(p);
     if (obj->objType == OBJ_POINTER) {
         ObjPointer const *pointer = (ObjPointer const *)obj;
-        return pointer->type == OIR_NIL && IS_ARRAY(pointer->destination) || AS_YARGTYPE(pointer->type)->yt == OBJ_ARRAY;
+        return pointer->type == OBJ_POINTER && IS_ARRAY(pointer->destination);
     }
     return false;
 }
@@ -239,7 +232,7 @@ bool isArrayPointer(ObjPtr p) {
 bool isStructPointer(ObjPtr p) {
     if (IS_POINTER(p)) {
         ObjPointer const *pointer = AS_POINTER(p);
-        return pointer->type == OIR_NIL && IS_STRUCT(pointer->destination) || AS_YARGTYPE(pointer->type)->yt == OBJ_STRUCT;
+        return pointer->type == OBJ_POINTER && IS_STRUCT(pointer->destination);
     }
     return false;
 }
@@ -249,104 +242,75 @@ ObjPtr destinationObject(ObjPtr p) {
         ObjPointer const *ptr = AS_POINTER(p);
         return ptr->destination;
     }
-    return OIR_NIL;
+    return OBJ_PTR_NIL;
 }
 
 static ObjSize ytItemSize(ObjPtr t, ObjSize *alignment) {
     ObjSize r;
     ObjSize biggestItemAlignment = 0;
 
-    ObjConcreteYargType const *yt = (ObjConcreteYargType const *)osDeref(t);
-    switch (yt->yt) {
-    case OBJ_ARRAY: {
-        ObjConcreteYargTypeArray const *yt = (ObjConcreteYargTypeArray const *)osDeref(t);
-        r = yt->cardinality * ytItemSize(yt->element_type, &biggestItemAlignment);
-        break;
-    }
-    case OBJ_STRUCT: {
-        // alignment is the alignment of the most aligned member
-        // size is the multiple of alignment suficient to hold all aligned members
-        ObjConcreteYargTypeStruct const *yt = (ObjConcreteYargTypeStruct const *)osDeref(t);
-        for (int i = 0; i < yt->elements.arrayLength; i++) {
-            YargTypeStructElement const *v = (YargTypeStructElement const *)daAt(&yt->elements, i);
-            ObjSize itemAlignment;
-            ObjSize itemSize = ytItemSize(v->type, &itemAlignment);
-            biggestItemAlignment = biggestItemAlignment < itemAlignment ? itemAlignment : biggestItemAlignment;
+    switch (t) {
+    case OBJ_PTR_I8_TYPE: case OBJ_PTR_UI8_TYPE: biggestItemAlignment = r = sizeof (int8_t); break;
+    case OBJ_PTR_I16_TYPE: case OBJ_PTR_UI16_TYPE: biggestItemAlignment = r = sizeof (int16_t); break;
+    case OBJ_PTR_I32_TYPE: case OBJ_PTR_UI32_TYPE: biggestItemAlignment = r = sizeof (int32_t); break;
+    case OBJ_PTR_I64_TYPE: case OBJ_PTR_UI64_TYPE: biggestItemAlignment = r = sizeof (int64_t); break;
+    default: {
+        Obj const *o = osDeref(t);
+        switch (o->objType) {
+        case OBJ_ARRAY: {
+            // alignment is the alignment of the elements
+            // size is the multiple of alignment suficient to hold all  elements
+            ObjConcreteYargTypeArray const *ao = (ObjConcreteYargTypeArray const *)(o);
+            r = ao->cardinality * ytItemSize(ao->element_type, &biggestItemAlignment);
+            break;
         }
-        ObjSize offset = 0;
-        for (int i = 0; i < yt->elements.arrayLength; i++) {
-            YargTypeStructElement const *v = (YargTypeStructElement const *)daAt(&yt->elements, i);
-            ObjSize itemAlignment;
-            ObjSize itemSize = ytItemSize(v->type, &itemAlignment);
-            ObjSize padding = offset % itemAlignment;
-            if (padding > 0) padding = itemAlignment - padding;
-            offset += padding;
-            offset += itemSize;
+        case OBJ_STRUCT: {
+            // alignment is the alignment of the most aligned member
+            // size is the multiple of alignment suficient to hold all aligned members
+            ObjConcreteYargTypeStruct const *yt = osDeref(t);
+            ObjSize offset = 0;
+            for (int i = 0; i < yt->elements.arrayLength; i++) {
+                YargTypeStructElement const *v = (YargTypeStructElement const *)daAt(&yt->elements, i);
+                ObjSize itemAlignment;
+                ObjSize itemSize = ytItemSize(v->type, &itemAlignment);
+                biggestItemAlignment = biggestItemAlignment < itemAlignment ? itemAlignment : biggestItemAlignment;
+                ObjSize padding = offset % itemAlignment;
+                if (padding > 0) padding = itemAlignment - padding;
+                offset += padding;
+                offset += itemSize;
+            }
+            ObjSize padding = offset % biggestItemAlignment;
+            if (padding > 0) padding = biggestItemAlignment - padding;
+            r = offset + padding;
+            break;
         }
-        ObjSize padding = offset % biggestItemAlignment;
-        if (padding > 0) padding = biggestItemAlignment - padding;
-        r = offset + padding;
-        break;
+            
+        default:
+            biggestItemAlignment = 0; r = 0; break; // todo assert?
+        }
     }
-    case OBJ_I8: case OBJ_UI8: biggestItemAlignment = r = sizeof (int8_t); break;
-    case OBJ_I16: case OBJ_UI16: biggestItemAlignment = r = sizeof (int16_t); break;
-    case OBJ_I32: case OBJ_UI32: biggestItemAlignment = r = sizeof (int32_t); break;
-    case OBJ_I64: case OBJ_UI64: biggestItemAlignment = r = sizeof (int64_t); break;
-    default: biggestItemAlignment = 0; r = 0; break;
     }
-
     if (alignment != 0) *alignment = biggestItemAlignment;
     return r;
 }
 
 ObjPtr placeObjectAt(ObjPtr type, ObjPtr location) {
     ObjPtr r;
-
     if (IS_ADDRESS(location)) {
-        uintptr_t loc = ((ObjAddress const *)osDeref(location))->a;
+        r = allocateObject(sizeof (ObjPlaced), OBJ_PLACED);
+        ObjPlaced *o = (ObjPlaced *)osDeref(r);
 
-        ObjConcreteYargType const *t = AS_YARGTYPE(type);
-        switch (t->yt) {
-        case OBJ_ARRAY: {
-            r = osAlloc(sizeof (ObjPlacedArray));
-            ObjPlacedArray *pa = (ObjPlacedArray *)osDeref(r);
-            pa->type = type;
-            ObjConcreteYargTypeArray *at = (ObjConcreteYargTypeArray *)t;
-            ObjSize alignment;
-            pa->elementSize = ytItemSize(at->element_type, &alignment);
-            assert(loc % alignment == 0);
-            pa->placedAddress = loc;
-            break;
-        }
-        case OBJ_STRUCT: {
-
-            break;
-        }
-        case OBJ_I8:
-        case OBJ_UI8:
-        case OBJ_I16:
-        case OBJ_UI16:
-        case OBJ_I32:
-        case OBJ_UI32:
-        case OBJ_I64:
-        case OBJ_UI64: {
-            r = osAlloc(sizeof (ObjPlacedValue));
-            ObjPlacedValue *pv = (ObjPlacedValue *)osDeref(r);
-            pv->type = type;
-            pv->placedAddress = loc;
-            break;
-        }
-        default:
-            r = OIR_NIL;
-        }
+        o->placedObj = type;
+        o->placedAddress = ((ObjAddress const *)osDeref(location))->a;
     }
     else {
-        r = OIR_NIL;
+        r = OBJ_PTR_NIL; // todo assert?
     }
     return r;
 }
+
 bool structFieldIndex(ObjPtr t, ObjPtr name, ArrayItemCount *index) {
-    ObjConcreteYargTypeStruct const *structType = (ObjConcreteYargTypeStruct const *)osDeref(t);
+    ObjConcreteYargTypeStruct const *structType = osDeref(t);
     for (int i = 0; i < structType->elements.arrayLength; i++) {
         YargTypeStructElement const *se = (YargTypeStructElement const *)daAt(&structType->elements, i);
         if (name == se->name) {
@@ -354,6 +318,7 @@ bool structFieldIndex(ObjPtr t, ObjPtr name, ArrayItemCount *index) {
             return true;
         }
     }
+    return false;
 }
 
 ObjPtr structField(DynamicArray *da, size_t i) {
@@ -362,7 +327,7 @@ ObjPtr structField(DynamicArray *da, size_t i) {
 }
 
 ObjPtr defaultStructValue(ObjPtr t) {
-    ObjConcreteYargTypeStruct* type = (ObjConcreteYargTypeStruct*)osDeref(t);
+    ObjConcreteYargTypeStruct const *type = osDeref(t);
     ArrayItemCount n = type->elements.arrayLength;
 
     ObjPtr p = ALLOCATE_VAR_OBJ(ObjStruct, OBJ_STRUCT, store, KeyValue, n);
@@ -372,7 +337,7 @@ ObjPtr defaultStructValue(ObjPtr t) {
         KeyValue *kv = (KeyValue *)daAt(&newStruct->store, i);
         YargTypeStructElement const *se = (YargTypeStructElement const *)daAt(&type->elements, i);
         kv->key = se->name;
-        kv->value = OIR_NIL;
+        kv->value = OBJ_PTR_NIL;
     }
 
     return p;
@@ -380,10 +345,12 @@ ObjPtr defaultStructValue(ObjPtr t) {
 
 ObjPtr newStringWithEscapes(const char* chars, int length)
 {
-    char* heapChars = malloc(length + 1);
+    ObjPtr nsp = allocateObject(sizeof (ObjString) + length + 1, OBJ_STRING);
+    ObjString *ns = (ObjString *)osDeref(nsp);
+    osNoGc(nsp);
+    char *out = ns->chars;
 
     char const *in = chars;
-    char *out = heapChars;
     int lengthOut = 0;
     for (int i = 0; i < length && *in != '\0'; i++)
     {
@@ -397,128 +364,156 @@ ObjPtr newStringWithEscapes(const char* chars, int length)
     }
 
     *out = '\0';
-    ObjPtr p = osStoreString(out);
 
-    free(heapChars);
+    osGcOk(nsp);
+    return nsp;
+}
+
+ObjPtr newUpvalue(size_t stackOffset) {
+    ObjPtr p = ALLOCATE_OBJ(ObjUpvalue, OBJ_UPVALUE);
+    ObjUpvalue *upvalue = (ObjUpvalue *)osDeref(p);
+    upvalue->closed = OBJ_PTR_NIL;
+    upvalue->contents = OBJ_PTR_NIL;
+    upvalue->stackOffset = stackOffset;
     return p;
 }
 
-ObjUpvalue* newUpvalue(ValueCell* slot, size_t stackOffset) {
-    ObjUpvalue* upvalue = ALLOCATE_OBJ(ObjUpvalue, OBJ_UPVALUE);
-    NIL_VAL(&upvalue->closed.value);
-    upvalue->closed.cellType = NULL;
-    upvalue->contents = slot;
-    upvalue->stackOffset = stackOffset;
-    upvalue->uvNext = NULL;
-    return upvalue;
-}
-
-static void printFunction(FILE* op, ObjFunction* function) {
-    if (function->fName == NULL) {
+static void printFunction(FILE* op, ObjFunction const *function) {
+    if (function->fName == OBJ_PTR_NIL) {
         FPRINTMSG(op, "<script>");
         return;
     }
-    FPRINTMSG(op, "<fn %s>", function->fName->chars);
+    FPRINTMSG(op, "<fn %s>", osStringAsCString(function->fName));
 }
 
-static void printRoutine(FILE* op, ObjRoutine* routine) {
+static void printRoutine(FILE* op, ObjRoutine const *routine) {
     FPRINTMSG(op, "<R%p>", routine);
 }
 
-static void printArray(FILE* op, ObjArray* array) {
-    ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*)array->store.storedType;
-    printType(op, array->store.storedType);
-    FPRINTMSG(op, ":[");
-    for (int i = 0; i < arrayType->cardinality; i++) {
-        PackedValue element = arrayElement(array->store, i);
-        Value unpackedValue = unpackValue(element);
-        fprintValue(op, unpackedValue);
-        if (i < arrayType->cardinality - 1) {
+static void printArray(FILE* op, ObjArray const *array) {
+    FPRINTMSG(op, "[");
+    for (int i = 0; i < array->elements.arrayLength; i++) {
+        ObjPtr p = *(ObjPtr const *)daAt(&array->elements, i);
+        fprintValue(op, p);
+        if (i < array->elements.arrayLength - 1) {
             FPRINTMSG(op, ", ");
         }
     }
     FPRINTMSG(op, "]");
 }
 
-static void printPointer(FILE* op, ObjPointer* ptr) {
+static void printPointer(FILE* op, ObjPointer const *ptr) {
     FPRINTMSG(op, "<*");
 
-    Obj *targetType = ptr->type->target_type == NULL ? 0 : (Obj *) ptr->type->target_type;
-    fprintObject(op, targetType);
-    FPRINTMSG(op, ":%p>", (void*) ptr->destination);
+    fprintObject(op, ptr->type);
+    FPRINTMSG(op, ":%d>", (int)ptr->destination);
 }
 
-static void printStruct(FILE* op, ObjStruct* st) {
-    ObjConcreteYargTypeStruct* structType = (ObjConcreteYargTypeStruct*)st->store.storedType;
-    FPRINTMSG(op, "struct{|%zu:%zu|", structType->field_count, structType->storage_size);
-    for (size_t i = 0; i < structType->field_count; i++) {
-        PackedValue f = structField(st->store, i);
-        Value logValue = unpackValue(f);
-        fprintValue(op, logValue);
-        FPRINTMSG(op, "; ");
+static void printPlaced(FILE* op, ObjPlaced const *placed) {
+    FPRINTMSG(op, "<*");
+
+    fprintObject(op, placed->placedObj);
+    FPRINTMSG(op, ":%d>", (int)placed->placedAddress);
+}
+
+static void printStruct(FILE* op, ObjStruct const *st) {
+    FPRINTMSG(op, "struct{|%d|", (int)st->store.arrayLength);
+    for (size_t i = 0; i < st->store.arrayLength; i++) {
+        KeyValue const *kv = (KeyValue const *)daAt(&st->store, i);
+        fprintValue(op, kv->key);
+        FPRINTMSG(op, "-");
+        fprintValue(op, kv->value);
+        if (i < st->store.arrayLength - 1) {
+            FPRINTMSG(op, "; ");
+        }
     }
     FPRINTMSG(op, "}");
 }
 
-void fprintObject(FILE* op, Obj *obj) {
-    if (obj == 0) {
-        FPRINTMSG(op, "nil");
-    } else
-    switch (obj->type) {
-        case OBJ_BOUND_METHOD:
-            printFunction(op, ((ObjBoundMethod *)obj)->method->function);
+void fprintObject(FILE* op, ObjPtr p) {
+    switch (p) {
+    case OBJ_PTR_ANY_TYPE:
+    case OBJ_PTR_BOOL_TYPE:
+    case OBJ_PTR_INT_TYPE:
+    case OBJ_PTR_ADDRESS_TYPE:
+    case OBJ_PTR_DOUBLE_TYPE:
+    case OBJ_PTR_I8_TYPE:
+    case OBJ_PTR_UI8_TYPE:
+    case OBJ_PTR_I16_TYPE:
+    case OBJ_PTR_UI16_TYPE:
+    case OBJ_PTR_I32_TYPE:
+    case OBJ_PTR_UI32_TYPE:
+    case OBJ_PTR_I64_TYPE:
+    case OBJ_PTR_UI64_TYPE:
+    case OBJ_PTR_BOUND_METHOD_TYPE:
+    case OBJ_PTR_CLASS_TYPE:
+    case OBJ_PTR_CLOSURE_TYPE:
+    case OBJ_PTR_FUNCTION_TYPE:
+    case OBJ_PTR_INSTANCE_TYPE:
+    case OBJ_PTR_NATIVE_TYPE:
+    case OBJ_PTR_ROUTINE_TYPE:
+    case OBJ_PTR_CHANNELCONTAINER_TYPE:
+    case OBJ_PTR_STRING_TYPE:
+        printType(op, p);
+    default: {
+        Obj const *obj = osDeref(p);
+        switch (obj->objType) {
+        case OBJ_BOUND_METHOD: {
+            ObjClosure const *cl = osDeref(((ObjBoundMethod const *)obj)->method);
+            printFunction(op, (ObjFunction const *)osDeref(cl->function));
             break;
+        }
         case OBJ_CLASS:
-            FPRINTMSG(op, "%s", ((ObjClass *)obj)->name->chars);
+            FPRINTMSG(op, "%s", osStringAsCString(((ObjClass const *)obj)->name));
             break;
         case OBJ_CLOSURE:
-            printFunction(op, ((ObjClosure *)obj)->function);
+            printFunction(op, (ObjFunction const *)osDeref(((ObjClosure const *)obj)->function));
             break;
         case OBJ_FUNCTION:
-            printFunction(op, ((ObjFunction *)obj));
+            printFunction(op, ((ObjFunction const *)obj));
             break;
-        case OBJ_INSTANCE:
-            FPRINTMSG(op, "%s instance", ((ObjInstance*)obj)->klass->name->chars);
+        case OBJ_INSTANCE: {
+            ObjClass const *cl = osDeref(((ObjInstance const *)obj)->klass);
+            FPRINTMSG(op, "%s instance", osStringAsCString(cl->name));
             break;
+        }
         case OBJ_NATIVE:
             FPRINTMSG(op, "<native fn>");
             break;
         case OBJ_ROUTINE:
-            printRoutine(op, ((ObjRoutine *)obj));
+            printRoutine(op, ((ObjRoutine const *)obj));
             break;
         case OBJ_CHANNELCONTAINER:
-            printChannel(op, ((ObjChannelContainer *)obj));
+            printChannel(op, ((ObjChannelContainer const *)obj));
             break;
         case OBJ_SYNCGROUP:
-            printSyncGroup(op, ((ObjSyncGroup *)obj));
+            printSyncGroup(op, p);
             break;
         case OBJ_STRING:
-            FPRINTMSG(op, "%s", ((ObjString*)obj)->chars);
+            FPRINTMSG(op, "%s", osStringAsCString(p));
             break;
-        }
         case OBJ_UPVALUE:
             FPRINTMSG(op, "upvalue");
             break;
-        case OBJ_UNOWNED_UNIFORMARRAY:
-        case OBJ_PACKEDUNIFORMARRAY:
-            printArray(op, ((ObjPackedArray *)obj));
+        case OBJ_ARRAY:
+            printArray(op, (ObjArray const *)obj);
             break;
-        case OBJ_YARGTYPE:
+        case OBJ_PLACED:
+            printPlaced(op, (ObjPlaced const *)obj);
+            break;
         case OBJ_YARGTYPE_ARRAY:
         case OBJ_YARGTYPE_STRUCT:
         case OBJ_YARGTYPE_MAP:
-            printType(op, ((ObjConcreteYargType *)obj));
+            printType(op, p);
             break;
-        case OBJ_UNOWNED_PACKEDPOINTER:
-        case OBJ_PACKEDPOINTER:
-            printPointer(op, ((ObjPointer *)obj));
+        case OBJ_POINTER:
+            printPointer(op, (ObjPointer const *)obj);
             break;
-        case OBJ_UNOWNED_PACKEDSTRUCT:
-        case OBJ_PACKEDSTRUCT:
-            printStruct(op, ((ObjStruct *)obj));
+        case OBJ_STRUCT:
+            printStruct(op, (ObjStruct const *)obj);
             break;
         case OBJ_INT: {
-            Int *i = &((ObjInt *)obj)->bigInt;
+            Int *i = &((ObjInt *)obj)->i;
             char sb[INT_STRLEN_FOR_INT254];
             char const *s = int_to_s(i, sb, INT_STRLEN_FOR_INT254);
             FPRINTMSG(op, "%s", s);
@@ -526,16 +521,18 @@ void fprintObject(FILE* op, Obj *obj) {
         }
         case OBJ_MAP:
             FPRINTMSG(op, "<map ");
-            FPRINTMSG(op, "(%d) ", ((ObjMap*)obj)->entries.count);
-            printType(op, (ObjConcreteYargType *)(((ObjMap*)obj)->type));
+            FPRINTMSG(op, "(%d) ", ((ObjMap *)obj)->entries.arrayLength);
             FPRINTMSG(op, " >");
             break;
         default:
-            FPRINTMSG(op, "<implementation object %d>", obj->type);
+            FPRINTMSG(op, "<implementation object %d>", obj->objType);
             break;
+        }
+        break;
+    }
     }
 }
 
-void printObject(Obj *obj) {
-    fprintObject(stdout, obj);
+void printObject(ObjPtr p) {
+    fprintObject(stdout, p);
 }

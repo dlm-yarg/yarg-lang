@@ -252,35 +252,37 @@ bool is_nil_assignable_type(ObjPtr type) {
 }
 
 bool is_placeable_type(ObjPtr typeVal) {
-    ObjConcreteYargType const *o = AS_YARGTYPE(typeVal);
-    ObjType t = o->obj.objType;
-    if (t == OBJ_YARGTYPE || t == OBJ_YARGTYPE_ARRAY || t == OBJ_YARGTYPE_STRUCT ||
-        t == OBJ_YARGTYPE_POINTER || t == OBJ_YARGTYPE_MAP) {
-        switch(o->yt) {
-            case TypeInt8: return true;
-            case TypeUint8: return true;
-            case TypeInt16: return true;
-            case TypeUint16: return true;
-            case TypeInt32: return true;
-            case TypeUint32: return true;
-            case TypeInt64: return true;
-            case TypeUint64: return true;
-            case TypeArray: {
-                ObjConcreteYargTypeArray* ct = (ObjConcreteYargTypeArray*)o;
-                ObjPtr elementType = arrayElementType(ct);
-                return is_placeable_type(elementType);
+    switch(typeVal) {
+    case OBJ_PTR_I8_TYPE: case OBJ_PTR_I16_TYPE: case OBJ_PTR_I32_TYPE: case OBJ_PTR_I64_TYPE return true;
+    case OBJ_PTR_UI8_TYPE: case OBJ_PTR_UI16_TYPE: case OBJ_PTR_UI32_TYPE: case OBJ_PTR_UI64_TYPE return true;
+    case OBJ_PTR_ADDRESS_TYPE: return true;
+    default: {
+        Obj const *o = osDeref(typeVal);
+        switch (o->objType) {
+        case OBJ_ARRAY: { // todo place a zero length array?
+            ObjArray *oa = (ObjArray const *)o;
+            if (oa->elements.arrayLength == 0) return false;
+            ObjPtr ep = *(Obj const *)daAt(oa->elements, 0);
+            Obj const *oe0 = osDeref(ep);
+            bool is_placeable = true;
+            for (size_t i = 0; i < oa->elements.arrayLength && is_placeable; i++) {
+                ep = *(Obj const *)daAt(oa->elements, i);
+                Obj const *oe = osDeref(ep);
+                is_placeable = oe->objType == oe0->objType && is_placeable_type(oe);
             }
-            case TypeStruct: {
-                ObjConcreteYargTypeStruct* ct = (ObjConcreteYargTypeStruct*)o;
-                bool is_placeable = true;
-                for (size_t i = 0; i < ct->elements.arrayLength && is_placeable; i++) {
-                    YargTypeStructElement *e = &((YargTypeStructElement *)ct->elements.arrayItems)[i];
-                    ObjPtr fieldType = e == 0 ? 0 : e->type;
-                    is_placeable &= is_placeable_type(fieldType);
-                }
-                return is_placeable;
+            return is_placeable;
+        }
+        case OBJ_STRUCT: {
+            ObjConcreteYargTypeStruct* ct = (ObjConcreteYargTypeStruct*)o;
+            bool is_placeable = true;
+            for (size_t i = 0; i < ct->elements.arrayLength && is_placeable; i++) {
+                YargTypeStructElement *e = &((YargTypeStructElement *)ct->elements.arrayItems)[i];
+                ObjPtr fieldType = e == 0 ? 0 : e->type;
+                is_placeable = is_placeable_type(fieldType);
             }
-            default: return false;
+            return is_placeable;
+        }
+        default: return false;
         }
     }
     return false;
@@ -358,7 +360,7 @@ size_t yt_sizeof_type_storage(ObjPtr type) {
 // todo - pre alloc defaults
 ObjPtr defaultValue(ObjPtr type) {
     if (type == 0) {
-        return OIR_NIL;
+        return OBJ_PTR_NIL;
     } else {
         ObjConcreteYargType* ct = AS_YARGTYPE(type);
         switch (ct->yt) {
@@ -385,7 +387,7 @@ ObjPtr defaultValue(ObjPtr type) {
         case TypeChannel:
         case TypeMap:
         case TypeYargType:
-            return OIR_NIL;
+            return OBJ_PTR_NIL;
         }
     }
 }

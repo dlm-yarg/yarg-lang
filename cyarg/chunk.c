@@ -6,38 +6,22 @@
 #include <assert.h>
 
 void initChunk(Chunk* chunk) {
-    chunk->count = 0;
-    chunk->capacity = 0;
-    chunk->code = NULL;
-    chunk->numLines = 0;
-    chunk->lineCapacity = 0;
-    chunk->lines = 0;
-    initDynamicValueArray(&chunk->constants);
+    daInit(chunk->code, sizeof (uint8_t));
+    daInit(chunk->lines, sizeof (int));
+    daInit(&chunk->constants, sizeof (ObjPtr));
 }
 
 void freeChunk(Chunk* chunk) {
-    if (!chunk->xip) {
-        FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
-    }
-    FREE_ARRAY(ChunkSource, chunk->lines, chunk->lineCapacity);
-    freeDynamicValueArray(&chunk->constants);
-    initChunk(chunk);
+    daFree(chunk->code);
+    daFree(chunk->lines);
+    daFree(&chunk->constants); // todo how!
 }
 
-void writeChunk(Chunk* chunk, uint8_t byte, int line) {
-    if (chunk->capacity < chunk->count + 1) {
-        int oldCapacity = chunk->capacity;
-        chunk->capacity = GROW_CAPACITY(oldCapacity);
-        chunk->code = GROW_ARRAY(uint8_t, chunk->code, oldCapacity, chunk->capacity);
-    }
-
-    chunk->code[chunk->count] = byte;
-    chunk->count++;
+void writeChunk(Chunk *chunk, uint8_t byte, int line) {
+    daPushBack(chunk->code, &byte);
 }
 
 int addConstant(Chunk* chunk, ObjPtr o) {
-    if (IS_OBJ(value)) tempRootPush(value->obj);
-    appendToDynamicValueArray(&chunk->constants, o);
-    if (IS_OBJ(value)) tempRootPop();
-    return chunk->constants.count - 1;
+    daPushBack(&chunk->constants, &o);
+    return chunk->constants.arrayLength - 1;
 }

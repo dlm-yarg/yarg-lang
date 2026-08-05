@@ -23,7 +23,7 @@ typedef struct ObjChannelContainer {
     sem_t* access;
 #endif
 
-    Value* buffer;
+    ObjPtr* buffer;
     size_t bufferSize;
     volatile size_t occupied;
 } ObjChannelContainer;
@@ -33,7 +33,7 @@ ObjChannelContainer* newChannel(ObjRoutine* routine, size_t capacity) {
     tempRootPush(&channel->obj);
     channel->overflow = false;
 
-    channel->buffer = ALLOCATE(Value, capacity);
+    channel->buffer = ALLOCATE(ObjPtr, capacity);
     channel->bufferSize = capacity;
 
     for (int i = 0; i < capacity; i++) {
@@ -59,11 +59,11 @@ void freeChannelObject(Obj* object) {
     sem_close(channel->access);
 #endif
 
-    FREE_ARRAY(Value, channel->buffer, channel->bufferSize);
+    FREE_ARRAY(ObjPtr, channel->buffer, channel->bufferSize);
     FREE(ObjChannelContainer, object); 
 }
 
-size_t readCursor(ObjChannelContainer* channel) {
+size_t readCursor(ObjChannelContainer const *channel) {
     size_t count = channel->occupied;
     size_t size = channel->bufferSize;
     size_t cursor = (channel->writeCursor + size - count) % size;
@@ -88,7 +88,7 @@ void markChannel(ObjChannelContainer* channel) {
     }
 }
 
-void printChannel(FILE* op, ObjChannelContainer* channel) {
+void printChannel(FILE* op, ObjChannelContainer const *channel) {
     FPRINTMSG(op, "channel{");
     size_t cursor = readCursor(channel);
     for (int i = 0; i < channel->occupied; i++) {
@@ -101,7 +101,7 @@ void printChannel(FILE* op, ObjChannelContainer* channel) {
     FPRINTMSG(op, "}");
 }
 
-void sendChannel(ObjChannelContainer* channel, Value data) {
+void sendChannel(ObjChannelContainer* channel, ObjPtr data) {
 #ifdef CYARG_PICO_BUSY_SYNC
     while (channel->occupied == channel->bufferSize) {
         // stall/block until space
@@ -121,8 +121,8 @@ void sendChannel(ObjChannelContainer* channel, Value data) {
 #endif
 }
 
-Value collectFromChannel(ObjChannelContainer* channel) {
-    Value result = NIL_VAL;
+ObjPtr collectFromChannel(ObjChannelContainer* channel) {
+    ObjPtr result = NIL_VAL;
 
     channelMutexEnter(channel);
     size_t cursor = readCursor(channel);
@@ -134,7 +134,7 @@ Value collectFromChannel(ObjChannelContainer* channel) {
     return result;
 }
 
-Value receiveChannel(ObjChannelContainer* channel) {
+ObjPtr receiveChannel(ObjChannelContainer* channel) {
 
 #if defined (CYARG_PICO_BUSY_SYNC)
     while (channel->occupied == 0) {
@@ -149,7 +149,7 @@ Value receiveChannel(ObjChannelContainer* channel) {
     return collectFromChannel(channel);
 }
 
-bool shareChannel(ObjChannelContainer* channel, Value data) {
+bool shareChannel(ObjChannelContainer* channel, ObjPtr data) {
     bool result = false;
 
     channelMutexEnter(channel);
@@ -172,8 +172,8 @@ bool shareChannel(ObjChannelContainer* channel, Value data) {
     return result;
 }
 
-Value peekChannel(ObjChannelContainer* channel) {
-    Value result = 0;
+ObjPtr peekChannel(ObjChannelContainer* channel) {
+    ObjPtr result = 0;
 
     if (channel->occupied > 0) {
         result = channel->buffer[readCursor(channel)];

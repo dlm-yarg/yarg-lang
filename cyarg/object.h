@@ -29,7 +29,7 @@
 #define IS_CHANNEL(obj)      isObjOfType((obj), OBJ_CHANNELCONTAINER)
 #define IS_STRING(obj)       isObjOfType((obj), OBJ_STRING)
 #define IS_ARRAY(obj)        isObjOfOneType((obj), 2, OBJ_ARRAY, OBJ_PLACED_ARRAY)
-#define IS_YARGTYPE(obj)     isObjOfOneType((obj), 5, OBJ_YARGTYPE, OBJ_YARGTYPE_ARRAY, OBJ_YARGTYPE_STRUCT, OBJ_YARGTYPE_POINTER, OBJ_YARGTYPE_MAP)
+#define IS_YARGTYPE(obj)     (obj >= OBJ_PTR_TYPE_TAGS_ && obj < OBJ_PTR_TYPE_TAGS_END || isObjOfOneType((obj), 4, OBJ_YARGTYPE_ARRAY, OBJ_YARGTYPE_STRUCT, OBJ_YARGTYPE_POINTER, OBJ_YARGTYPE_MAP))
 #define IS_POINTER(obj)      isObjOfType((obj), OBJ_POINTER) // OBJ_PACKED_VALUE?
 #define IS_STRUCT(obj)       isObjOfOneType((obj), 2, OBJ_STRUCT, OBJ_PLACED_STRUCT)
 #define IS_SYNCGROUP(obj)    isObjOfType((obj), OBJ_SYNCGROUP)
@@ -84,113 +84,28 @@ typedef struct ObjConcreteYargTypeStruct ObjConcreteYargTypeStruct;
 typedef struct ObjConcreteYargTypePointer ObjConcreteYargTypePointer;
 typedef struct ObjConcreteYargTypeMap ObjConcreteYargTypeMap;
 
-typedef enum {
-    OBJ_NIL,
-    OBJ_BOOL,
-    OBJ_INT,
-    OBJ_ADDRESS, // ROM, DEVICE or BLOB;
-    OBJ_DOUBLE,
-    OBJ_I8,
-    OBJ_UI8,
-    OBJ_I16,
-    OBJ_UI16,
-    OBJ_I32,
-    OBJ_UI32,
-    OBJ_I64,
-    OBJ_UI64,
-    OBJ_BOUND_METHOD,
-    OBJ_CLASS,
-    OBJ_CLOSURE,
-    OBJ_FUNCTION,
-    OBJ_INSTANCE,
-    OBJ_NATIVE,
-    OBJ_ROUTINE,
-    OBJ_CHANNELCONTAINER,
-    OBJ_POINTER, // to any object including PLACED
-    OBJ_BLOB, // either object store or PLACED (ROM, DEVICE or BLOB); BLOBS do not move during osExtend() or osGc() so allocate early
-    OBJ_UPVALUE,
-    OBJ_ARRAY,
-    OBJ_MAP,
-    OBJ_STRUCT,
-    // placed objects reference system memory - ROM, DEVICE or BLOB; may only comprise: integral, float, system addresses, other placed objects
-    OBJ_PLACED_ARRAY, // placed arrays have uniform elements
-    OBJ_PLACED_STRUCT,
-    OBJ_PLACED_VALUE, // can have a pointer to it, but it is not needed, this is equivalent to a pointer for placed values
-    OBJ_YARGTYPE,
-    OBJ_YARGTYPE_ARRAY,
-    OBJ_YARGTYPE_STRUCT,
-    OBJ_YARGTYPE_POINTER,
-    OBJ_YARGTYPE_MAP,
-    OBJ_SYNCGROUP,
-    OBJ_STACKSLICE,
-
-    // used by compiler and VM
-    OBJ_STRING,
-
-    // used by compiler only
-    OBJ_PLACEALIAS,
-    OBJ_AST,
-    OBJ_STMT_EXPRESSION,
-    OBJ_STMT_PRINT,
-    OBJ_STMT_POKE,
-    OBJ_STMT_VARDECLARATION,
-    OBJ_STMT_FIELDDECLARATION,
-    OBJ_STMT_PLACEDECLARATION,
-    OBJ_STMT_BLOCK,
-    OBJ_STMT_IF,
-    OBJ_STMT_FUNDECLARATION,
-    OBJ_STMT_WHILE,
-    OBJ_STMT_RETURN,
-    OBJ_STMT_YIELD,
-    OBJ_STMT_FOR,
-    OBJ_STMT_CLASSDECLARATION,
-    OBJ_EXPR_NUMBER,
-    OBJ_EXPR_ADDRESS,
-    OBJ_EXPR_OPERATION,
-    OBJ_EXPR_GROUPING,
-    OBJ_EXPR_NAMEDVARIABLE,
-    OBJ_EXPR_LITERAL,
-    OBJ_EXPR_STRING,
-    OBJ_EXPR_CALL,
-    OBJ_EXPR_COLLECTION_INITIALIZER,
-    OBJ_EXPR_COLLECTION_ELEMENT,
-    OBJ_EXPR_PAIR,
-    OBJ_EXPR_BUILTIN,
-    OBJ_EXPR_DOT,
-    OBJ_EXPR_SUPER,
-    OBJ_EXPR_TYPE,
-    OBJ_EXPR_TYPE_STRUCT,
-    OBJ_EXPR_TYPE_INDEXED_COLLECTION,
-
-    OBJ_IN_ROM = 0x80 // add to above to mark as XIP/ROM-Obj i.e. not in the object store
-} ObjType;
-
-_Static_assert(OBJ_EXPR_TYPE_INDEXED_COLLECTION < OBJ_IN_ROM, "run out of object names -- make objTyp uint16_t");
-
 typedef struct Obj {
-    uint8_t objType; // ObjType
+    ObjType objType;
 } Obj;
 
-typedef struct ObjString7 {
-    Obj obj;
-    uint32_t hash;
-    struct {
-        ArrayItemCount arrayCapacity;
-        ArrayItemCount arrayLength;
-        ObjSize arrayItemSize;
-        union {
-            uint64_t arrayItems[1];
-            char chars[8];
-        };
-    } s;
-} ObjString7;
-
+// if sLength == sCapacity the string will need to be expanded (if OBJ_STRING)
+//                                      or copied (if OBJ_IN_ROM+OBJ_STRING) before using as a C string
 typedef struct ObjString {
     Obj obj;
-    ObjPtr nextSameHash;
-    uint8_t hash;
-    DynamicArray s; // of type char
+    ObjPtr sameHash; // null terminated linked list; sameHash is volatile
+    ArrayItemCount sLength;
+    ArrayItemCount sCapacity; // not needed once using pools
+    union {
+        uint64_t alignment[0];
+        char chars[0]; // null terminated if sCapacity > sLength
+    };
 } ObjString;
+
+typedef struct ObjRomString {
+    Obj obj;
+    ObjPtr sameHash; // null terminated linked list; sameHash is volatile
+    char const *cStr; // null terminated
+} ObjRomString;
 
 typedef struct ObjFunction {
     Obj obj;
@@ -306,7 +221,7 @@ typedef struct ObjInstance {
 typedef struct ObjBoundMethod {
     Obj obj;
     ObjPtr receiver;
-    ObjPtr method;
+    ObjPtr method; // of type ObjClosure
 } ObjBoundMethod;
 
 typedef struct ObjArray {
@@ -314,25 +229,11 @@ typedef struct ObjArray {
     DynamicArray elements; // of type ObjPtr
 } ObjArray;
 
-typedef struct ObjPlacedArray {
+typedef struct ObjPlaced {
     Obj obj;
-    ObjPtr type;
-    ObjPtr blob; // if an ObjArray is copyed because it is pinned
+    ObjPtr placedObj;
     uintptr_t placedAddress;
-    ObjSize elementSize;
-} ObjPlacedArray;
-
-typedef struct ObjPlacedStruct {
-    Obj obj;
-    uintptr_t placedAddress;
-    DynamicArray elements; // of type KeyOffsetType
-} ObjPlacedStruct;
-
-typedef struct ObjPlacedValue {
-    Obj obj;
-    ObjPtr type;
-    uintptr_t placedAddress;
-} ObjPlacedValue;
+} ObjPlaced;
 
 typedef struct ObjBlob {
     Obj obj;

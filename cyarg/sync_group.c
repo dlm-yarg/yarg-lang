@@ -36,12 +36,12 @@ void markSyncGroup(ObjSyncGroup* group) {
 
 void printSyncGroup(FILE* op, ObjSyncGroup* group) {
     FPRINTMSG(op, "sync_group{");
-    Value results = unpackValue(group->result_array->store);
+    ObjPtr results = unpackValue(group->result_array->store);
     fprintValue(op, results);
     FPRINTMSG(op, "}");
 }
 
-Value receiveSyncGroup(ObjSyncGroup* group) {
+ObjPtr receiveSyncGroup(ObjSyncGroup* group) {
     size_t num_channels = arrayCardinality(group->channel_array->store);
 
     bool wait_complete = false;
@@ -50,8 +50,8 @@ Value receiveSyncGroup(ObjSyncGroup* group) {
         platform_critical_section_enter_blocking(&group->group_lock);
         for (size_t i = 0; i < num_channels; i++) {
             PackedValue channel_cursor = arrayElement(group->channel_array->store, i);
-            Value channelVal = unpackValue(channel_cursor);
-            Value data = NIL_VAL;
+            ObjPtr channelVal = unpackValue(channel_cursor);
+            ObjPtr data = NIL_VAL;
             if (!IS_NIL(channelVal)) {
                 data = peekChannel(AS_CHANNEL(channelVal));
                 if (!IS_NIL(data)) {

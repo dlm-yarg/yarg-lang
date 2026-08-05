@@ -399,7 +399,7 @@ static void printExprType(ObjExpr* type) {
 void printStructType(ObjExprTypeStruct* struct_) {
     printf("struct {\n");
     for (int i = 0; i < struct_->fieldsByIndex.count; i++) {
-        Value x = struct_->fieldsByIndex.values[i];
+        ObjPtr x = struct_->fieldsByIndex.values[i];
         Obj* val = AS_OBJ(x);
         printStmts((ObjStmt*) val);
     }
@@ -698,7 +698,7 @@ void printStmts(ObjStmt* stmts) {
     }
 }
 
-void printSourceValue(FILE* op, Value value) {
+void printSourceValue(FILE* op, ObjPtr value) {
     if (IS_STRING(value)) {
         FPRINTMSG(op, "\"%s\"", AS_CSTRING(value));
         return;

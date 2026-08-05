@@ -42,7 +42,7 @@ static Entry* findEntry(Entry* entries, int capacity, ObjString* key) {
     }
 }
 
-bool tableGet(ValueTable* table, ObjString* key, Value* value) {
+bool tableGet(ValueTable* table, ObjString* key, ObjPtr* value) {
     if (table->count == 0) return false;
 
     Entry* entry = findEntry(table->entries, table->capacity, key);
@@ -75,7 +75,7 @@ static void adjustCapacity(ValueTable* table, int capacity) {
     table->capacity = capacity;
 }
 
-bool tableSet(ValueTable* table, ObjString* key, Value value) {
+bool tableSet(ValueTable* table, ObjString* key, ObjPtr value) {
     if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
         int capacity = GROW_CAPACITY(table->capacity);
         adjustCapacity(table, capacity);

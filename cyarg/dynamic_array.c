@@ -10,7 +10,10 @@
 void daInit(DynamicArray *da, ObjSize sz) {
 }
 
-void daExtend(Obj *enclosingObject, DynamicArray *da, ArrayItemCount c) {
+DynamicArray *daExtend(DynamicArray *da, ArrayItemCount c) {
+}
+
+void daExtendEnclosed(Obj *enclosingObject, DynamicArray *da, ArrayItemCount c) {
 }
 
 void daFree(DynamicArray *da) {

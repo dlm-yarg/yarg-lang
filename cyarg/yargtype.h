@@ -9,34 +9,29 @@
 #define AS_YARGTYPE_POINTER(obj)    ((ObjConcreteYargTypePointer const *)osDeref(obj))
 #define AS_YARGTYPE_MAP(obj)        ((ObjConcreteYargTypeMap const *)osDeref(obj))
 
-typedef struct ObjConcreteYargType {
-    Obj obj;
-    ObjType yt;
-} ObjConcreteYargType;
-
 typedef struct ObjConcreteYargTypeArray {
-    ObjConcreteYargType core;
+    Obj core;
     size_t cardinality;
-    ObjPtr element_type;
+    ObjPtr element_type; // nil for any
 } ObjConcreteYargTypeArray;
 
 typedef struct YargTypeStructElement {
-    ObjPtr name;
-    ObjPtr type;
+    ObjPtr name; // of type ObjString
+    ObjPtr type; // of type ObjConcreteYargType, ObjConcreteYargTypeArray, ObjConcreteYargTypeStruct, ObjConcreteYargTypePointer, ObjConcreteYargTypeMap
 } YargTypeStructElement;
 
 typedef struct ObjConcreteYargTypeStruct {
-    ObjConcreteYargType core;
+    Obj core;
     DynamicArray elements; // of type YargTypeStructElement
 } ObjConcreteYargTypeStruct;
 
 typedef struct ObjConcreteYargTypePointer {
-    ObjConcreteYargType core;
+    Obj core;
     ObjPtr target_type;
 } ObjConcreteYargTypePointer;
 
 typedef struct ObjConcreteYargTypeMap {
-    ObjConcreteYargType core;
+    Obj core;
     ObjPtr key_type;
     ObjPtr value_type;
 } ObjConcreteYargTypeMap;

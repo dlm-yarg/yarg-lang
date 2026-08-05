@@ -139,7 +139,7 @@ struct ObjFunction *loadPackageFromBuffer(uint8_t* buffer, size_t bufferSize) {
             case PACK_CONST_TYPE_S: {
                 char *thisString = (char *)&stringFile[index];
                 ObjString *obj = copyString(thisString, (int)strlen(thisString)); // mark as xip
-                Value value = OBJ_VAL(obj);
+                ObjPtr value = OBJ_VAL(obj);
                 appendToDynamicValueArray(&currentFunction->chunk.constants, value);
                 DP(printf(":\"%s\"", thisString));
                 break;
@@ -148,7 +148,7 @@ struct ObjFunction *loadPackageFromBuffer(uint8_t* buffer, size_t bufferSize) {
                 Int const *thisInt = (Int const *)&intFile[index];
                 ObjInt *obj = allocateIntObject(thisInt->d_);
                 memcpy(&obj->bigInt, thisInt, sizeof (Int) + obj->bigInt.m_ * sizeof (uint16_t)); // should be able to shallow copy
-                Value value = OBJ_VAL(obj);
+                ObjPtr value = OBJ_VAL(obj);
                 appendToDynamicValueArray(&currentFunction->chunk.constants, value);
                 DP(printf(":");
                 int_print(thisInt));
@@ -156,14 +156,14 @@ struct ObjFunction *loadPackageFromBuffer(uint8_t* buffer, size_t bufferSize) {
             }
             case PACK_CONST_TYPE_D: {
                 double thisFloat = doubles[index];
-                Value value = DOUBLE_VAL(thisFloat);
+                ObjPtr value = DOUBLE_VAL(thisFloat);
                 appendToDynamicValueArray(&currentFunction->chunk.constants, value); // should be able to shallow copy
                 DP(printf(":%f", thisFloat));
                 break;
             }
             case PACK_CONST_TYPE_F: {
                 ObjFunction *thisFun = functions[index];
-                Value value = OBJ_VAL(thisFun);
+                ObjPtr value = OBJ_VAL(thisFun);
                 appendToDynamicValueArray(&currentFunction->chunk.constants, value);
                 if (thisFun->fName != 0) {
                     char name[21];
@@ -179,7 +179,7 @@ struct ObjFunction *loadPackageFromBuffer(uint8_t* buffer, size_t bufferSize) {
             }
             case PACK_CONST_TYPE_A: {
                 int64_t thisAddress = addresses[index];
-                Value value = ADDRESS_VAL((uintptr_t)thisAddress);
+                ObjPtr value = ADDRESS_VAL((uintptr_t)thisAddress);
                 appendToDynamicValueArray(&currentFunction->chunk.constants, value); // should be able to shallow copy
                 DP(printf(":%llx", thisAddress));
                 break;

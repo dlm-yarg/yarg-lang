@@ -20,7 +20,8 @@ typedef struct DynamicArray {
 } DynamicArray;
 
 void daInit(DynamicArray *, ObjSize);
-void daExtend(Obj *enclosingObject, DynamicArray *, ArrayItemCount);
+DynamicArray *daExtend(DynamicArray *, ArrayItemCount);
+void daExtendEnclosed(Obj *enclosingObject, DynamicArray *, ArrayItemCount); // DA at the end of the enclosing obj
 void daFree(DynamicArray *);
 
 void daPushBack(DynamicArray *, void const *);

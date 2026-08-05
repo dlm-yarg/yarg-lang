@@ -21,11 +21,11 @@
 #include "test-system/testSystem.h"
 #endif
 
-bool irq_add_shared_handlerNative(ObjRoutine* routine, int argCount, Value result) {
+bool irq_add_shared_handlerNative(ObjRoutine* routine, int argCount, ObjPtr result) {
 
-    Value numVal = nativeArgument(routine, argCount, 0);
-    Value address = nativeArgument(routine, argCount, 1);
-    Value prioVal = nativeArgument(routine, argCount, 2);
+    ObjPtr numVal = nativeArgument(routine, argCount, 0);
+    ObjPtr address = nativeArgument(routine, argCount, 1);
+    ObjPtr prioVal = nativeArgument(routine, argCount, 2);
 
     if (!IS_ADDRESS(address)) {
         runtimeError(routine, "Expected an address.");
@@ -55,10 +55,10 @@ bool irq_add_shared_handlerNative(ObjRoutine* routine, int argCount, Value resul
     return true;
 }
 
-bool irq_remove_handlerNative(ObjRoutine* routine, int argCount, Value result) {
+bool irq_remove_handlerNative(ObjRoutine* routine, int argCount, ObjPtr result) {
 
-    Value numVal = nativeArgument(routine, argCount, 0);
-    Value address = nativeArgument(routine, argCount, 1);
+    ObjPtr numVal = nativeArgument(routine, argCount, 0);
+    ObjPtr address = nativeArgument(routine, argCount, 1);
 
     if (!IS_ADDRESS(address)) {
         runtimeError(routine, "Expected an address.");
@@ -85,7 +85,7 @@ bool irq_remove_handlerNative(ObjRoutine* routine, int argCount, Value result) {
 }
 
 
-bool clockNative(ObjRoutine* routine, int argCount, Value result) {
+bool clockNative(ObjRoutine* routine, int argCount, ObjPtr result) {
     if (argCount != 0) {
         runtimeError(routine, "Expected 0 arguments but got %d.", argCount);
         return false;
@@ -95,12 +95,12 @@ bool clockNative(ObjRoutine* routine, int argCount, Value result) {
     return true;
 }
 
-bool clock_get_hzNative(ObjRoutine* routine, int argCount, Value result) {
+bool clock_get_hzNative(ObjRoutine* routine, int argCount, ObjPtr result) {
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 arguments but got %d.", argCount);
         return false;
     }
-    Value numVal = nativeArgument(routine, argCount, 0);
+    ObjPtr numVal = nativeArgument(routine, argCount, 0);
 
     if (!is_positive_integer32(numVal)) {
         runtimeError(routine, "Argument must be a positive integer");
@@ -117,7 +117,7 @@ bool clock_get_hzNative(ObjRoutine* routine, int argCount, Value result) {
     return true;
 }
 
-bool stdin_getsNative(ObjRoutine* routine, int argCount, Value result) {
+bool stdin_getsNative(ObjRoutine* routine, int argCount, ObjPtr result) {
     if (argCount != 0) {
         runtimeError(routine, "Expected 0 arguments but got %d.", argCount);
         return false;
@@ -137,18 +137,18 @@ bool stdin_getsNative(ObjRoutine* routine, int argCount, Value result) {
     return true;
 }
 
-bool stdin_eofNative(ObjRoutine* routine, int argCount, Value result) {
+bool stdin_eofNative(ObjRoutine* routine, int argCount, ObjPtr result) {
     BOOL_VAL(result, feof(stdin));
     return true;
 }
 
-bool stdout_putsNative(ObjRoutine* routine, int argCount, Value result) {
+bool stdout_putsNative(ObjRoutine* routine, int argCount, ObjPtr result) {
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
         return false;
     }
 
-    Value strVal = nativeArgument(routine, argCount, 0);
+    ObjPtr strVal = nativeArgument(routine, argCount, 0);
     if (!IS_STRING(strVal)) {
         runtimeError(routine, "Expected a string.");
         return false;
@@ -164,7 +164,7 @@ bool stdout_putsNative(ObjRoutine* routine, int argCount, Value result) {
 }
 
 #if defined(CYARG_FEATURE_HOSTED_REPL)
-bool host_argcNative(ObjRoutine* routine, int argCount, Value result) {
+bool host_argcNative(ObjRoutine* routine, int argCount, ObjPtr result) {
     if (argCount != 0) {
         runtimeError(routine, "Expected 0 arguments but got %d.", argCount);
         return false;
@@ -174,13 +174,13 @@ bool host_argcNative(ObjRoutine* routine, int argCount, Value result) {
     return true;
 }
 
-bool host_argnNative(ObjRoutine* routine, int argCount, Value result) {
+bool host_argnNative(ObjRoutine* routine, int argCount, ObjPtr result) {
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
         return false;
     }
 
-    Value indexVal = nativeArgument(routine, argCount, 0);
+    ObjPtr indexVal = nativeArgument(routine, argCount, 0);
     if (!is_positive_integer32(indexVal)) {
         runtimeError(routine, "Expected a positive integer.");
         return false;
@@ -195,13 +195,13 @@ bool host_argnNative(ObjRoutine* routine, int argCount, Value result) {
     return true;
 }
 
-bool host_exitCodeNative(ObjRoutine* routine, int argCount, Value result) {
+bool host_exitCodeNative(ObjRoutine* routine, int argCount, ObjPtr result) {
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
         return false;
     }
 
-    Value codeVal = nativeArgument(routine, argCount, 0);
+    ObjPtr codeVal = nativeArgument(routine, argCount, 0);
     if (!is_positive_integer32(codeVal)) {
         runtimeError(routine, "Expected a positive integer.");
         return false;
@@ -213,15 +213,15 @@ bool host_exitCodeNative(ObjRoutine* routine, int argCount, Value result) {
 }
 #endif
 
-bool readFileIntoBufferNative(ObjRoutine* routine, int argCount, Value* result) {
+bool readFileIntoBufferNative(ObjRoutine* routine, int argCount, ObjPtr* result) {
     if (argCount != 3) {
         runtimeError(routine, "Expected 3 arguments but got %d.", argCount);
         return false;
     }
 
-    Value pathVal = nativeArgument(routine, argCount, 0);
-    Value bufferVal = nativeArgument(routine, argCount, 1);
-    Value bufferSizeVal = nativeArgument(routine, argCount, 2);
+    ObjPtr pathVal = nativeArgument(routine, argCount, 0);
+    ObjPtr bufferVal = nativeArgument(routine, argCount, 1);
+    ObjPtr bufferSizeVal = nativeArgument(routine, argCount, 2);
 
     if (!is_positive_integer32(bufferSizeVal)) {
         runtimeError(routine, "Expected a positive integer for the buffer size.");
@@ -247,13 +247,13 @@ bool readFileIntoBufferNative(ObjRoutine* routine, int argCount, Value* result) 
 
 }
 
-bool fileSizeNative(ObjRoutine* routine, int argCount, Value* result) {
+bool fileSizeNative(ObjRoutine* routine, int argCount, ObjPtr* result) {
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
         return false;
     }
 
-    Value pathVal = nativeArgument(routine, argCount, 0);
+    ObjPtr pathVal = nativeArgument(routine, argCount, 0);
     if (!IS_STRING(pathVal)) {
         runtimeError(routine, "Expected a string.");
         return false;
@@ -266,13 +266,13 @@ bool fileSizeNative(ObjRoutine* routine, int argCount, Value* result) {
     return true;
 }
 
-bool fileExistsNative(ObjRoutine* routine, int argCount, Value* result) {
+bool fileExistsNative(ObjRoutine* routine, int argCount, ObjPtr* result) {
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
         return false;
     }
 
-    Value pathVal = nativeArgument(routine, argCount, 0);
+    ObjPtr pathVal = nativeArgument(routine, argCount, 0);
     if (!IS_STRING(pathVal)) {
         runtimeError(routine, "Expected a string.");
         return false;

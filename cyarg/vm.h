@@ -47,7 +47,7 @@ void freeVM(void);
 void markVMRoots(void);
 
 InterpretResult bootYargSourceFile(ObjString* filename);
-InterpretResult compileScript(ObjString* filename, Value* compileResult);
+InterpretResult compileScript(ObjString* filename, ObjPtr* compileResult);
 
 InterpretResult run(ObjRoutine* routine);
 bool callfn(ObjRoutine* routine, ObjClosure* closure, int argCount);

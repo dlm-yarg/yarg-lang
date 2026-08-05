@@ -120,7 +120,7 @@ void fprintValue(FILE* op, ObjPtr p) {
 }
 
 uintptr_t pinUniformArray(ObjPtr array) {
-    ObjArray const *a = (ObjArray const *)osDeref(array);
+    ObjArray const *a = osDeref(array);
     assert(a->obj.objType == OBJ_ARRAY);
     ObjPtr const *first = daAt(&a->elements, 0);
     Obj const *obj0 = osDeref(*first);
@@ -147,8 +147,8 @@ uintptr_t pinUniformArray(ObjPtr array) {
     }
 
     osNoGc(array);
-    ObjPtr placedArray = ALLOCATE_OBJ(ObjPlacedArray, OBJ_PLACED_ARRAY);
-    ObjPlacedArray *pa = (ObjPlacedArray *)osDeref(*first);
+    ObjPtr placedArray = ALLOCATE_OBJ(ObjPlaced, OBJ_PLACED_ARRAY);
+    ObjPlaced *pa = (ObjPlaced *)osDeref(*first);
     osNoGc(placedArray);
     pa->blob = ALLOCATE_BLOB(elementSize, a->elements.arrayLength);
     ObjBlob *b = (ObjBlob *)osDeref(pa->blob);

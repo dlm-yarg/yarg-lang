@@ -76,13 +76,13 @@ exit:
 
 void flattenConstants(int chunkIndex, Chunk const *chunk, FlatFiles *f) {
     int startSubs = f->funsFile_.n_;
-    int constCount = chunk->constants.count;
+    int constCount = chunk->constants.arrayLength;
 
     ObjFunction const *cf = f->funsFile_.i_[chunkIndex].f_;
     FlatChunk *fc = &f->funsFile_.i_[chunkIndex].chunk_;
 
-    fc->code_ = cf->chunk.code;
-    fc->codeLength_ = cf->chunk.count;
+    fc->code_ = cf->chunk.code->arrayItems;
+    fc->codeLength_ = cf->chunk.code->arrayLength;
     fc->codeOffset_ = f->funsFile_.totalCodeLength_;
     f->funsFile_.totalCodeLength_ += fc->codeLength_;
 
@@ -92,7 +92,7 @@ void flattenConstants(int chunkIndex, Chunk const *chunk, FlatFiles *f) {
     fc->constTypesAndOffsets_.numConsts_ = constCount;
 
     for (int i = 0; i < constCount; i++) {
-        Value *v = &chunk->constants.values[i];
+        ObjPtr *v = &chunk->constants.values[i];
         if (IS_DOUBLE(*v)) {
             fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_D, .index_ = f->doublesFile_.n_ };
             fileExtend(&f->doublesFile_, 4, sizeof *f->doublesFile_.i_);

@@ -16,7 +16,7 @@ ObjChannelContainer* newChannel(ObjRoutine* routine, size_t capacity);
 void freeChannelObject(Obj* channel);
 void markChannel(ObjChannelContainer* channel);
 
-void printChannel(FILE* op, ObjChannelContainer* channel);
+void printChannel(FILE* op, ObjChannelContainer const *channel);
 
 void sendChannel(ObjChannelContainer* channel, ObjPtr data);
 ObjPtr receiveChannel(ObjChannelContainer* channel);

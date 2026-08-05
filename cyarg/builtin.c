@@ -30,7 +30,7 @@
 //  - yarg binary files (returned as uint8[])
 //  - text files (returned as string)
 // Both are suitable input to load().
-bool readYargSourceBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
+bool readYargSourceBuiltin(ObjRoutine* routineContext, int argCount, ObjPtr* result) {
     if (argCount != 1) {
         runtimeError(routineContext, "Expected 1 argument but got %d.", argCount);
         return false;
@@ -79,7 +79,7 @@ bool readYargSourceBuiltin(ObjRoutine* routineContext, int argCount, Value* resu
     return true;
 }
 
-bool compileBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
+bool compileBuiltin(ObjRoutine* routineContext, int argCount, ObjPtr* result) {
     if (argCount != 1) {
         runtimeError(routineContext, "Expected 1 argument but got %d.", argCount);
         return false;
@@ -104,12 +104,12 @@ bool compileBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     return true;
 }
 
-bool loadBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
+bool loadBuiltin(ObjRoutine* routineContext, int argCount, ObjPtr* result) {
     if (argCount != 1) {
         runtimeError(routineContext, "Expected 1 arguments but got %d.", argCount);
         return false;
     }
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    ObjPtr arg = nativeArgument(routineContext, argCount, 0);
     ObjFunction* function = NULL;
     
     if (IS_UNIFORMARRAY(arg)) {
@@ -135,7 +135,7 @@ bool loadBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     return true;
 }
 
-bool makeChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+bool makeChannelBuiltin(ObjRoutine* routine, int argCount, ObjPtr* result) {
     if (argCount >= 2) {
         runtimeError(routine, "Expected 0 or 1 arguments but got %d.", argCount);
         return false;
@@ -415,7 +415,7 @@ bool pinBuiltin(ObjRoutine* routineContext, int argCount, ObjPtr result) {
         return false;
     }
 
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    ObjPtr arg = nativeArgument(routineContext, argCount, 0);
     if (IS_ROUTINE(arg)) {
         ObjRoutine* isrRoutine = AS_ROUTINE(arg);
         if (isrRoutine->entryFunction->function->arity != 0) {

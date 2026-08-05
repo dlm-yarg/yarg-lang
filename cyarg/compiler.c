@@ -102,7 +102,7 @@ static void errorAt(const char* location, const char* message) {
     current->hadError = true;
 }
 
-static void errorAtValue(Value location, const char* message) {
+static void errorAtValue(ObjPtr location, const char* message) {
     if (current->panicMode) return;
 
     current->panicMode = true;
@@ -227,7 +227,7 @@ static uint8_t makeConstant(Obj *o) {
 
 #define UINT24_MAX 16777215
 static void emitImmediateConstant(int32_t);
-static void emitConstant(Value value) {
+static void emitConstant(ObjPtr value) {
     // DOUBLE_VAL, ADDRESS_VAL or OBJ_VAL(String or Int)
     int32_t v = 0;
     bool asObject = true;
@@ -656,7 +656,7 @@ static void generateExprType(ObjExprTypeLiteral* type) {
 
 static void generateExprTypeStruct(ObjExprTypeStruct* struct_) {
     for (int i = struct_->fieldsByIndex.count - 1; i >= 0; i--) {
-        Value field = struct_->fieldsByIndex.values[i];
+        ObjPtr field = struct_->fieldsByIndex.values[i];
         generateStmt((ObjStmt*)AS_OBJ(field));
     }
     size_t fieldCount = struct_->fieldsByIndex.count;
@@ -824,7 +824,6 @@ static void generatePlaceDeclaration(ObjStmtPlaceDeclaration* decl) {
         
         uint8_t global = parseVariable(alias->name);
         defineVariable(global);
-
     }
 }
 

@@ -56,7 +56,7 @@ int compileFile(const char* path, const char* outputPath) {
     ObjString* pathString = copyString(path, (int) strlen(path));
     tempRootPush(&pathString->obj);
 
-    Value compilerResult;
+    ObjPtr compilerResult;
     InterpretResult result = compileScript(pathString, &compilerResult);
     tempRootPush(compilerResult);
 
@@ -81,7 +81,7 @@ int disassembleFile(const char* path) {
     ObjString* pathString = copyString(path, (int)strlen(path));
     tempRootPush(OBJ_VAL(pathString));
 
-    Value compilerResult;
+    ObjPtr compilerResult;
     InterpretResult result = compileScript(pathString, &compilerResult);
     tempRootPush(compilerResult);
 

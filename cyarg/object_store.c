@@ -11,96 +11,103 @@
 #include "yargtype.h"
 
 #include <stdlib.h>
+#include <string.h>
 #include <assert.h>
-
-#define HASH_MAX 256
 
 enum {
     OS_FLAG_COPIED = 0x0001u,
-    OS_FLAG_LAZY = 0x0002u
+    OS_FLAG_COPY = 0x0002u
 };
 
 // note - it is more memory efficient to have a seperate array for each member of PtrEntry, or to stuff this into Obj
 // but the code is simpler to do it as struct, and debugging is nicer to not have os internals polluting the clients view
 typedef struct PtrEntry {
-    Obj const *cell;
-    uint32_t size; // this can be stored in flags once alloc pools are implemented
-    ObjPtr copy; // this should be ignored unless OS_FLAG_COPY is set
+    union {
+        Obj const *cell; // usually unique in osR?mPtrs, if a copy (flag set) the obj is read-only if written (osDerefAndModify) obj is duplicated and and copy flags are reset
+        struct PtrEntry *nextFreeEntry;
+    };
+    uint32_t size; // this can be stored in flags/copy once pools are implemented; not needed for ROM objects
+    ObjPtr copy;
     uint16_t flags;
 } PtrEntry;
 
-typedef struct PtrArray {
-    ArrayItemCount arrayCapacity;
-    ArrayItemCount arrayLength;
-    PtrEntry arrayItems[0];
-} PtrArray;
+typedef struct HashTreeElement {
+    uint16_t hash;
+    ObjPtr s;
+    ObjPtr sameHash;
+    ObjPtr higherHash;
+    ObjPtr lowerHash;
+} HashTreeElement;
 
-static PtrArray *osRamPtrs;
-static PtrArray *osRomPtrs;
-static ObjPtr stringByHash[HASH_MAX];
+#define NUM_PTR_ENTRIES 2048
+PtrEntry ptrEntries[NUM_PTR_ENTRIES];
+PtrEntry *freePtrEntries = 0;
+
+#define NUM_HASH_ENTRIES 256
+static ObjPtr hashTable[NUM_HASH_ENTRIES];
+
+static void returnPtrEntry(PtrEntry *);
+static PtrEntry *allocPtrEntry(void);
 
 // these bracket calls to alloc, owned, free, copy, modify and gc
 static void lock(void);
 static void unlock(void);
 
+// string support
+static uint8_t hashString(char const *, ArrayItemCount);
+static ObjPtr storeString(ObjPtr);
+static void deleteString(ObjPtr); // called from GC
+
 void osInit(void) {
     // create pools - for now we just use malloc
 
-    // create Ptr tables - for now don’t grow
-    osRamPtrs = malloc(sizeof (DynamicArray) + sizeof (PtrEntry) * 200);
-    osRamPtrs->arrayCapacity = 200;
-    osRamPtrs->arrayLength = 0;
+    // create prt entry free list - remove and add from start
+    for (int i = 0; i < NUM_PTR_ENTRIES; i++) {
+        returnPtrEntry(&ptrEntries[i]);
+    }
 
-    osRomPtrs = malloc(sizeof (DynamicArray) + sizeof (PtrEntry) * 100);
-    osRomPtrs->arrayCapacity = 100;
-    osRomPtrs->arrayLength = 0;
+    PtrEntry *newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = &oirNil.obj, .size = sizeof oirNil, .copy = 0, .flags = 0 };
+    assert(newPe - ptrEntries == OBJ_PTR_NIL);
 
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirNil.obj, .size = sizeof oirNil, .copy = OS_NOT_COPIED, .flags = 0 };
+    newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = &oirTrue.obj, .size = sizeof oirTrue, .copy = 0, .flags = 0 };
+    newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = &oirFalse.obj, .size = sizeof oirFalse, .copy = 0, .flags = 0 };
 
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirTrue.obj, .size = sizeof oirTrue, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirFalse.obj, .size = sizeof oirFalse, .copy = OS_NOT_COPIED, .flags = 0 };
+    newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = &oirNegativeOne.obj, .size = sizeof oirNegativeOne, .copy = 0, .flags = 0 };
+    newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = &oirZero.obj, .size = sizeof oirZero, .copy = 0, .flags = 0 };
+    newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = &oirOne.obj, .size = sizeof oirOne, .copy = 0, .flags = 0 };
+    newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = &oirTwo.obj, .size = sizeof oirTwo, .copy = 0, .flags = 0 };
+    newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = &oirThree.obj, .size = sizeof oirThree, .copy = 0, .flags = 0 };
+    newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = &oirFour.obj, .size = sizeof oirFour, .copy = 0, .flags = 0 };
+    newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = &oirEight.obj, .size = sizeof oirEight, .copy = 0, .flags = 0 };
+    newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = &oirTen.obj, .size = sizeof oirTen, .copy = 0, .flags = 0 };
+    newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = &oirTenThousand.obj, .size = sizeof oirTenThousand, .copy = 0, .flags = 0 };
 
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirNegativeOne.obj, .size = sizeof oirNegativeOne, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirZero.obj, .size = sizeof oirZero, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirOne.obj, .size = sizeof oirOne, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirTwo.obj, .size = sizeof oirTwo, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirThree.obj, .size = sizeof oirThree, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirFour.obj, .size = sizeof oirFour, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirEight.obj, .size = sizeof oirEight, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirTen.obj, .size = sizeof oirTen, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirTenThousand.obj, .size = sizeof oirTenThousand, .copy = OS_NOT_COPIED, .flags = 0 };
-
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirThis.obj, .size = sizeof oirThis, .copy = OS_NOT_COPIED, .flags = 0 };
-
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeAny.obj, .size = sizeof oirYargTypeAny, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeBool.obj, .size = sizeof oirYargTypeBool, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeInt.obj, .size = sizeof oirYargTypeInt, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeDouble.obj, .size = sizeof oirYargTypeDouble, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeInt8.obj, .size = sizeof oirYargTypeInt8, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeUint8.obj, .size = sizeof oirYargTypeUint8, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeInt16.obj, .size = sizeof oirYargTypeInt16, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeUint16.obj, .size = sizeof oirYargTypeUint16, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeInt32.obj, .size = sizeof oirYargTypeInt32, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeUint32.obj, .size = sizeof oirYargTypeUint32, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeInt64.obj, .size = sizeof oirYargTypeInt64, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeUint64.obj, .size = sizeof oirYargTypeUint64, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeString.obj, .size = sizeof oirYargTypeString, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeClass.obj, .size = sizeof oirYargTypeClass, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeInstance.obj, .size = sizeof oirYargTypeInstance, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeFunction.obj, .size = sizeof oirYargTypeFunction, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeRoutine.obj, .size = sizeof oirYargTypeRoutine, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeChannel.obj, .size = sizeof oirYargTypeChannel, .copy = OS_NOT_COPIED, .flags = 0 };
-    osRomPtrs->arrayItems[osRomPtrs->arrayLength++] = (PtrEntry){ .cell = &oirYargTypeYargType.obj, .size = sizeof oirYargTypeYargType, .copy = OS_NOT_COPIED, .flags = 0 };
+    newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = &oirThis.obj, .size = sizeof oirThis, .copy = 0, .flags = 0 };
+    assert(newPe - ptrEntries == OBJ_PTR_THIS);
+    storeString(OBJ_PTR_THIS);
 }
 
 void osExtend(void) {}
 
 ObjPtr osAlloc(ObjSize sz) {
     lock();
-    ArrayItemCount newP = osRamPtrs->arrayLength++;
-    osRamPtrs->arrayItems[newP] = (PtrEntry){ .cell = malloc(sz), .copy = OS_NOT_COPIED, .flags = 0 };
+    PtrEntry *newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = malloc(sz), .copy = 0, .flags = 0 };
     unlock();
-    return newP;
+    return newPe - ptrEntries;
 }
 
 void osNoGc(ObjPtr p) {
@@ -118,56 +125,6 @@ void osRealloc(ObjPtr p, ObjSize sz) {
     unlock();
 }
 
-
-static ObjString* allocateString(char* chars, int length, uint32_t hash) {
-    ObjString* string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
-    string->length = length;
-    string->chars = chars;
-    string->hash = hash;
-    tempRootPush((Obj *)(string));
-    struct AbstractValue v;
-    NIL_VAL(&v);
-    tableSet(&vm.strings, string, &v);
-    tempRootPop();
-    return string;
-}
-
-static uint32_t hashString(const char* key, int length) {
-    uint32_t hash = 2166136261u;
-    for (int i = 0; i < length; i++) {
-        hash ^= (uint8_t)key[i];
-        hash += 16777619;
-    }
-    return hash;
-}
-
-ObjString* takeString(char* chars, int length) {
-    uint32_t hash = hashString(chars, length);
-    ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
-    if (interned != NULL) {
-        FREE_ARRAY(char, chars, length + 1);
-        return interned;
-    }
-
-    return allocateString(chars, length, hash);
-}
-
-ObjString* copyString(const char* chars, int length) {
-    uint32_t hash = hashString(chars, length);
-    ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
-    if (interned != NULL) return interned;
-
-    char* heapChars = ALLOCATE(char, length + 1);
-    memcpy(heapChars, chars, length);
-    heapChars[length] = '\0';
-    return allocateString(heapChars, length, hash);
-}
-
-
-ObjPtr osStoreString(char *s) {
-    
-}
-
 void osFree(ObjPtr p) {
     lock();
     unlock();
@@ -175,69 +132,231 @@ void osFree(ObjPtr p) {
 
 ObjPtr osCopy(ObjPtr p) {
     lock();
-    assert(p >= OIR_NIL && p - OIR_NIL < osRomPtrs->arrayLength || p < OIR_NIL && osRamPtrs->arrayLength);
-    PtrEntry *from = p >= OIR_NIL ? &osRomPtrs->arrayItems[p - OIR_NIL] : &osRamPtrs->arrayItems[p];
-    ArrayItemCount newP = osRamPtrs->arrayLength++;
-    PtrEntry *to = &osRamPtrs->arrayItems[newP];
-    if ((from->flags & (OS_FLAG_COPIED | OS_FLAG_LAZY)) == 0) { // not a lazy copy or copied
-        *to = (PtrEntry){ .cell = 0, .copy = p, .flags = OS_FLAG_LAZY };
+    PtrEntry *from = &ptrEntries[p];
+    PtrEntry *newPe = allocPtrEntry();
+    if ((from->flags & (OS_FLAG_COPIED | OS_FLAG_COPY)) == 0) { // for now only alow one copy, however PtrEntry::copy, could be a list and allow multiple copies
+        *newPe = (PtrEntry){ .cell = from->cell, .copy = p, .flags = OS_FLAG_COPY };
         from->flags |= OS_FLAG_COPIED;
-        from->copy = newP;
+        from->copy = newPe - ptrEntries;
     } else {
-        *to = (PtrEntry){ .cell = malloc(from->size), .copy = OS_NOT_COPIED, .flags = 0 };
-        memcpy(&to->cell, &from->cell, from->size);
+        *newPe = (PtrEntry){ .cell = malloc(from->size), .size = from->size, .copy = 0, .flags = 0 };
+        memcpy(&newPe->cell, &from->cell, from->size);
     }
     unlock();
-    return newP;
+    return newPe - ptrEntries;
 }
 
-ObjPtr osStoreRomObject(Obj *obj) {return 0;}
+ObjPtr osStoreRomObject(Obj *obj) {
+    lock();
+    PtrEntry *newPe = allocPtrEntry();
+    *newPe = (PtrEntry){ .cell = obj, .size = 0, .copy = 0, .flags = 0 };
+    unlock();
+    return newPe - ptrEntries;
+}
 
 void osGc(void) {}
 
-Obj const *osDeref(ObjPtr p) {
-    if (p >= OIR_NIL) {
-        assert(p - OIR_NIL < osRomPtrs->arrayLength);
-        return osRomPtrs->arrayItems[p - OIR_NIL].cell;
-    } else {
-        assert(p < osRamPtrs->arrayLength);
-        return osRamPtrs->arrayItems[p].cell;
-    }
+void const *osDeref(ObjPtr p) {
+    assert(p < NUM_PTR_ENTRIES);
+    return ptrEntries[p].cell;
 }
 
 Obj *osDerefAndModify(ObjPtr p) {
     lock();
-    assert(p < osRamPtrs->arrayLength);
-    PtrEntry *pe = &osRamPtrs->arrayItems[p];
-    if ((pe->flags & (OS_FLAG_COPIED | OS_FLAG_LAZY)) == 0) { // !copied && !lazy - just use
-        assert(pe->copy == OS_NOT_COPIED);
+    assert(p < NUM_PTR_ENTRIES);
+    PtrEntry *pe = &ptrEntries[p];
+    if ((pe->flags & (OS_FLAG_COPIED | OS_FLAG_COPY)) == 0) { // !copied && !lazy - just use
         unlock();
     } else { // copied || lazy - copy copied to lazy
-        assert(pe->copy != OS_NOT_COPIED);
         ObjPtr copyOrCopiedPtr = pe->copy;
-        PtrEntry *copyOrCopied = copyOrCopiedPtr >= OIR_NIL ? &osRomPtrs->arrayItems[copyOrCopiedPtr - OIR_NIL] : &osRamPtrs->arrayItems[copyOrCopiedPtr];
-        PtrEntry *from, *to;
-        if ((copyOrCopied->flags & (OS_FLAG_COPIED | OS_FLAG_LAZY)) == OS_FLAG_LAZY) {
-            assert((pe->flags & (OS_FLAG_COPIED | OS_FLAG_LAZY)) == OS_FLAG_COPIED);
-            to = copyOrCopied;
-            from = pe;
-        } else {
-            assert((copyOrCopied->flags & (OS_FLAG_COPIED | OS_FLAG_LAZY)) == OS_FLAG_COPIED &&
-                   (pe->flags & (OS_FLAG_COPIED | OS_FLAG_LAZY)) == OS_FLAG_LAZY);
-            to = pe;
-            from = copyOrCopied;
-        }
-        to->copy = from->copy = OS_NOT_COPIED;
-        to->flags &= ~(OS_FLAG_COPIED | OS_FLAG_LAZY);
-        from->flags &= ~(OS_FLAG_COPIED | OS_FLAG_LAZY);
-        to->cell = malloc(from->size);
-        to->size = from->size;
+        PtrEntry *copyOrCopied = &ptrEntries[copyOrCopiedPtr];
+        assert(copyOrCopied->copy == p);
+        assert(pe->size == copyOrCopied->size);
+
+        copyOrCopied->copy = pe->copy = 0; // debug
+        copyOrCopied->flags &= ~(OS_FLAG_COPIED | OS_FLAG_COPY);
+        pe->flags &= ~(OS_FLAG_COPIED | OS_FLAG_COPY);
+
+        pe->cell = malloc(copyOrCopied->size);
         unlock();
-        memcpy(&to->cell, &from->cell, from->size);
+
+        memcpy(&pe->cell, &copyOrCopied->cell, copyOrCopied->size);
     }
-    return (Obj *)pe->cell;
+    return (Obj *)pe->cell; // const cast
+}
+
+//static ObjString* allocateString(char const *chars, int length) {
+//    ObjString* string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
+//    string->length = length;
+//    string->chars = chars;
+//    string->hash = hash;
+//    tempRootPush((Obj *)(string));
+//    struct AbstractValue v;
+//    NIL_VAL(&v);
+//    tableSet(&vm.strings, string, &v);
+//    tempRootPop();
+//    return string;
+//}
+
+
+ObjPtr osStoreCString(char const *s, ArrayItemCount l) {
+    ObjSize size = sizeof (ObjString) + sizeof (uint64_t) * ((l + 7) / 8);
+
+    PtrEntry *newPe = allocPtrEntry();
+    ObjPtr newP = newPe - ptrEntries;
+    *newPe = (PtrEntry){ .cell = malloc(size), .size = size, .copy = 0, .flags = 0 }; // is size correct or is it
+
+    ObjString *so = (ObjString *)newPe->cell;
+    *so = (ObjString){ .sameHash = OBJ_PTR_NIL, .sLength = l, .sCapacity = size - sizeof (ObjString) };
+    so->obj.objType = OBJ_STRING;
+    memcpy(so->chars, s, l);
+    return storeString(newP);
+}
+
+ObjPtr osStoreRomCString(char const *s) {
+    lock();
+    PtrEntry *newPe = allocPtrEntry();
+    ObjPtr newP = newPe - ptrEntries;
+    *newPe = (PtrEntry){ .cell = malloc(sizeof (ObjRomString)), .copy = 0, .flags = 0 };
+    unlock();
+
+    ObjRomString *so = (ObjRomString *)newPe->cell;
+    so->obj.objType = OBJ_STRING | OBJ_IN_ROM;
+    so->cStr = s;
+    so->sameHash = OBJ_PTR_NIL;
+    return storeString(newP);
+}
+
+char const *osStringAsCString(ObjPtr p) {
+    ObjString const *s = osDeref(p);
+    assert((s->obj.objType & ~OBJ_IN_ROM) == OBJ_STRING);
+    if (s->sLength < s->sCapacity) {
+        return s->chars;
+    } else { // if (sLength == sCapacity) {
+        return osStringAsCString(osStoreCString(s->chars, s->sLength));
+    }
+}
+
+void returnPtrEntry(PtrEntry *pe) {
+    pe->nextFreeEntry = freePtrEntries;
+    freePtrEntries = pe;
+}
+
+PtrEntry *allocPtrEntry(void) {
+    assert(freePtrEntries != 0);
+    PtrEntry *r = freePtrEntries;
+    freePtrEntries = r->nextFreeEntry;
+    r->nextFreeEntry = (PtrEntry *)1; // debug only
+    return r;
 }
 
 void lock(void) {}
 
 void unlock(void) {}
+
+static uint8_t hashString(char const *s, ArrayItemCount l) {
+    uint8_t hash = 0;
+    char const *b = &s[0];
+    char const *e = &s[l - 1];
+    while (b < e) {
+        hash = (hash << 5) | (hash >> (8 - 5));
+        hash ^= (uint8_t)*b++;
+    }
+    return hash;
+}
+
+static ObjPtr storeString(ObjPtr p) {
+    osNoGc(p);
+    Obj const *s = osDeref(p);
+    char const *sa;
+    ArrayItemCount sl;
+    if ((s->objType & OBJ_IN_ROM) != 0) {
+        assert(s->objType == (OBJ_STRING | OBJ_IN_ROM));
+        sa = ((ObjRomString const *)s)->cStr;
+        sl = strlen(sa);
+    } else {
+        assert(s->objType == OBJ_STRING);
+        sa = ((ObjString const *)s)->chars;
+        sl = ((ObjString const *)s)->sLength;
+    }
+    uint8_t hash = hashString(sa, sl);
+
+    // see if exists
+    ObjPtr hashHead = hashTable[hash];
+    bool found = false;
+    while (!found && hashHead != 0) {
+        char const *ta;
+        ArrayItemCount tl;
+        ObjString const *t = osDeref(hashHead);
+        osNoGc(hashHead);
+        if (t->obj.objType == (OBJ_IN_ROM | OBJ_STRING)) {
+            ta = ((ObjRomString const *)s)->cStr;
+            tl = strlen(sa);
+        } else {
+            assert(s->objType == OBJ_STRING);
+            ta = ((ObjString const *)s)->chars;
+            tl = ((ObjString const *)s)->sLength;
+        }
+        if (sl == tl && memcmp(sa, ta, sl) == 0) {
+            found = true;
+        }
+        osGcOk(hashHead);
+        hashHead = t->sameHash;
+    }
+
+    if (!found) {
+        osGcOk(p);
+        ((ObjString *)s)->sameHash = hashTable[hash]; // sameHash is volatile
+        hashTable[hash] = p;
+    } else {
+        osGcOk(p);
+        p = hashHead;
+    }
+
+    return p;
+}
+
+static void deleteString(ObjPtr p) {
+    osNoGc(p);
+    Obj const *s = osDeref(p);
+    char const *sa;
+    ArrayItemCount sl;
+    if ((s->objType & OBJ_IN_ROM) != 0) { // todo - should rom strings be retained?
+        assert(s->objType == (OBJ_STRING | OBJ_IN_ROM));
+        sa = ((ObjRomString const *)s)->cStr;
+        sl = strlen(sa);
+    } else {
+        assert(s->objType == OBJ_STRING);
+        sa = ((ObjString const *)s)->chars;
+        sl = ((ObjString const *)s)->sLength;
+    }
+    uint8_t hash = hashString(sa, sl);
+
+    ObjPtr *prev = &hashTable[hash];
+    ObjPtr hashHead = hashTable[hash];
+    bool found = false;
+    while (!found && hashHead != 0) {
+        char const *ta;
+        ArrayItemCount tl;
+        ObjString const *t = osDeref(hashHead);
+        osNoGc(hashHead);
+        if (t->obj.objType == (OBJ_IN_ROM | OBJ_STRING)) {
+            ta = ((ObjRomString const *)s)->cStr;
+            tl = strlen(sa);
+        } else {
+            assert(s->objType == OBJ_STRING);
+            ta = ((ObjString const *)s)->chars;
+            tl = ((ObjString const *)s)->sLength;
+        }
+        if (sl == tl && memcmp(sa, ta, sl) == 0) {
+            *prev = t->sameHash;
+            found = true;
+        }
+        osGcOk(hashHead);
+        prev = (ObjPtr *)&t->sameHash; // sameHash is volatile
+        hashHead = t->sameHash;
+    }
+
+    osGcOk(p);
+    osFree(p);
+}
