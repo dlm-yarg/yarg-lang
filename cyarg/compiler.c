@@ -4,10 +4,13 @@
 #include "ast.h"
 #include "object.h"
 #include "scanner.h"
+#include "print.h"
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
+
+#define UINT8_COUNT (UINT8_MAX + 1)
 
 static void generateExpr(ObjExpr* expr);
 

@@ -1,32 +1,41 @@
 #include "yargtype.h"
 
 #include "common.h"
-#include "vm.h"
+#include "print.h"
 
 #include <assert.h>
 
-ObjPtr newYargTypeFromType(ConcreteYargType yt) {
+ObjPtr newYargTypeFromType(ObjPtr yt) {
     ObjPtr r;
     switch (yt) {
-    case TypeAny:
-    case TypeBool:
-    case TypeDouble:
-    case TypeInt8:
-    case TypeUint8:
-    case TypeInt16:
-    case TypeUint16:
-    case TypeInt32:
-    case TypeUint32:
-    case TypeInt64:
-    case TypeUint64:
-    case TypeString:
-    case TypeClass:
-    case TypeInstance:
-    case TypeFunction:
-    case TypeRoutine:
-    case TypeChannel:
-    case TypeYargType:
-    case TypeInt :
+    case OBJ_PTR_ANY_TYPE:
+    case OBJ_PTR_BOOL_TYPE:
+    case OBJ_PTR_INT_TYPE:
+    case OBJ_PTR_ADDRESS_TYPE:
+    case OBJ_PTR_DOUBLE_TYPE:
+    case OBJ_PTR_I8_TYPE:
+    case OBJ_PTR_UI8_TYPE:
+    case OBJ_PTR_I16_TYPE:
+    case OBJ_PTR_UI16_TYPE:
+    case OBJ_PTR_I32_TYPE:
+    case OBJ_PTR_UI32_TYPE:
+    case OBJ_PTR_I64_TYPE:
+    case OBJ_PTR_UI64_TYPE:
+    case OBJ_PTR_BOUND_METHOD_TYPE:
+    case OBJ_PTR_CLASS_TYPE:
+    case OBJ_PTR_CLOSURE_TYPE:
+    case OBJ_PTR_FUNCTION_TYPE:
+    case OBJ_PTR_INSTANCE_TYPE:
+    case OBJ_PTR_NATIVE_TYPE:
+    case OBJ_PTR_ROUTINE_TYPE:
+    case OBJ_PTR_CHANNELCONTAINER_TYPE:
+    case OBJ_PTR_STRING_TYPE:
+        r = yt;
+        break;
+    default: {
+        ObjType t = osType(<#ObjPtr#>)(yt);
+        switch (t) {
+            
         r = ALLOCATE_OBJ(ObjConcreteYargType, OBJ_YARGTYPE);
         ((ObjConcreteYargType *)osDerefAndModify(r))->yt = yt;
         break;
@@ -115,7 +124,6 @@ ObjPtr concrete_typeof(ObjPtr a) {
     Obj *o = osDeref(a);
     ObjType t = o->objType;
     switch (t) {
-    case OBJ_NIL: return 0;
     case OBJ_BOOL: return newYargTypeFromType(TypeBool);
     case OBJ_INT: return newYargTypeFromType(TypeInt);
     case OBJ_ADDRESS: fatalVMError("Unexpected object type: address"); return 0;

@@ -30,17 +30,11 @@
 #define IS_32BIT 1
 #endif
 
-
 ObjPtr copyValue(ObjPtr);
 
 bool is_positive_integer32(ObjPtr);
 uint32_t as_positive_integer32(ObjPtr);
 
 bool valuesEqual(ObjPtr, ObjPtr);
-
-void printValue(ObjPtr);
-void fprintValue(FILE *, ObjPtr);
-
-uintptr_t pinUniformArray(ObjPtr);
 
 #endif

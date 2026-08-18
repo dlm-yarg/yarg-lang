@@ -7,8 +7,7 @@
 
 #include "object.h"
 
-// can access these objects directly by the following names rathere than derefrencing OBJ_PTR_NIL etc.
-extern ObjNil const oirNil;
+// can access these objects directly by the following names rather than derefrencing OBJ_PTR_NIL etc.
 
 extern ObjBool const oirTrue;
 extern ObjBool const oirFalse;
@@ -24,3 +23,5 @@ extern ObjInt2 const oirTen;
 extern ObjInt2 const oirTenThousand;
 
 extern ObjRomString const oirThis;
+
+extern PtrEntry const romPtrEntries[];

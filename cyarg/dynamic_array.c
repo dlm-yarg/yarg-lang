@@ -13,7 +13,7 @@ void daInit(DynamicArray *da, ObjSize sz) {
 DynamicArray *daExtend(DynamicArray *da, ArrayItemCount c) {
 }
 
-void daExtendEnclosed(Obj *enclosingObject, DynamicArray *da, ArrayItemCount c) {
+void daExtendEnclosed(ObjPtr enclosing, size_t daOffset, ArrayItemCount c) {
 }
 
 void daFree(DynamicArray *da) {

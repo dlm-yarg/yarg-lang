@@ -10,8 +10,6 @@
 
 #include "object_type.h"
 
-typedef struct Obj Obj;
-
 typedef struct DynamicArray {
     ArrayItemCount arrayCapacity;
     ArrayItemCount arrayLength;
@@ -21,7 +19,7 @@ typedef struct DynamicArray {
 
 void daInit(DynamicArray *, ObjSize);
 DynamicArray *daExtend(DynamicArray *, ArrayItemCount);
-void daExtendEnclosed(Obj *enclosingObject, DynamicArray *, ArrayItemCount); // DA at the end of the enclosing obj
+void daExtendEnclosed(ObjPtr enclosing, size_t daOffset, ArrayItemCount); // DA at the end of the enclosing obj
 void daFree(DynamicArray *);
 
 void daPushBack(DynamicArray *, void const *);

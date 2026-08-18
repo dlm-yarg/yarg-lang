@@ -1,6 +1,7 @@
 #include "parser.h"
 #include "ast.h"
 #include "scanner.h"
+#include "print.h"
 
 #include <stdbool.h>
 #include <limits.h>

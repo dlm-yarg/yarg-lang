@@ -23,6 +23,8 @@
 #include "test-system/testBuiltin.h"
 #endif
 
+static uintptr_t pinUniformArray(ObjPtr array);
+
 // read from the filesystem, into memory.
 // Long term, to be replaced with native yarg, and less
 // assumptions about where filesystems live.
@@ -1039,3 +1041,51 @@ ObjPtr getBuiltin(uint8_t builtin) {
 #endif
     }
 }
+
+static uintptr_t pinUniformArray(ObjPtr array) {
+    ObjArray const *a = osDeref(array);
+    assert(a->obj.objType == OBJ_ARRAY);
+    ObjPtr const *first = daAt(&a->elements, 0);
+    Obj const *obj0 = osDeref(*first);
+
+    size_t elementSize = 0u;
+    uint8_t *elementOffset = 0;
+    switch (obj0->objType) {
+    case OBJ_BOOL: elementSize = sizeof (bool); elementOffset = (uint8_t *)&((ObjBool *)0)->b; break;
+    case OBJ_DOUBLE: elementSize = sizeof (double); elementOffset = (uint8_t *)&((ObjDouble *)0)->d; break;
+    case OBJ_I8: case OBJ_UI8: elementSize = sizeof (uint8_t); elementOffset = (uint8_t *)&((ObjI8 *)0)->i; break;
+    case OBJ_I16: case OBJ_UI16: elementSize = sizeof (uint16_t); elementOffset = (uint8_t *)&((ObjI16 *)0)->i; break;
+    case OBJ_I32: case OBJ_UI32: elementSize = sizeof (uint32_t); elementOffset = (uint8_t *)&((ObjI32 *)0)->i; break;
+    case OBJ_I64: case OBJ_UI64: elementSize = sizeof (uint64_t); elementOffset = (uint8_t *)&((ObjI64 *)0)->i; break;
+    case OBJ_ADDRESS: elementSize = sizeof (uintptr_t); elementOffset = (uint8_t *)&((ObjAddress *)0)->a; break;
+    default: return 0;
+    }
+
+    for (int i = 1; i < a->elements.arrayLength; i++) {
+        ObjPtr const *item = daAt(&a->elements, i);
+        Obj const *obj = osDeref(*item);
+        if (obj0->objType != obj->objType) {
+            return 0;
+        }
+    }
+
+    osNoGc(array);
+    ObjPtr placedArray = ALLOCATE_OBJ(ObjPlaced, OBJ_PLACED_ARRAY);
+    ObjPlaced *pa = (ObjPlaced *)osDeref(*first);
+    osNoGc(placedArray);
+    pa->blob = ALLOCATE_BLOB(elementSize, a->elements.arrayLength);
+    ObjBlob *b = (ObjBlob *)osDeref(pa->blob);
+    b->length = a->elements.arrayLength;
+
+    for (int i = 0; i < a->elements.arrayLength; i++) {
+        uintptr_t item = (uintptr_t)daAt(&a->elements, i);
+        memcpy(b->memory + i * elementSize, item + elementOffset, elementSize);
+    }
+
+    osGcOk(placedArray);
+    osGcOk(array);
+    osNoGc(pa->blob);
+    pa->placedAddress = (uintptr_t)b->memory;
+    return pa->placedAddress;
+}
+

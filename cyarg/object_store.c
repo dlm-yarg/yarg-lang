@@ -14,22 +14,27 @@
 #include <string.h>
 #include <assert.h>
 
-enum {
-    OS_FLAG_COPIED = 0x0001u,
-    OS_FLAG_COPY = 0x0002u
-};
+#define NUM_POOLS 7
 
-// note - it is more memory efficient to have a seperate array for each member of PtrEntry, or to stuff this into Obj
-// but the code is simpler to do it as struct, and debugging is nicer to not have os internals polluting the clients view
-typedef struct PtrEntry {
-    union {
-        Obj const *cell; // usually unique in osR?mPtrs, if a copy (flag set) the obj is read-only if written (osDerefAndModify) obj is duplicated and and copy flags are reset
-        struct PtrEntry *nextFreeEntry;
-    };
-    uint32_t size; // this can be stored in flags/copy once pools are implemented; not needed for ROM objects
-    ObjPtr copy;
-    uint16_t flags;
-} PtrEntry;
+#ifdef RP2350
+#define POOL16_LEN 1382
+#define POOL64_LEN 461
+#define POOL256_LEN 154
+#define POOL1024_LEN 52
+#define POOL4096_LEN 18
+#define POOL16384_LEN 6
+#define POOL65536_LEN 2
+#define NUM_PTR_ENTRIES 2490
+#else // RP2040
+#define POOL16_LEN 634
+#define POOL64_LEN 212
+#define POOL256_LEN 71
+#define POOL1024_LEN 24
+#define POOL4096_LEN 8
+#define POOL16384_LEN 3
+#define POOL65536_LEN 1
+#define NUM_PTR_ENTRIES 1144
+#endif
 
 typedef struct HashTreeElement {
     uint16_t hash;
@@ -39,15 +44,28 @@ typedef struct HashTreeElement {
     ObjPtr lowerHash;
 } HashTreeElement;
 
-#define NUM_PTR_ENTRIES 2048
 PtrEntry ptrEntries[NUM_PTR_ENTRIES];
-PtrEntry *freePtrEntries = 0;
+PtrEntry *freePtrEntries = 0; // alloc ptrEntries from and return to head of list
+uint64_t pool16[POOL16_LEN][2];
+uint64_t pool64[POOL64_LEN][8];
+uint64_t pool256[POOL256_LEN][32];
+uint64_t pool1024[POOL1024_LEN][128];
+uint64_t pool4096[POOL4096_LEN][512];
+uint64_t pool16384[POOL16384_LEN][2048];
+uint64_t pool65536[POOL65536_LEN][8192];
+uint64_t *freeBlocks[NUM_POOLS] = { 0, 0, 0, 0, 0, 0, 0 }; // alloc blocks from and return to head of list
+uint64_t *const pools[NUM_POOLS] = { pool16[0], pool64[0], pool256[0], pool1024[0], pool4096[0], pool16384[0], pool65536[0] };
+size_t const blockSizes[NUM_POOLS] = { sizeof pool16[0], sizeof pool64[0], sizeof pool256[0], sizeof pool1024[0], sizeof pool4096[0], sizeof pool16384[0], sizeof pool65536[0] };
+size_t const poolSizes[NUM_POOLS] = { sizeof pool16, sizeof pool64, sizeof pool256, sizeof pool1024, sizeof pool4096, sizeof pool16384, sizeof pool65536 };
+size_t const poolLens[NUM_POOLS] = { poolSizes[0] / blockSizes[0], poolSizes[1] / blockSizes[1], poolSizes[2] / blockSizes[2], poolSizes[3] / blockSizes[3], poolSizes[4] / blockSizes[4], poolSizes[5] / blockSizes[5], poolSizes[6] / blockSizes[6] };
 
 #define NUM_HASH_ENTRIES 256
 static ObjPtr hashTable[NUM_HASH_ENTRIES];
 
 static void returnPtrEntry(PtrEntry *);
 static PtrEntry *allocPtrEntry(void);
+static void noLongerCopied(PtrEntry *);
+static void noLongerACopy(PtrEntry *);
 
 // these bracket calls to alloc, owned, free, copy, modify and gc
 static void lock(void);
@@ -56,101 +74,141 @@ static void unlock(void);
 // string support
 static uint8_t hashString(char const *, ArrayItemCount);
 static ObjPtr storeString(ObjPtr);
-static void deleteString(ObjPtr); // called from GC
 
 void osInit(void) {
     // create pools - for now we just use malloc
 
-    // create prt entry free list - remove and add from start
+    // create ptr entry free list
     for (int i = 0; i < NUM_PTR_ENTRIES; i++) {
         returnPtrEntry(&ptrEntries[i]);
     }
 
-    PtrEntry *newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = &oirNil.obj, .size = sizeof oirNil, .copy = 0, .flags = 0 };
-    assert(newPe - ptrEntries == OBJ_PTR_NIL);
+    for (int i = 0; i < NUM_POOLS; i++) {
+        freeBlocks[i] = pools[i];
+        uint64_t **next = (void *)freeBlocks[i];
+        for (size_t o = 0; o < poolLens[i] - 1; o++) {
+            *next = *next + blockSizes[i] / sizeof (uint64_t);
+            next = (void *)*next;
+        }
+        *next = 0; // end of free list
+    }
 
-    newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = &oirTrue.obj, .size = sizeof oirTrue, .copy = 0, .flags = 0 };
-    newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = &oirFalse.obj, .size = sizeof oirFalse, .copy = 0, .flags = 0 };
-
-    newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = &oirNegativeOne.obj, .size = sizeof oirNegativeOne, .copy = 0, .flags = 0 };
-    newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = &oirZero.obj, .size = sizeof oirZero, .copy = 0, .flags = 0 };
-    newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = &oirOne.obj, .size = sizeof oirOne, .copy = 0, .flags = 0 };
-    newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = &oirTwo.obj, .size = sizeof oirTwo, .copy = 0, .flags = 0 };
-    newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = &oirThree.obj, .size = sizeof oirThree, .copy = 0, .flags = 0 };
-    newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = &oirFour.obj, .size = sizeof oirFour, .copy = 0, .flags = 0 };
-    newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = &oirEight.obj, .size = sizeof oirEight, .copy = 0, .flags = 0 };
-    newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = &oirTen.obj, .size = sizeof oirTen, .copy = 0, .flags = 0 };
-    newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = &oirTenThousand.obj, .size = sizeof oirTenThousand, .copy = 0, .flags = 0 };
-
-    newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = &oirThis.obj, .size = sizeof oirThis, .copy = 0, .flags = 0 };
-    assert(newPe - ptrEntries == OBJ_PTR_THIS);
     storeString(OBJ_PTR_THIS);
 }
 
 void osExtend(void) {}
 
-ObjPtr osAlloc(ObjSize sz) {
-    lock();
+ObjPtr osAlloc(ObjType t, ObjSize sz) {
     PtrEntry *newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = malloc(sz), .copy = 0, .flags = 0 };
+    int pool = 0;
+    while (poolSizes[pool] < sz || freeBlocks[pool] == 0) {
+        pool++;
+    }
+    lock();
+    uint64_t **block = (void *)freeBlocks[pool];
+    freeBlocks[pool] = *block;
     unlock();
+    *newPe = (PtrEntry){ .obj = block, .sz = sz, .copyOf = 0, .objType = t, .pool = pool, .copy = OS_COPY_UNIQUE, .locked = false, .romEntry = false };
+
     return newPe - ptrEntries;
 }
 
 void osNoGc(ObjPtr p) {
-    lock();
-    unlock();
+    assert(p < NUM_PTR_ENTRIES);
+    assert(!ptrEntries[p].locked);
+    ptrEntries[p].locked = true;
 }
 
 void osGcOk(ObjPtr p) {
-    lock();
-    unlock();
+    assert(p < NUM_PTR_ENTRIES);
+    assert(ptrEntries[p].locked);
+    ptrEntries[p].locked = false;
 }
 
 void osRealloc(ObjPtr p, ObjSize sz) {
-    lock();
-    unlock();
+    assert(p < NUM_PTR_ENTRIES);
+    PtrEntry *pe = &ptrEntries[p];
+    ObjSize capacty = pe->pool < OS_POOL_NONE ? 0 : poolLens[pe->pool];
+    if (sz < capacty) {
+        pe->sz = sz;
+    } else {
+        int pool = 0; // duplicate code
+        while (poolSizes[pool] < sz || freeBlocks[pool] == 0) {
+            pool++;
+        }
+        lock();
+        uint64_t **block = (void *)freeBlocks[pool];
+        freeBlocks[pool] = *block;
+        unlock();
+
+        memcpy(block, pe->obj, pe->sz);
+
+        lock(); // duplicate code
+        uint64_t *nextFree = freeBlocks[pe->pool];
+        freeBlocks[pe->pool] = (void *)pe->obj;
+        *(uint64_t **)pe->obj = nextFree;
+        unlock();
+
+        pe->obj = block;
+        pe->sz =sz;
+    }
 }
 
 void osFree(ObjPtr p) {
+    assert(p < NUM_PTR_ENTRIES);
+    PtrEntry *pe = &ptrEntries[p];
+
+    assert(!pe->locked);
+    assert(!pe->romEntry);
+
+    if (pe->copy == OS_COPY_SOURCE) {
+        noLongerCopied(pe);
+    }
+    else if (pe->copy == OS_COPY_COPY) {
+        noLongerACopy(pe);
+    }
+    else switch (pe->pool) {
+    case OS_POOL_NONE:
+        break;
+    default: {
+        lock();
+        uint64_t *nextFree = freeBlocks[pe->pool];
+        freeBlocks[pe->pool] = (void *)pe->obj;
+        *(uint64_t **)pe->obj = nextFree;
+        unlock();
+        break;
+    }
+    }
+
     lock();
+    returnPtrEntry(pe);
     unlock();
 }
 
 ObjPtr osCopy(ObjPtr p) {
-    lock();
     PtrEntry *from = &ptrEntries[p];
-    PtrEntry *newPe = allocPtrEntry();
-    if ((from->flags & (OS_FLAG_COPIED | OS_FLAG_COPY)) == 0) { // for now only alow one copy, however PtrEntry::copy, could be a list and allow multiple copies
-        *newPe = (PtrEntry){ .cell = from->cell, .copy = p, .flags = OS_FLAG_COPY };
-        from->flags |= OS_FLAG_COPIED;
-        from->copy = newPe - ptrEntries;
+    ObjPtr newP;
+    if (from->copy == OS_COPY_UNIQUE || from->pool == OS_POOL_NONE ) { // for now only allow one copy, however PtrEntry::copy, could be a list and allow multiple copies
+        PtrEntry *newPe = allocPtrEntry();
+        *newPe = *from;
+        if (from->pool != OS_POOL_NONE) {
+            newPe->copyOf = p;
+            newPe->copy = OS_COPY_COPY;
+            from->copy = OS_COPY_SOURCE;
+            from->copyOf = newPe - ptrEntries;
+        }
+        newP = newPe - ptrEntries;
     } else {
-        *newPe = (PtrEntry){ .cell = malloc(from->size), .size = from->size, .copy = 0, .flags = 0 };
-        memcpy(&newPe->cell, &from->cell, from->size);
+        newP = osAlloc(from->objType, from->sz);
+        PtrEntry *newPe = &ptrEntries[newP];
+        memcpy(&newPe->obj, &from->obj, from->sz);
     }
-    unlock();
-    return newPe - ptrEntries;
+    return newP;
 }
 
-ObjPtr osStoreRomObject(Obj *obj) {
-    lock();
+ObjPtr osStoreRomObject(void *obj, ObjType t, ObjSize sz) {
     PtrEntry *newPe = allocPtrEntry();
-    *newPe = (PtrEntry){ .cell = obj, .size = 0, .copy = 0, .flags = 0 };
-    unlock();
+    *newPe = (PtrEntry){ .obj = obj, .sz = sz, .copyOf = 0, .objType = t, .pool = OS_POOL_NONE, .copy = OS_COPY_UNIQUE, .locked = false, .romEntry = false };
     return newPe - ptrEntries;
 }
 
@@ -158,31 +216,41 @@ void osGc(void) {}
 
 void const *osDeref(ObjPtr p) {
     assert(p < NUM_PTR_ENTRIES);
-    return ptrEntries[p].cell;
+    PtrEntry *pe = &ptrEntries[p];
+    assert(pe->pool != OS_POOL_NONE || pe->sz > 0); // only deref ram objs or rom objs, i.e. not zero length objs (type tags/nil)
+   return pe->obj;
 }
 
-Obj *osDerefAndModify(ObjPtr p) {
-    lock();
+void *osDerefAndModify(ObjPtr p) {
     assert(p < NUM_PTR_ENTRIES);
     PtrEntry *pe = &ptrEntries[p];
-    if ((pe->flags & (OS_FLAG_COPIED | OS_FLAG_COPY)) == 0) { // !copied && !lazy - just use
-        unlock();
-    } else { // copied || lazy - copy copied to lazy
-        ObjPtr copyOrCopiedPtr = pe->copy;
+    assert(!pe->romEntry);
+    assert(pe->pool != OS_POOL_NONE); // only modify ram objs
+
+    if (pe->copy != OS_COPY_UNIQUE) { // make a lazy copy
+        ObjPtr copyOrCopiedPtr = pe->copyOf;
         PtrEntry *copyOrCopied = &ptrEntries[copyOrCopiedPtr];
-        assert(copyOrCopied->copy == p);
-        assert(pe->size == copyOrCopied->size);
+        assert(copyOrCopied->copyOf == p);
 
-        copyOrCopied->copy = pe->copy = 0; // debug
-        copyOrCopied->flags &= ~(OS_FLAG_COPIED | OS_FLAG_COPY);
-        pe->flags &= ~(OS_FLAG_COPIED | OS_FLAG_COPY);
+        copyOrCopied->copy = pe->copy = OS_COPY_UNIQUE;
+        copyOrCopied->copyOf = pe->copyOf = 0;
 
-        pe->cell = malloc(copyOrCopied->size);
+        int pool = 0; // duplicate code
+        while (poolSizes[pool] < pe->sz || freeBlocks[pool] == 0) {
+            pool++;
+        }
+        lock();
+        uint64_t **block = (void *)freeBlocks[pool];
+        freeBlocks[pool] = *block;
         unlock();
 
-        memcpy(&pe->cell, &copyOrCopied->cell, copyOrCopied->size);
+        memcpy(block, pe->obj, pe->sz);
+        pe->obj = block;
+
+        unlock();
+
     }
-    return (Obj *)pe->cell; // const cast
+    return pe->obj;
 }
 
 //static ObjString* allocateString(char const *chars, int length) {
@@ -200,59 +268,123 @@ Obj *osDerefAndModify(ObjPtr p) {
 
 
 ObjPtr osStoreCString(char const *s, ArrayItemCount l) {
-    ObjSize size = sizeof (ObjString) + sizeof (uint64_t) * ((l + 7) / 8);
+    ObjPtr newP = osAlloc(OBJ_STRING, sizeof (ObjString) + l);
+    PtrEntry *newPe = &ptrEntries[newP];
+    size_t capacity = poolSizes[newPe->pool] - sizeof (ObjString);
+    ObjString *so = newPe->obj;
+    so->sLength = strlen(s);
+    assert(capacity >= so->sLength);
+    if (capacity > so->sLength) {
+        memcpy(so->chars, s, so->sLength + 1);
+    } else {
+        memcpy(so->chars, s, so->sLength);
+    }
 
-    PtrEntry *newPe = allocPtrEntry();
-    ObjPtr newP = newPe - ptrEntries;
-    *newPe = (PtrEntry){ .cell = malloc(size), .size = size, .copy = 0, .flags = 0 }; // is size correct or is it
-
-    ObjString *so = (ObjString *)newPe->cell;
-    *so = (ObjString){ .sameHash = OBJ_PTR_NIL, .sLength = l, .sCapacity = size - sizeof (ObjString) };
-    so->obj.objType = OBJ_STRING;
-    memcpy(so->chars, s, l);
     return storeString(newP);
 }
 
 ObjPtr osStoreRomCString(char const *s) {
-    lock();
-    PtrEntry *newPe = allocPtrEntry();
-    ObjPtr newP = newPe - ptrEntries;
-    *newPe = (PtrEntry){ .cell = malloc(sizeof (ObjRomString)), .copy = 0, .flags = 0 };
-    unlock();
-
-    ObjRomString *so = (ObjRomString *)newPe->cell;
-    so->obj.objType = OBJ_STRING | OBJ_IN_ROM;
+    ObjPtr newP = osAlloc(OBJ_STRING | OBJ_IN_ROM, sizeof (ObjRomString));
+    PtrEntry *newPe = &ptrEntries[newP];
+    ObjRomString *so = newPe->obj;
     so->cStr = s;
-    so->sameHash = OBJ_PTR_NIL;
+
     return storeString(newP);
 }
 
 char const *osStringAsCString(ObjPtr p) {
-    ObjString const *s = osDeref(p);
-    assert((s->obj.objType & ~OBJ_IN_ROM) == OBJ_STRING);
-    if (s->sLength < s->sCapacity) {
-        return s->chars;
-    } else { // if (sLength == sCapacity) {
-        return osStringAsCString(osStoreCString(s->chars, s->sLength));
+    ObjType t = osType(p);
+    if (t == (OBJ_STRING | OBJ_IN_ROM)) {
+        ObjRomString const *s = osDeref(p);
+        return s->cStr;
+    }
+    else {
+        assert(t == OBJ_STRING);
+        PtrEntry *pe = &ptrEntries[p];
+        size_t capacity = poolSizes[pe->pool] - sizeof (ObjString);
+        ObjString const *s = (ObjString *)pe->obj;
+
+        if (s->sLength < capacity) {
+            return s->chars;
+        } else { // if (sLength == sCapacity) {
+            return osStringAsCString(osStoreCString(s->chars, s->sLength + 1));
+        }
     }
 }
 
-void returnPtrEntry(PtrEntry *pe) {
+void deleteString(ObjPtr p) {
+    osNoGc(p);
+    void const *s = osDeref(p);
+    char const *sa;
+    ArrayItemCount sl;
+    ObjType st = osType(p);
+    if (st == (OBJ_STRING | OBJ_IN_ROM)) { // todo - should rom strings be retained?
+        sa = ((ObjRomString const *)s)->cStr;
+        sl = strlen(sa);
+    } else {
+        assert(st == OBJ_STRING);
+        sa = ((ObjString const *)s)->chars;
+        sl = ((ObjString const *)s)->sLength;
+    }
+    uint8_t hash = hashString(sa, sl);
+
+    ObjPtr *prev = &hashTable[hash];
+    ObjPtr hashHead = hashTable[hash];
+    bool found = false;
+    while (!found && hashHead != 0) {
+        char const *ta;
+        ArrayItemCount tl;
+        ObjString const *t = osDeref(hashHead);
+        ObjType tt = osType(p);
+        osNoGc(hashHead);
+        if (tt == (OBJ_IN_ROM | OBJ_STRING)) {
+            ta = ((ObjRomString const *)s)->cStr;
+            tl = strlen(sa);
+        } else {
+            assert(tt == OBJ_STRING);
+            ta = ((ObjString const *)s)->chars;
+            tl = ((ObjString const *)s)->sLength;
+        }
+        if (sl == tl && memcmp(sa, ta, sl) == 0) {
+            *prev = t->sameHash;
+            found = true;
+        }
+        osGcOk(hashHead);
+        prev = (ObjPtr *)&t->sameHash; // sameHash is volatile
+        hashHead = t->sameHash;
+    }
+
+    osGcOk(p);
+    osFree(p);
+}
+
+static void returnPtrEntry(PtrEntry *pe) {
+    pe->obj = (void *)1;
     pe->nextFreeEntry = freePtrEntries;
     freePtrEntries = pe;
 }
 
-PtrEntry *allocPtrEntry(void) {
+static PtrEntry *allocPtrEntry(void) {
     assert(freePtrEntries != 0);
+
+    lock();
     PtrEntry *r = freePtrEntries;
     freePtrEntries = r->nextFreeEntry;
     r->nextFreeEntry = (PtrEntry *)1; // debug only
+    unlock();
+
     return r;
 }
 
-void lock(void) {}
+static void noLongerCopied(PtrEntry *pe) {
+}
 
-void unlock(void) {}
+static void noLongerACopy(PtrEntry *pe) {
+}
+
+static void lock(void) {}
+
+static void unlock(void) {}
 
 static uint8_t hashString(char const *s, ArrayItemCount l) {
     uint8_t hash = 0;
@@ -267,15 +399,15 @@ static uint8_t hashString(char const *s, ArrayItemCount l) {
 
 static ObjPtr storeString(ObjPtr p) {
     osNoGc(p);
-    Obj const *s = osDeref(p);
+    void const *s = osDeref(p);
     char const *sa;
     ArrayItemCount sl;
-    if ((s->objType & OBJ_IN_ROM) != 0) {
-        assert(s->objType == (OBJ_STRING | OBJ_IN_ROM));
+    ObjType st = osType(p);
+    if (st == (OBJ_STRING | OBJ_IN_ROM)) {
         sa = ((ObjRomString const *)s)->cStr;
         sl = strlen(sa);
     } else {
-        assert(s->objType == OBJ_STRING);
+        assert(st == OBJ_STRING);
         sa = ((ObjString const *)s)->chars;
         sl = ((ObjString const *)s)->sLength;
     }
@@ -288,12 +420,13 @@ static ObjPtr storeString(ObjPtr p) {
         char const *ta;
         ArrayItemCount tl;
         ObjString const *t = osDeref(hashHead);
+        ObjType tt = osType(hashHead);
         osNoGc(hashHead);
-        if (t->obj.objType == (OBJ_IN_ROM | OBJ_STRING)) {
+        if (tt == (OBJ_IN_ROM | OBJ_STRING)) {
             ta = ((ObjRomString const *)s)->cStr;
             tl = strlen(sa);
         } else {
-            assert(s->objType == OBJ_STRING);
+            assert(tt == OBJ_STRING);
             ta = ((ObjString const *)s)->chars;
             tl = ((ObjString const *)s)->sLength;
         }
@@ -314,49 +447,4 @@ static ObjPtr storeString(ObjPtr p) {
     }
 
     return p;
-}
-
-static void deleteString(ObjPtr p) {
-    osNoGc(p);
-    Obj const *s = osDeref(p);
-    char const *sa;
-    ArrayItemCount sl;
-    if ((s->objType & OBJ_IN_ROM) != 0) { // todo - should rom strings be retained?
-        assert(s->objType == (OBJ_STRING | OBJ_IN_ROM));
-        sa = ((ObjRomString const *)s)->cStr;
-        sl = strlen(sa);
-    } else {
-        assert(s->objType == OBJ_STRING);
-        sa = ((ObjString const *)s)->chars;
-        sl = ((ObjString const *)s)->sLength;
-    }
-    uint8_t hash = hashString(sa, sl);
-
-    ObjPtr *prev = &hashTable[hash];
-    ObjPtr hashHead = hashTable[hash];
-    bool found = false;
-    while (!found && hashHead != 0) {
-        char const *ta;
-        ArrayItemCount tl;
-        ObjString const *t = osDeref(hashHead);
-        osNoGc(hashHead);
-        if (t->obj.objType == (OBJ_IN_ROM | OBJ_STRING)) {
-            ta = ((ObjRomString const *)s)->cStr;
-            tl = strlen(sa);
-        } else {
-            assert(s->objType == OBJ_STRING);
-            ta = ((ObjString const *)s)->chars;
-            tl = ((ObjString const *)s)->sLength;
-        }
-        if (sl == tl && memcmp(sa, ta, sl) == 0) {
-            *prev = t->sameHash;
-            found = true;
-        }
-        osGcOk(hashHead);
-        prev = (ObjPtr *)&t->sameHash; // sameHash is volatile
-        hashHead = t->sameHash;
-    }
-
-    osGcOk(p);
-    osFree(p);
 }

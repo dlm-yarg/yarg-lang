@@ -10,9 +10,8 @@
 #define AS_YARGTYPE_MAP(obj)        ((ObjConcreteYargTypeMap const *)osDeref(obj))
 
 typedef struct ObjConcreteYargTypeArray {
-    Obj core;
     size_t cardinality;
-    ObjPtr element_type; // nil for any
+    ObjPtr element_type; // OBJ_PTR_NIL for any
 } ObjConcreteYargTypeArray;
 
 typedef struct YargTypeStructElement {
@@ -21,22 +20,19 @@ typedef struct YargTypeStructElement {
 } YargTypeStructElement;
 
 typedef struct ObjConcreteYargTypeStruct {
-    Obj core;
     DynamicArray elements; // of type YargTypeStructElement
 } ObjConcreteYargTypeStruct;
 
 typedef struct ObjConcreteYargTypePointer {
-    Obj core;
     ObjPtr target_type;
 } ObjConcreteYargTypePointer;
 
 typedef struct ObjConcreteYargTypeMap {
-    Obj core;
-    ObjPtr key_type;
+    ObjPtr key_type; // always string
     ObjPtr value_type;
 } ObjConcreteYargTypeMap;
 
-ObjPtr newYargTypeFromType(ObjType yt);
+ObjPtr newYargTypeFromType(ObjPtr yt);
 
 ObjPtr newYargArrayTypeFromType(ObjPtr elementType);
 ObjPtr newYargStructType(size_t fieldCount);

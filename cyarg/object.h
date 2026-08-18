@@ -84,31 +84,20 @@ typedef struct ObjConcreteYargTypeStruct ObjConcreteYargTypeStruct;
 typedef struct ObjConcreteYargTypePointer ObjConcreteYargTypePointer;
 typedef struct ObjConcreteYargTypeMap ObjConcreteYargTypeMap;
 
-typedef struct Obj {
-    ObjType objType;
-} Obj;
-
 // if sLength == sCapacity the string will need to be expanded (if OBJ_STRING)
 //                                      or copied (if OBJ_IN_ROM+OBJ_STRING) before using as a C string
 typedef struct ObjString {
-    Obj obj;
     ObjPtr sameHash; // null terminated linked list; sameHash is volatile
     ArrayItemCount sLength;
-    ArrayItemCount sCapacity; // not needed once using pools
-    union {
-        uint64_t alignment[0];
-        char chars[0]; // null terminated if sCapacity > sLength
-    };
+    char chars[0]; // null terminated if sCapacity > sLength
 } ObjString;
 
 typedef struct ObjRomString {
-    Obj obj;
     ObjPtr sameHash; // null terminated linked list; sameHash is volatile
     char const *cStr; // null terminated
 } ObjRomString;
 
 typedef struct ObjFunction {
-    Obj obj;
     uint16_t arity;
     uint16_t upvalueCount;
     Chunk chunk;
@@ -118,148 +107,112 @@ typedef struct ObjFunction {
 typedef bool (*NativeFn)(ObjPtr routine, int argCount, ObjPtr *result);
 
 typedef struct ObjNative {
-    Obj obj;
     NativeFn function;
 } ObjNative;
 
 typedef struct ObjInt {
-    Obj obj;
     bool isLiteral;
     Int i;     // variable size
 } ObjInt;
 
 typedef struct ObjInt2 {
-    Obj obj;
     bool isLiteral;
     IntConcrete2 i;
 } ObjInt2;
 
-typedef struct ObjNil {
-    Obj obj;
-} ObjNil;
-
 typedef struct ObjBool {
-    Obj obj;
     bool b;
 } ObjBool;
 
 typedef struct ObjAddress {
-    Obj obj;
     uintptr_t a;
 } ObjAddress;
 
 typedef struct ObjDouble {
-    Obj obj;
     double d;
 } ObjDouble;
 
 typedef struct ObjI8 {
-    Obj obj;
     int8_t i;
 } ObjI8;
 
 typedef struct ObjUi8 {
-    Obj obj;
     uint8_t i;
 } ObjUi8;
 
 typedef struct ObjI16 {
-    Obj obj;
     int16_t i;
 } ObjI16;
 
 typedef struct ObjUi16 {
-    Obj obj;
     uint16_t i;
 } ObjUi16;
 
 typedef struct ObjI32 {
-    Obj obj;
     int32_t i;
 } ObjI32;
 
 typedef struct ObjUi32 {
-    Obj obj;
     uint32_t i;
 } ObjUi32;
 
 typedef struct ObjI64 {
-    Obj obj;
     int64_t i;
 } ObjI64;
 
 typedef struct ObjUi64 {
-    Obj obj;
     uint64_t i;
 } ObjUi64;
 
 typedef struct ObjUpvalue {
-    Obj obj;
     ObjPtr contents;
     size_t stackOffset;
     ObjPtr closed; // todo - what is this?
 } ObjUpvalue;
 
 typedef struct ObjClosure {
-    Obj obj;
     ObjPtr function;
     DynamicArray upvalues; // of type ObjPtr
 } ObjClosure;
 
 typedef struct ObjClass {
-    Obj obj;
     ObjPtr name;
     DynamicArray methods; // of type KeyValue
 } ObjClass;
 
 typedef struct ObjInstance {
-    Obj obj;
     ObjPtr klass;
     DynamicArray fields; // of type KeyValue
 } ObjInstance;
 
 typedef struct ObjBoundMethod {
-    Obj obj;
     ObjPtr receiver;
     ObjPtr method; // of type ObjClosure
 } ObjBoundMethod;
 
 typedef struct ObjArray {
-    Obj obj;
-    DynamicArray elements; // of type ObjPtr
+    DynamicArray elements; // of type ObjPtr (Any, struct, array etc) or integral type
 } ObjArray;
 
 typedef struct ObjPlaced {
-    Obj obj;
-    ObjPtr placedObj;
     uintptr_t placedAddress;
+    ObjPtr placedType; // YARG TYPE
 } ObjPlaced;
 
 typedef struct ObjBlob {
-    Obj obj;
-    ObjSize length;
     uint64_t memory[];
 } ObjBlob;
 
-typedef struct ObjPackedUniformArrayUnowned {
-    Obj obj;
-    ObjPtr type;
-    ObjPtr location;
-} ObjPackedUniformArrayUnowned;
-
 typedef struct ObjPointer {
-    Obj obj;
-    ObjPtr type;
+    ObjPtr type; // is this needed - should be the same as osType(destination)
     ObjPtr destination;
 } ObjPointer;
 
 typedef struct ObjStruct {
-    Obj obj;
     DynamicArray store; // of type KeyValue
 } ObjStruct;
 
 typedef struct ObjMap {
-    Obj obj;
     DynamicArray entries; // of type KeyValue
 } ObjMap;
 
@@ -269,7 +222,6 @@ typedef struct SyncElement {
 } SyncElement;
 
 typedef struct ObjSyncGroup {
-    Obj obj;
     platform_critical_section group_lock;
     DynamicArray channels; // of type SyncElement
 } ObjSyncGroup;
@@ -309,16 +261,10 @@ void offsetPointerDestination(ObjPtr, size_t offset);
 ObjPtr defaultArray(ObjPtr type);
 ObjPtr defaultStructValue(ObjPtr type);
 
-ObjPtr placeObjectAt(ObjPtr type, ObjPtr location);
-
 void printObject(ObjPtr);
 void fprintObject(FILE *out, ObjPtr);
 
-inline bool isObjOfType(ObjPtr obj, ObjType type) {
-    Obj const *o = osDeref(obj);
-    return o != 0 && o->objType == type;
-}
-
+bool isObjOfType(ObjPtr obj, ObjType type);
 bool isObjOfOneType(ObjPtr, size_t, ...);
 
 bool isAddressValue(ObjPtr);

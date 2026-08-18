@@ -2,6 +2,7 @@
 #include "object.h"
 #include "value.h"
 #include "yargtype.h"
+#include "print.h"
 
 #include <stdlib.h>
 #include <string.h>

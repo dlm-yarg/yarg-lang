@@ -5,6 +5,7 @@
 #include "debug.h"
 #include "yargtype.h"
 #include "sync_group.h"
+#include "print.h"
 
 #include <stdio.h>
 #ifdef CYARG_PTHREADS_SYNC

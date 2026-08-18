@@ -13,7 +13,6 @@
 #include "../routine.h"
 #include "../yargtype.h"
 #include "../object.h"
-#include "../memory.h"
 
 static bool setBuiltin(ObjPtr, int, ObjPtr *);
 static bool readBuiltin(ObjPtr, int, ObjPtr *);
