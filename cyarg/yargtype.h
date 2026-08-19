@@ -36,27 +36,16 @@ ObjPtr newYargTypeFromType(ObjPtr yt);
 
 ObjPtr newYargArrayTypeFromType(ObjPtr elementType);
 ObjPtr newYargStructType(size_t fieldCount);
-ObjPtr newYargPointerType(ObjPtr targetType);
-
-size_t arrayElementOffset(ObjConcreteYargTypeArray* arrayType, size_t index);
-size_t arrayElementSize(ObjConcreteYargTypeArray* arrayType);
-ObjPtr arrayElementType(ObjConcreteYargTypeArray* arrayType);
 
 void addFieldType(ObjConcreteYargTypeStruct* st, size_t index, ObjPtr type, ObjPtr offset, ObjPtr name);
 
 bool isUint32Pointer(ObjPtr);
 
 ObjPtr concrete_typeof(ObjPtr);
-bool type_packs_as_obj(ObjConcreteYargType* type);
-bool type_packs_as_container(ObjConcreteYargType* type);
-bool is_nil_assignable_type(ObjPtr);
 bool is_placeable_type(ObjPtr);
 bool is_stored_type(ObjPtr);
-size_t yt_sizeof_type_storage(ObjPtr);
 
 ObjPtr defaultValue(ObjPtr type);
-
-bool isInitialisableType(ObjPtr lhsType, ObjPtr rhsValue, ObjPtr *promotedRhs); // promotedRhs will be VAL_NIL if no promotion
 
 bool isSupportedMapKeyType(ObjPtr type);
 

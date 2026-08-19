@@ -12,13 +12,14 @@
 
 static ObjSize ytItemSize(ObjPtr t, ObjSize *alignment) {
     ObjSize r;
-    ObjSize biggestItemAlignment = 0;
+    ObjSize biggestItemAlignment = sizeof (int8_t);
 
     switch (t) {
     case OBJ_PTR_I8_TYPE: case OBJ_PTR_UI8_TYPE: biggestItemAlignment = r = sizeof (int8_t); break;
     case OBJ_PTR_I16_TYPE: case OBJ_PTR_UI16_TYPE: biggestItemAlignment = r = sizeof (int16_t); break;
     case OBJ_PTR_I32_TYPE: case OBJ_PTR_UI32_TYPE: biggestItemAlignment = r = sizeof (int32_t); break;
     case OBJ_PTR_I64_TYPE: case OBJ_PTR_UI64_TYPE: biggestItemAlignment = r = sizeof (int64_t); break;
+    case OBJ_PTR_ADDRESS_TYPE: biggestItemAlignment = r = sizeof (intptr_t); break;
     default: {
         switch (osType(t)) {
         case OBJ_ARRAY: {

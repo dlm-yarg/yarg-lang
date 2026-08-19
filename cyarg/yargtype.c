@@ -41,7 +41,7 @@ ObjPtr newYargTypeFromType(ObjPtr yt) {
         break;
     case TypeArray:
         r = ALLOCATE_OBJ(ObjConcreteYargTypeArray, OBJ_YARGTYPE_ARRAY);
-        AS_YARGTYPE_ARRAY(r)->core.yt = yt;
+        AS_YARGTYPE_ARRAY(r)->yt = yt;
         break;
     case TypeStruct:
         assert(!"alloc struct using newYargStructType()");
@@ -63,18 +63,6 @@ ObjPtr newYargArrayTypeFromType(ObjPtr elementType) {
         AS_YARGTYPE_ARRAY(r)->element_type = elementType;
     }
     return r;
-}
-
-ObjPtr arrayElementType(ObjConcreteYargTypeArray* arrayType) {
-    return arrayType->element_type ? arrayType->element_type : 0;
-}
-
-size_t arrayElementOffset(ObjConcreteYargTypeArray* arrayType, size_t index) {
-    return index * arrayElementSize(arrayType);
-}
-
-size_t arrayElementSize(ObjConcreteYargTypeArray* arrayType) {
-    return yt_sizeof_type_storage(arrayElementType(arrayType));
 }
 
 ObjPtr newYargStructType(size_t fieldCount) {
@@ -100,14 +88,6 @@ void addFieldType(ObjConcreteYargTypeStruct *st, size_t index, ObjPtr type, ObjP
             st->storage_size = offset + element_size;
         }
     }
-}
-
-ObjPtr newYargPointerType(ObjPtr targetType) {
-    ObjPtr r =  newYargTypeFromType(TypePointer);
-    if (IS_YARGTYPE(targetType)) {
-        AS_YARGTYPE_POINTER(r)->target_type = targetType;
-    }
-    return r;
 }
 
 bool isUint32Pointer(ObjPtr val) {
@@ -571,7 +551,7 @@ static void printTypeLiteral(FILE* op, ObjPtr type) {
         case TypeYargType: FPRINTMSG(op, "Type"); break;
         case TypeArray: {
             ObjConcreteYargTypeArray* array = (ObjConcreteYargTypeArray*) t;
-            ObjPtr type = arrayElementType(array);
+            ObjPtr type = array->element_type;
             if (type == 0) {
                 FPRINTMSG(op, "any");
             } else {
