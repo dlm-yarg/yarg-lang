@@ -1374,9 +1374,8 @@ InterpretResult run(ObjRoutine* routine) {
                 uint8_t fieldCount = READ_BYTE();
                 ObjConcreteYargTypeStruct* st = (ObjConcreteYargTypeStruct*) newYargStructType(fieldCount);
                 tempRootPush(OBJ_VAL(st));
-                size_t fieldOffset = 0;
                 for (uint8_t i = 0; i < fieldCount; i++) {
-                    fieldOffset = addFieldType(st, i, fieldOffset, peek(routine, 2), peek(routine, 1), peek(routine, 0));
+                    addFieldType(st, peek(routine, 2), peek(routine, 1), peek(routine, 0));
                     pop(routine);
                     pop(routine);
                     pop(routine);

@@ -47,7 +47,7 @@ bool readYargSourceBuiltin(ObjRoutine* routineContext, int argCount, ObjPtr* res
     if (dotOn != 0 && strcmp(dotOn, ".yb") == 0) {
         size_t file_size = fileSize(filename);
 
-        ObjConcreteYargType* byteType = newYargTypeFromType(TypeUint8);
+        ObjConcreteYargType* byteType = newYargTypeFromType(OBJ_PTR_UI8_TYPE);
         tempRootPush(OBJ_VAL(byteType));
 
         ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*)newYargArrayTypeFromType(OBJ_VAL(byteType));

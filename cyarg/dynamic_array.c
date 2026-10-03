@@ -27,5 +27,3 @@ void *daAt(DynamicArray *da, ArrayItemCount i) {
 
 ArrayItemCount daSize(DynamicArray *da) {
 }
-
-#endif

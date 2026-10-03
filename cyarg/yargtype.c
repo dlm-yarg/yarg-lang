@@ -5,80 +5,45 @@
 
 #include <assert.h>
 
-ObjPtr newYargTypeFromType(ObjPtr yt) {
-    ObjPtr r;
-    switch (yt) {
-    case OBJ_PTR_ANY_TYPE:
-    case OBJ_PTR_BOOL_TYPE:
-    case OBJ_PTR_INT_TYPE:
-    case OBJ_PTR_ADDRESS_TYPE:
-    case OBJ_PTR_DOUBLE_TYPE:
-    case OBJ_PTR_I8_TYPE:
-    case OBJ_PTR_UI8_TYPE:
-    case OBJ_PTR_I16_TYPE:
-    case OBJ_PTR_UI16_TYPE:
-    case OBJ_PTR_I32_TYPE:
-    case OBJ_PTR_UI32_TYPE:
-    case OBJ_PTR_I64_TYPE:
-    case OBJ_PTR_UI64_TYPE:
-    case OBJ_PTR_BOUND_METHOD_TYPE:
-    case OBJ_PTR_CLASS_TYPE:
-    case OBJ_PTR_CLOSURE_TYPE:
-    case OBJ_PTR_FUNCTION_TYPE:
-    case OBJ_PTR_INSTANCE_TYPE:
-    case OBJ_PTR_NATIVE_TYPE:
-    case OBJ_PTR_ROUTINE_TYPE:
-    case OBJ_PTR_CHANNELCONTAINER_TYPE:
-    case OBJ_PTR_STRING_TYPE:
-        r = yt;
-        break;
-    default: {
-        ObjType t = osType(<#ObjPtr#>)(yt);
-        switch (t) {
-            
-        r = ALLOCATE_OBJ(ObjConcreteYargType, OBJ_YARGTYPE);
-        ((ObjConcreteYargType *)osDerefAndModify(r))->yt = yt;
-        break;
-    case TypeArray:
-        r = ALLOCATE_OBJ(ObjConcreteYargTypeArray, OBJ_YARGTYPE_ARRAY);
-        AS_YARGTYPE_ARRAY(r)->yt = yt;
-        break;
-    case TypeStruct:
-        assert(!"alloc struct using newYargStructType()");
-    case TypePointer:
-        r = ALLOCATE_OBJ(ObjConcreteYargTypePointer, OBJ_YARGTYPE_POINTER);
-        AS_YARGTYPE_POINTER(r)->core.yt = yt;
-        break;
-    case TypeMap:
-        r= ALLOCATE_OBJ(ObjConcreteYargTypeMap, OBJ_YARGTYPE_MAP);
-        AS_YARGTYPE_MAP(r)->core.yt = yt;
-    }
-    return r;
-}
+// objects store their type - either a ObjPtr-tag (e.g. OBJ_PTR_BOOL_TYPE) or an ObjPtr type-object (i.e. OBJ_YARGTYPE_POINTER,OBJ_YARGTYPE_ARRAY,OBJ_YARGTYPE_STRUCT|OBJ_YARGTYPE_MAP)
 
-ObjPtr newYargArrayTypeFromType(ObjPtr elementType) {
-    ObjPtr r = newYargTypeFromType(TypeArray);
-    ObjType t = osDeref(elementType)->objType;
-    if (t == OBJ_YARGTYPE || t == OBJ_YARGTYPE_ARRAY || t == OBJ_YARGTYPE_STRUCT || t == OBJ_YARGTYPE_POINTER || t == OBJ_YARGTYPE_MAP) {
-        AS_YARGTYPE_ARRAY(r)->element_type = elementType;
-    }
+ObjPtr newYargArrayType(ObjPtr elementType) {
+    ObjPtr r = ALLOCATE_OBJ(ObjConcreteYargTypeArray, OBJ_YARGTYPE_ARRAY);
+    ObjConcreteYargTypeArray *no = (ObjConcreteYargTypeArray *)osDeref(r);
+    no->cardinality = 0; // caller to set this later
+    no->element_type = elementType;
     return r;
 }
 
 ObjPtr newYargStructType(size_t fieldCount) {
     ObjPtr r = ALLOCATE_VAR_OBJ(ObjConcreteYargTypeStruct, OBJ_YARGTYPE_STRUCT, elements, YargTypeStructElement, fieldCount);
-    ObjConcreteYargTypeStruct* s = AS_YARGTYPE_STRUCT(r);
-    s->core.yt = TypeStruct;
-    daInit(&s->elements, sizeof (YargTypeStructElement));
+    ObjConcreteYargTypeStruct *no = (ObjConcreteYargTypeStruct *)osDeref(r);
+    daInit(&no->elements, sizeof (YargTypeStructElement));
     return r;
 }
 
-void addFieldType(ObjConcreteYargTypeStruct *st, size_t index, ObjPtr type, ObjPtr offset, ObjPtr name) {
-    assert(st->elements.arrayLength > index && st->elements.arrayItemSize == sizeof (YargTypeStructElement));
-    YargTypeStructElement *e = &((YargTypeStructElement *)st->elements.arrayItems)[index];
+ObjPtr newYargPointerType(ObjPtr referenceType) {
+    ObjPtr r = ALLOCATE_OBJ(ObjConcreteYargTypePointer, OBJ_YARGTYPE_POINTER);
+    ObjConcreteYargTypePointer *no = (ObjConcreteYargTypePointer *)osDeref(r);
+    no->target_type = referenceType;
+    return r;
+}
+
+ObjPtr newYargMapType(ObjPtr keyType, ObjPtr valueType) {
+    assert(keyType == OBJ_PTR_STRING_TYPE);
+    ObjPtr r = ALLOCATE_OBJ(ObjConcreteYargTypeMap, OBJ_YARGTYPE_MAP);
+    ObjConcreteYargTypeMap *no = (ObjConcreteYargTypeMap *)osDeref(r);
+    no->key_type = keyType;
+    no->value_type = valueType;
+    return r;
+}
+
+void addFieldType(ObjConcreteYargTypeStruct *st, ObjPtr type, ObjPtr name) {
+    assert(st->elements.arrayCapacity > st->elements.arrayLength && st->elements.arrayItemSize == sizeof (YargTypeStructElement));
+    YargTypeStructElement *e = &((YargTypeStructElement *)st->elements.arrayItems)[st->elements.arrayLength];
     e->type = type;
-    e->offset = offset;
     e->name = name;
+    st->elements.arrayLength
     if (st->elements.arrayLength == 1 + index) {
         assert(st->storage_size == 0u);
         for (int i = 0; i < st->elements.arrayLength; i++) {

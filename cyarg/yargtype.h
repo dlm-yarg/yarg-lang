@@ -16,7 +16,7 @@ typedef struct ObjConcreteYargTypeArray {
 
 typedef struct YargTypeStructElement {
     ObjPtr name; // of type ObjString
-    ObjPtr type; // of type ObjConcreteYargType, ObjConcreteYargTypeArray, ObjConcreteYargTypeStruct, ObjConcreteYargTypePointer, ObjConcreteYargTypeMap
+    ObjPtr type;
 } YargTypeStructElement;
 
 typedef struct ObjConcreteYargTypeStruct {
@@ -32,12 +32,13 @@ typedef struct ObjConcreteYargTypeMap {
     ObjPtr value_type;
 } ObjConcreteYargTypeMap;
 
-ObjPtr newYargTypeFromType(ObjPtr yt);
-
-ObjPtr newYargArrayTypeFromType(ObjPtr elementType);
+// ObjPtr newYargTypeFromType(ObjPtr yt); -- either just assign tag or use the appropriate of the following four functions
+ObjPtr newYargArrayType(ObjPtr elementType);
 ObjPtr newYargStructType(size_t fieldCount);
+ObjPtr newYargPointerType(ObjPtr referenceType);
+ObjPtr newYargMapType(ObjPtr keyType, ObjPtr valueType); // keyType is always string
 
-void addFieldType(ObjConcreteYargTypeStruct* st, size_t index, ObjPtr type, ObjPtr offset, ObjPtr name);
+void addFieldType(ObjConcreteYargTypeStruct* st, ObjPtr type, ObjPtr name);
 
 bool isUint32Pointer(ObjPtr);
 

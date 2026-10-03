@@ -192,11 +192,12 @@ typedef struct ObjBoundMethod {
 
 typedef struct ObjArray {
     DynamicArray elements; // of type ObjPtr (Any, struct, array etc) or integral type
+    ObjPtr type; // of OBJ_YARGTYPE_ARRAY
 } ObjArray;
 
 typedef struct ObjPlaced {
     uintptr_t placedAddress;
-    ObjPtr placedType; // YARG TYPE
+    ObjPtr placedType; // tag or object of OBJ_YARGTYPE_ARRAY,OBJ_YARGTYPE_STRUCT
 } ObjPlaced;
 
 typedef struct ObjBlob {
@@ -210,6 +211,7 @@ typedef struct ObjPointer {
 
 typedef struct ObjStruct {
     DynamicArray store; // of type KeyValue
+    ObjPtr type; // of OBJ_YARGTYPE_STRUCT
 } ObjStruct;
 
 typedef struct ObjMap {
