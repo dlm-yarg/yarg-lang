@@ -34,33 +34,31 @@ bool readYargSourceBuiltin(ObjRoutine* routineContext, int argCount, Value* resu
         runtimeError(routineContext, "Expected 1 argument but got %d.", argCount);
         return false;
     }
-    if (!IS_STRING(nativeArgument(routineContext, argCount, 0))) {
+    if (!IS_STRING(peek(routineContext, 0))) {
         runtimeError(routineContext, "Argument to read_yarg_source must be string.");
         return false;
     }
 
-    const char* filename = AS_CSTRING(nativeArgument(routineContext, argCount, 0));
+    const char* filename = AS_CSTRING(peek(routineContext, 0));
     char const *dotOn = strrchr(filename, '.');
     if (dotOn != 0 && strcmp(dotOn, ".yb") == 0) {
         size_t file_size = fileSize(filename);
 
         ObjConcreteYargType* byteType = newYargTypeFromType(TypeUint8);
-        tempRootPush(OBJ_VAL(byteType));
+        push(routineContext, OBJ_VAL(byteType));
 
         ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*)newYargArrayTypeFromType(OBJ_VAL(byteType));
-        tempRootPush(OBJ_VAL(arrayType));
+        push(routineContext, OBJ_VAL(arrayType));
 
         arrayType->cardinality = file_size;
         ObjPackedUniformArray* array = newPackedUniformArray(arrayType);
-        tempRootPush(OBJ_VAL(array));
+        push(routineContext, OBJ_VAL(array));
 
         readFileIntoBuffer(filename, (uint8_t*)array->store.storedValue, file_size);
 
         *result = OBJ_VAL(array);
 
-        tempRootPop();
-        tempRootPop();
-        tempRootPop();
+        popN(routineContext, 3);
     }
     else {
         // assume a text file
@@ -83,12 +81,12 @@ bool compileBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         runtimeError(routineContext, "Expected 1 argument but got %d.", argCount);
         return false;
     }
-    if (!IS_STRING(nativeArgument(routineContext, argCount, 0))) {
+    if (!IS_STRING(peek(routineContext, 0))) {
         runtimeError(routineContext, "Argument to compile must be string.");
         return false;
     }
 
-    const char* source = AS_CSTRING(nativeArgument(routineContext, argCount, 0));
+    const char* source = AS_CSTRING(peek(routineContext, 0));
     ObjFunction* function = compile(source);
     if (function == NULL) {
         *result = NIL_VAL;
@@ -106,7 +104,7 @@ bool loadBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         runtimeError(routineContext, "Expected 1 arguments but got %d.", argCount);
         return false;
     }
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    Value arg = peek(routineContext, 0);
     ObjFunction* function = NULL;
     
     if (IS_UNIFORMARRAY(arg)) {
@@ -141,7 +139,7 @@ bool makeChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
     if (argCount == 0) {
         valCapacity = UI32_VAL(1);
     } else {
-        Value arg1 = nativeArgument(routine, argCount, 0);
+        Value arg1 = peek(routine, 0);
         if (!is_positive_integer32(arg1)) {
             runtimeError(routine, "Expected a positive integer");
             return false;
@@ -163,7 +161,8 @@ bool sendChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         return false;
     }
 
-    Value channelVal = nativeArgument(routine, argCount, 0);
+    Value channelVal = peek(routine, 1);
+    Value dataVal = peek(routine, 0);
 
     if (!IS_CHANNEL(channelVal)) {
         runtimeError(routine, "Argument must be a channel.");
@@ -171,8 +170,7 @@ bool sendChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
     }
 
     ObjChannelContainer* channel = AS_CHANNEL(channelVal);
-    Value data = nativeArgument(routine, argCount, 1);
-    sendChannel(channel, data);
+    sendChannel(channel, dataVal);
 
     return true;
 }
@@ -183,7 +181,8 @@ bool shareChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         return false;
     }
 
-    Value channelVal = nativeArgument(routine, argCount, 0);
+    Value channelVal = peek(routine, 1);
+    Value dataVal = peek(routine, 0);
     
     if (!IS_CHANNEL(channelVal)) {
         runtimeError(routine, "Argument must be a channel.");
@@ -191,8 +190,7 @@ bool shareChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
     }
 
     ObjChannelContainer* channel = AS_CHANNEL(channelVal);
-    Value data = nativeArgument(routine, argCount, 1);
-    bool overflow = shareChannel(channel, data);
+    bool overflow = shareChannel(channel, dataVal);
     *result = BOOL_VAL(overflow);
 
     return true;
@@ -204,7 +202,7 @@ bool cpeekBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         return false;
     }
 
-    Value channelVal = nativeArgument(routine, argCount, 0);
+    Value channelVal = peek(routine, 0);
 
     if (!IS_CHANNEL(channelVal)) {
         runtimeError(routine, "Argument must be a channel.");
@@ -222,7 +220,7 @@ bool makeSyncGroupBuiltin(ObjRoutine* routineContext, int argCount, Value* resul
         runtimeError(routineContext, "Expected 1 argument but got %d.", argCount);
         return false;
     }
-    Value items = nativeArgument(routineContext, argCount, 0);
+    Value items = peek(routineContext, 0);
     if (!IS_UNIFORMARRAY(items)) {
         runtimeError(routineContext, "Expected an array.");
         return false;
@@ -249,18 +247,16 @@ bool makeSyncGroupBuiltin(ObjRoutine* routineContext, int argCount, Value* resul
 }
 
 bool makeRoutineBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
-    if (argCount != 2) {
-        runtimeError(routineContext, "Expected 2 arguments but got %d.", argCount);
+    if (argCount != 1) {
+        runtimeError(routineContext, "Expected 1 argument but got %d.", argCount);
         return false;
     }
-    if (!IS_CLOSURE(nativeArgument(routineContext, argCount, 0)) || !IS_BOOL(nativeArgument(routineContext, argCount, 1))) {
-        runtimeError(routineContext, "Argument to make_routine must be a function and a boolean.");
+    if (!IS_CLOSURE(peek(routineContext, 0))) {
+        runtimeError(routineContext, "Argument to make_routine must be a function.");
         return false;
     }
 
-    ObjClosure* closure = AS_CLOSURE(nativeArgument(routineContext, argCount, 0));
-    [[maybe_unused]] bool isISR = AS_BOOL(nativeArgument(routineContext, argCount, 1));
-
+    ObjClosure* closure = AS_CLOSURE(peek(routineContext, 0));
     ObjRoutine* routine = newRoutine();
 
     if (bindEntryFn(routine, closure)) {
@@ -279,24 +275,28 @@ bool resumeBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         return false;
     }
 
-    if (!IS_ROUTINE(nativeArgument(routineContext, argCount, 0))) {
+    Value argVal = NIL_VAL;
+    Value routineVal = NIL_VAL;
+    if (argCount == 2) {
+        argVal = peek(routineContext, 0);
+        routineVal = peek(routineContext, 1);
+    } else if (argCount == 1) {
+        routineVal = peek(routineContext, 0);
+    }
+
+    if (!IS_ROUTINE(routineVal)) {
         runtimeError(routineContext, "Argument to resume must be a routine.");
         return false;
     }
 
-    ObjRoutine* target = AS_ROUTINE(nativeArgument(routineContext, argCount, 0));
+    ObjRoutine* target = AS_ROUTINE(routineVal);
 
     if (target->state != EXEC_SUSPENDED && target->state != EXEC_UNBOUND) {
         runtimeError(routineContext, "routine must be suspended or unbound to resume.");
         return false;
     }
 
-    Value arg = NIL_VAL;
-    if (argCount == 2) {
-        arg = nativeArgument(routineContext, argCount, 1);
-    }
-
-    return resumeRoutine(routineContext, target, argCount == 2 ? 1 : 0, arg, result);
+    return resumeRoutine(routineContext, target, argCount == 2 ? 1 : 0, argVal, result);
 }
 
 bool startBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
@@ -305,7 +305,14 @@ bool startBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         return false;
     }
 
-    Value targetRoutineVal = nativeArgument(routineContext, argCount, 0);
+    Value argVal = NIL_VAL;
+    Value targetRoutineVal = NIL_VAL;
+    if (argCount == 2) {
+        argVal = peek(routineContext, 0);
+        targetRoutineVal = peek(routineContext, 1);
+    } else if (argCount == 1) {
+        targetRoutineVal = peek(routineContext, 0);
+    }
 
     if (!IS_ROUTINE(targetRoutineVal)) {
         runtimeError(routineContext, "Argument to start must be a routine.");
@@ -314,12 +321,7 @@ bool startBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
 
     ObjRoutine* target = AS_ROUTINE(targetRoutineVal);
 
-    Value arg = NIL_VAL;
-    if (argCount == 2) {
-        arg = nativeArgument(routineContext, argCount, 1);
-    }
-
-    return startRoutine(routineContext, target, argCount == 2 ? 1 : 0, arg);
+    return startRoutine(routineContext, target, argCount == 2 ? 1 : 0, argVal);
 }
 
 bool receiveBuiltin(ObjRoutine* routine, int argCount, Value* result) {
@@ -328,7 +330,7 @@ bool receiveBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         return false;
     }
 
-    Value targetVal = nativeArgument(routine, argCount, 0);
+    Value targetVal = peek(routine, 0);
 
     if (!IS_CHANNEL(targetVal) && !IS_ROUTINE(targetVal) && !IS_SYNCGROUP(targetVal)) {
         runtimeError(routine, "Argument must be a channel, a routine or a sync group.");
@@ -349,9 +351,9 @@ bool receiveBuiltin(ObjRoutine* routine, int argCount, Value* result) {
 
 bool peekBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
 
-    Value address = nativeArgument(routineContext, argCount, 0);
+    Value address = peek(routineContext, 0);
 
-    if (!isAddressValue(address)) {
+    if (!(isAddressValue(address) || isUint32Pointer(address))) {
         runtimeError(routineContext, "Expected an address or pointer.");
         return false;
     }
@@ -384,7 +386,7 @@ bool lenBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         return false;
     }
 
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    Value arg = peek(routineContext, 0);
 
     if (IS_STRING(arg)) {
         ObjString* string = AS_STRING(arg);
@@ -412,7 +414,7 @@ bool pinBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         return false;
     }
 
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    Value arg = peek(routineContext, 0);
     if (IS_ROUTINE(arg)) {
         ObjRoutine* isrRoutine = AS_ROUTINE(arg);
         if (isrRoutine->entryFunction->function->arity != 0) {
@@ -439,12 +441,12 @@ bool pinBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     }
 }
 
-bool newBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
+bool new_Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
 
     Value typeToCreate = NIL_VAL;
     if (argCount == 1
-        && IS_YARGTYPE(nativeArgument(routineContext, argCount, 0))) {
-        typeToCreate = nativeArgument(routineContext, argCount, 0);
+        && IS_YARGTYPE(peek(routineContext, 0))) {
+        typeToCreate = peek(routineContext, 0);
     }
 
     ConcreteYargType typeRequested = IS_NIL(typeToCreate) ? TypeAny : AS_YARGTYPE(typeToCreate)->yt;
@@ -500,7 +502,7 @@ bool newBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
 }
 
 bool uint64Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    Value arg = peek(routineContext, 0);
     if (IS_I8(arg)) {
         *result = UI64_VAL(AS_I8(arg));
         return true;
@@ -545,7 +547,7 @@ bool uint64Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
 }
 
 bool int64Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    Value arg = peek(routineContext, 0);
     if (IS_I8(arg)) {
         *result = I64_VAL(AS_I8(arg));
         return true;
@@ -590,7 +592,7 @@ bool int64Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
 }
 
 bool uint32Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    Value arg = peek(routineContext, 0);
     if (IS_I8(arg) && AS_I8(arg) >= 0) {
         *result = UI32_VAL(AS_I8(arg));
         return true;
@@ -635,7 +637,7 @@ bool uint32Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
 }
 
 bool int32Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    Value arg = peek(routineContext, 0);
     if (IS_I8(arg)) {
         *result = I32_VAL(AS_I8(arg));
         return true;
@@ -680,7 +682,7 @@ bool int32Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
 }
 
 bool uint16Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    Value arg = peek(routineContext, 0);
     if (IS_I8(arg) && AS_I8(arg) >= 0) {
         *result = UI16_VAL(AS_I8(arg));
         return true;
@@ -725,7 +727,7 @@ bool uint16Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
 }
 
 bool int16Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    Value arg = peek(routineContext, 0);
     if (IS_I8(arg)) {
         *result = I16_VAL(AS_I8(arg));
         return true;
@@ -770,7 +772,7 @@ bool int16Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
 }
 
 bool uint8Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    Value arg = peek(routineContext, 0);
     if (IS_I8(arg) && AS_I8(arg) >= 0) {
         *result = UI8_VAL(AS_I8(arg));
         return true;
@@ -815,7 +817,7 @@ bool uint8Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
 }
 
 bool int8Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    Value arg = peek(routineContext, 0);
     if (IS_I8(arg)) {
         *result = arg;
         return true;
@@ -860,7 +862,7 @@ bool int8Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
 }
 
 bool intBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    Value arg = peek(routineContext, 0);
     int64_t i;
     if (IS_I8(arg)) {
         i = AS_I8(arg);
@@ -905,7 +907,7 @@ bool intBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
 }
 
 bool floatBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
-    Value arg = nativeArgument(routineContext, argCount, 0);
+    Value arg = peek(routineContext, 0);
     double f;
     if (IS_I8(arg)) {
         f = AS_I8(arg);
@@ -951,92 +953,41 @@ bool floatBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
 }
 
 bool stringBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
-    Value arg = nativeArgument(routineContext, argCount, 0);
-    int64_t i;
-    if (IS_I8(arg)) {
-        i = AS_I8(arg);
-    } else if (IS_I16(arg)) {
-        i = AS_I16(arg);
-    } else if (IS_I32(arg)) {
-        i = AS_I32(arg);
-    } else if (IS_I64(arg)) {
-        i = AS_I64(arg);
-    } else if (IS_UI8(arg)) {
-        i = AS_UI8(arg);
-    } else if (IS_UI16(arg)) {
-        i = AS_UI16(arg);
-    } else if (IS_UI32(arg)) {
-        i = AS_UI32(arg);
-    } else if (IS_UI64(arg)) {
-        uint64_t i = AS_UI64(arg);
-        char sb[22];
-        int l = snprintf(sb, 22, "%" PRIu64, i);
-        ObjString* string = copyString(sb, l);
-        result->as.obj = &string->obj;
-        result->type = VAL_OBJ;
-        return true;
-    } else if (IS_STRING(arg)) {
-        ObjString *string = AS_STRING(arg);
-        result->as.obj = &string->obj;
-        result->type = VAL_OBJ;
-        return true;
-    } else if (IS_INT(arg)) {
-        char sb[INT_STRLEN_FOR_INT254];
-        Int *i = AS_INT(arg);
-        char const *s = int_to_s(i, sb, INT_STRLEN_FOR_INT254);
-        int len = (int)strlen(s);
-        ObjString* string = copyString(s, len);
-        result->as.obj = &string->obj;
-        result->type = VAL_OBJ;
-        return true;
-    } else if (IS_DOUBLE(arg)) {
-        char sb[22];
-        double f = AS_DOUBLE(arg);
-        int l = snprintf(sb, 22, "%#g", f);
-        ObjString* string = copyString(sb, l);
-        result->as.obj = &string->obj;
-        result->type = VAL_OBJ;
-        return true;
-    } else {
-        return false;
-    }
-    char sb[22];
-    int l = snprintf(sb, 22, "%" PRId64, i);
-    ObjString* string = copyString(sb, l);
-    result->as.obj = &string->obj;
-    result->type = VAL_OBJ;
+    Value arg = peek(routineContext, 0);
+    ObjString* representation = valueToString(arg);
+    *result = OBJ_VAL(representation);
     return true;
 }
 
 Value getBuiltin(uint8_t builtin) {
     switch (builtin) {
-        case BUILTIN_PEEK: return OBJ_VAL(newNative(peekBuiltin));
-        case BUILTIN_READ_YARG_SOURCE: return OBJ_VAL(newNative(readYargSourceBuiltin));
-        case BUILTIN_COMPILE: return OBJ_VAL(newNative(compileBuiltin));
-        case BUILTIN_MAKE_ROUTINE: return OBJ_VAL(newNative(makeRoutineBuiltin));
-        case BUILTIN_RESUME: return OBJ_VAL(newNative(resumeBuiltin));
-        case BUILTIN_START: return OBJ_VAL(newNative(startBuiltin));
-        case BUILTIN_MAKE_CHANNEL: return OBJ_VAL(newNative(makeChannelBuiltin));
-        case BUILTIN_SEND: return OBJ_VAL(newNative(sendChannelBuiltin));
-        case BUILTIN_RECEIVE: return OBJ_VAL(newNative(receiveBuiltin));
-        case BUILTIN_SHARE: return OBJ_VAL(newNative(shareChannelBuiltin));
-        case BUILTIN_CPEEK: return OBJ_VAL(newNative(cpeekBuiltin));
-        case BUILTIN_MAKE_SYNCGROUP: return OBJ_VAL(newNative(makeSyncGroupBuiltin));
-        case BUILTIN_LEN: return OBJ_VAL(newNative(lenBuiltin));
-        case BUILTIN_PIN: return OBJ_VAL(newNative(pinBuiltin));
-        case BUILTIN_NEW: return OBJ_VAL(newNative(newBuiltin));
-        case BUILTIN_INT8: return OBJ_VAL(newNative(int8Builtin));
-        case BUILTIN_INT16: return OBJ_VAL(newNative(int16Builtin));
-        case BUILTIN_UINT16: return OBJ_VAL(newNative(uint16Builtin));
-        case BUILTIN_UINT8: return OBJ_VAL(newNative(uint8Builtin));
-        case BUILTIN_INT32: return OBJ_VAL(newNative(int32Builtin));
-        case BUILTIN_UINT32: return OBJ_VAL(newNative(uint32Builtin));
-        case BUILTIN_INT64: return OBJ_VAL(newNative(int64Builtin));
-        case BUILTIN_UINT64: return OBJ_VAL(newNative(uint64Builtin));
-        case BUILTIN_INT: return OBJ_VAL(newNative(intBuiltin));
-        case BUILTIN_MFLOAT64: return OBJ_VAL(newNative(floatBuiltin));
-        case BUILTIN_STRING: return OBJ_VAL(newNative(stringBuiltin));
-        case BUILTIN_LOAD: return OBJ_VAL(newNative(loadBuiltin));
+        case BUILTIN_PEEK: return OBJ_VAL(newBuiltin(peekBuiltin));
+        case BUILTIN_READ_YARG_SOURCE: return OBJ_VAL(newBuiltin(readYargSourceBuiltin));
+        case BUILTIN_COMPILE: return OBJ_VAL(newBuiltin(compileBuiltin));
+        case BUILTIN_MAKE_ROUTINE: return OBJ_VAL(newBuiltin(makeRoutineBuiltin));
+        case BUILTIN_RESUME: return OBJ_VAL(newBuiltin(resumeBuiltin));
+        case BUILTIN_START: return OBJ_VAL(newBuiltin(startBuiltin));
+        case BUILTIN_MAKE_CHANNEL: return OBJ_VAL(newBuiltin(makeChannelBuiltin));
+        case BUILTIN_SEND: return OBJ_VAL(newBuiltin(sendChannelBuiltin));
+        case BUILTIN_RECEIVE: return OBJ_VAL(newBuiltin(receiveBuiltin));
+        case BUILTIN_SHARE: return OBJ_VAL(newBuiltin(shareChannelBuiltin));
+        case BUILTIN_CPEEK: return OBJ_VAL(newBuiltin(cpeekBuiltin));
+        case BUILTIN_MAKE_SYNCGROUP: return OBJ_VAL(newBuiltin(makeSyncGroupBuiltin));
+        case BUILTIN_LEN: return OBJ_VAL(newBuiltin(lenBuiltin));
+        case BUILTIN_PIN: return OBJ_VAL(newBuiltin(pinBuiltin));
+        case BUILTIN_NEW: return OBJ_VAL(newBuiltin(new_Builtin));
+        case BUILTIN_INT8: return OBJ_VAL(newBuiltin(int8Builtin));
+        case BUILTIN_INT16: return OBJ_VAL(newBuiltin(int16Builtin));
+        case BUILTIN_UINT16: return OBJ_VAL(newBuiltin(uint16Builtin));
+        case BUILTIN_UINT8: return OBJ_VAL(newBuiltin(uint8Builtin));
+        case BUILTIN_INT32: return OBJ_VAL(newBuiltin(int32Builtin));
+        case BUILTIN_UINT32: return OBJ_VAL(newBuiltin(uint32Builtin));
+        case BUILTIN_INT64: return OBJ_VAL(newBuiltin(int64Builtin));
+        case BUILTIN_UINT64: return OBJ_VAL(newBuiltin(uint64Builtin));
+        case BUILTIN_INT: return OBJ_VAL(newBuiltin(intBuiltin));
+        case BUILTIN_MFLOAT64: return OBJ_VAL(newBuiltin(floatBuiltin));
+        case BUILTIN_STRING: return OBJ_VAL(newBuiltin(stringBuiltin));
+        case BUILTIN_LOAD: return OBJ_VAL(newBuiltin(loadBuiltin));
 #ifndef CYARG_FEATURE_TEST_SYSTEM
         default: return NIL_VAL;
 #else

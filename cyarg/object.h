@@ -20,6 +20,7 @@ typedef struct ObjConcreteYargTypeMap ObjConcreteYargTypeMap;
 #define IS_FUNCTION(value)     isObjType(value, OBJ_FUNCTION)
 #define IS_INSTANCE(value)     isObjType(value, OBJ_INSTANCE)
 #define IS_NATIVE(value)       isObjType(value, OBJ_NATIVE)
+#define IS_BUILTIN(value)      isObjType(value, OBJ_BUILTIN)
 #define IS_BLOB(value)         isObjType(value, OBJ_BLOB)
 #define IS_ROUTINE(value)      isObjType(value, OBJ_ROUTINE)
 #define IS_CHANNEL(value)      isObjType(value, OBJ_CHANNELCONTAINER)
@@ -38,6 +39,8 @@ typedef struct ObjConcreteYargTypeMap ObjConcreteYargTypeMap;
 #define AS_INSTANCE(value)     ((ObjInstance*)AS_OBJ(value))
 #define AS_NATIVE(value) \
     (((ObjNative*)AS_OBJ(value))->function)
+#define AS_BUILTIN(value) \
+    (((ObjBuiltin*)AS_OBJ(value))->function)
 #define AS_ROUTINE(value)      ((ObjRoutine*)AS_OBJ(value))
 #define AS_CHANNEL(value)      ((ObjChannelContainer*)AS_OBJ(value))
 #define AS_STRING(value)       ((ObjString*)AS_OBJ(value))
@@ -58,6 +61,7 @@ typedef enum {
     OBJ_FUNCTION,
     OBJ_INSTANCE,
     OBJ_NATIVE,
+    OBJ_BUILTIN,
     OBJ_ROUTINE,
     OBJ_CHANNELCONTAINER,
     OBJ_STRING,
@@ -139,6 +143,13 @@ typedef struct {
     Obj obj;
     NativeFn function;
 } ObjNative;
+
+typedef bool (*BuiltinFun)(ObjRoutine* routine, int argCount, Value* result);
+
+typedef struct {
+    Obj obj;
+    BuiltinFun function;
+} ObjBuiltin;
 
 struct ObjString {
     Obj obj;
@@ -227,6 +238,7 @@ ObjFunction* newFunction();
 void initFunction(ObjFunction* function);
 ObjInstance* newInstance(ObjClass* klass);
 ObjNative* newNative(NativeFn function);
+ObjBuiltin* newBuiltin(BuiltinFun function);
 ObjPackedUniformArray* newPackedUniformArray(ObjConcreteYargTypeArray* type);
 ObjMap* newMap(ObjConcreteYargTypeMap* type);
 ObjString* takeString(char* chars, int length);
@@ -257,8 +269,7 @@ Value defaultStructValue(ObjConcreteYargType* type);
 
 Value placeObjectAt(Value type, Value location);
 
-void printObject(Value value);
-void fprintObject(FILE* op, Value value);
+ObjString* objectToString(Value value);
 
 static inline bool isObjType(Value value, ObjType type) {
     return IS_OBJ(value) && AS_OBJ(value)->type == type;

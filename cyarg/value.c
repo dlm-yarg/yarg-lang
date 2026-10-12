@@ -371,28 +371,109 @@ void freeDynamicValueArray(DynamicValueArray* array) {
     initDynamicValueArray(array);
 }
 
+ObjString* concatenateStrings(ObjString* a, ObjString* b) {
+
+    int length = a->length + b->length;
+    char* chars = ALLOCATE(char, length + 1);
+    memcpy(chars, a->chars, a->length);
+    memcpy(chars + a->length, b->chars, b->length);
+    chars[length] = '\0';
+
+    ObjString* result = takeString(chars, length);
+    return result;
+}
+
+ObjString* doubleToString(double value) {
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer), "%#g", value);
+    return copyString(buffer, (int)strlen(buffer));
+}
+
+ObjString* i8ToString(int8_t value) {
+    char buffer[5];
+    snprintf(buffer, sizeof(buffer), "%d", value);
+    return copyString(buffer, (int)strlen(buffer));
+}
+
+ObjString* ui8ToString(uint8_t value) {
+    char buffer[4];
+    snprintf(buffer, sizeof(buffer), "%u", value);
+    return copyString(buffer, (int)strlen(buffer));
+}
+
+ObjString* i16ToString(int16_t value) {
+    char buffer[7];
+    snprintf(buffer, sizeof(buffer), "%d", value);
+    return copyString(buffer, (int)strlen(buffer));
+}
+
+ObjString* ui16ToString(uint16_t value) {
+    char buffer[6];
+    snprintf(buffer, sizeof(buffer), "%u", value);
+    return copyString(buffer, (int)strlen(buffer));
+}
+
+ObjString* i32ToString(int32_t value) {
+    char buffer[12];
+    snprintf(buffer, sizeof(buffer), "%d", value);
+    return copyString(buffer, (int)strlen(buffer));
+}
+
+ObjString* ui32ToString(uint32_t value) {
+    char buffer[11];
+    snprintf(buffer, sizeof(buffer), "%u", value);
+    return copyString(buffer, (int)strlen(buffer));
+}
+
+ObjString* i64ToString(int64_t value) {
+    char buffer[21];
+    snprintf(buffer, sizeof(buffer), "%" PRId64, value);
+    return copyString(buffer, (int)strlen(buffer));
+}
+
+ObjString* ui64ToString(uint64_t value) {
+    char buffer[21];
+    snprintf(buffer, sizeof(buffer), "%" PRIu64, value);
+    return copyString(buffer, (int)strlen(buffer));
+}
+
+ObjString* addressToString(uintptr_t value) {
+    char buffer[19];
+    snprintf(buffer, sizeof(buffer), "%p", (void*)value);
+    return copyString(buffer, (int)strlen(buffer));
+}
+
+ObjString* valueToString(Value value) {
+    ObjString* string = NULL;
+    switch (value.type) {
+        case VAL_BOOL:
+            string = AS_BOOL(value) ? copyString("true", 4) : copyString("false", 5);
+            break;
+        case VAL_NIL: string = copyString("nil", 3); break;
+        case VAL_DOUBLE: string = doubleToString(AS_DOUBLE(value)); break;
+        case VAL_I8: string = i8ToString(AS_I8(value)); break;
+        case VAL_UI8: string = ui8ToString(AS_UI8(value)); break;
+        case VAL_I16: string = i16ToString(AS_I16(value)); break;
+        case VAL_UI16: string = ui16ToString(AS_UI16(value)); break;
+        case VAL_I32: string = i32ToString(AS_I32(value)); break;
+        case VAL_UI32: string = ui32ToString(AS_UI32(value)); break;
+        case VAL_I64: string = i64ToString(AS_I64(value)); break;
+        case VAL_UI64: string = ui64ToString(AS_UI64(value)); break;
+        case VAL_ADDRESS: string = addressToString(AS_ADDRESS(value)); break;
+        case VAL_OBJ: string = objectToString(value); break;
+    }
+    return string;
+}
+
 void printValue(Value value) {
     fprintValue(stdout, value);
 }
 
 void fprintValue(FILE* op, Value value) {
-    switch (value.type) {
-        case VAL_BOOL:
-            FPRINTMSG(op, AS_BOOL(value) ? "true" : "false");
-            break;
-        case VAL_NIL: FPRINTMSG(op, "nil"); break;
-        case VAL_DOUBLE: FPRINTMSG(op, "%#g", AS_DOUBLE(value)); break;
-        case VAL_I8: FPRINTMSG(op, "%d", AS_I8(value)); break;
-        case VAL_UI8: FPRINTMSG(op, "%u", AS_UI8(value)); break;
-        case VAL_I16: FPRINTMSG(op, "%d", AS_I16(value)); break;
-        case VAL_UI16: FPRINTMSG(op, "%u", AS_UI16(value)); break;
-        case VAL_I32: FPRINTMSG(op, "%d", AS_I32(value)); break;
-        case VAL_UI32: FPRINTMSG(op, "%u", AS_UI32(value)); break;
-        case VAL_I64: FPRINTMSG(op, "%" PRId64, AS_I64(value)); break;
-        case VAL_UI64: FPRINTMSG(op, "%" PRIu64, AS_UI64(value)); break;
-        case VAL_ADDRESS: FPRINTMSG(op, "%p", (void*) AS_ADDRESS(value)); break;
-        case VAL_OBJ: fprintObject(op, value); break;
-    }
+    ObjString* string = valueToString(value);
+    tempRootPush(OBJ_VAL(string));
+    FPRINTMSG(op, "%s", string->chars);
+    tempRootPop();
 }
 
 bool valuesEqual(Value a, Value b) {

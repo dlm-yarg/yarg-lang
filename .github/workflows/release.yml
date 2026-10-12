@@ -15,14 +15,14 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
           fetch-tags: true
           fetch-depth: 1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '>=1.21.4'
           cache: true
@@ -31,36 +31,36 @@ jobs:
       - name: Cache ARM GNU Toolchain
         uses: actions/cache@v4
         with:
-          path: ~/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi
-          key: arm-toolchain-14.2.rel1-x86_64-arm-none-eabi
+          path: ~/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi
+          key: arm-toolchain-15.2.rel1-x86_64-arm-none-eabi
 
       - name: Cache Pico SDK
         uses: actions/cache@v4
         with:
           path: ~/pico-sdk
-          key: pico-sdk-2.2.0
+          key: pico-sdk-2.3.0
 
       - name: Cache picotool
         uses: actions/cache@v4
         with:
           path: ~/picotool
-          key: picotool-2.2.0-a4
+          key: picotool-2.3.0
 
       - name: Fetch Raspberry Pi Pico SDK dependencies
         run: |
-          if [ ! -d "$HOME/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi" ]; then
-            if [ ! -f "arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz" ]; then
-              wget https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz
+          if [ ! -d "$HOME/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi" ]; then
+            if [ ! -f "arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi.tar.xz" ]; then
+              wget https://developer.arm.com/-/media/Files/downloads/gnu/15.2.rel1/binrel/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi.tar.xz
             fi
           fi
 
       - name: Install x86_64 Raspberry Pi Pico SDK dependencies
         run: |
           uname -m
-          if [ ! -d "$HOME/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi" ]; then
-            tar -xJf arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz -C $HOME
+          if [ ! -d "$HOME/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi" ]; then
+            tar -xJf arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi.tar.xz -C $HOME
           fi
-          echo "$HOME/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi/bin" >> $GITHUB_PATH
+          echo "$HOME/arm-gnu-toolchain-15.2.rel1-x86_64-arm-none-eabi/bin" >> $GITHUB_PATH
 
       - name: Test Raspberry Pi Pico SDK dependencies
         run: arm-none-eabi-gcc -v
@@ -70,7 +70,7 @@ jobs:
           if [ ! -d "$HOME/pico-sdk" ]; then
             cd $HOME
             git clone --recurse-submodules https://github.com/raspberrypi/pico-sdk.git \
-              --branch 2.2.0 --single-branch --depth 1
+              --branch 2.3.0 --single-branch --depth 1
           fi
           echo "PICO_SDK_PATH=$HOME/pico-sdk" >> $GITHUB_ENV
 
@@ -79,7 +79,7 @@ jobs:
           if [ ! -d "$HOME/picotool" ]; then
             cd $HOME
             git clone https://github.com/raspberrypi/picotool.git \
-              --branch 2.2.0-a4 --single-branch --depth 1
+              --branch 2.3.0 --single-branch --depth 1
             cd picotool
             mkdir build
             cd build
@@ -141,13 +141,13 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
           fetch-depth: 1
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '>=1.21.4'
           cache: true

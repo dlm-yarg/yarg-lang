@@ -8,7 +8,7 @@
 
 #include "memory.h"
 #include "routine.h"
-#include "platform_hal.h"
+#include "vm_mutex.h"
 
 #define MAX_PINNED_ROUTINES 10
 
@@ -22,14 +22,15 @@ typedef struct {
     ObjRoutine* pinnedRoutines[MAX_PINNED_ROUTINES];
     PinnedRoutineHandler pinnedRoutineHandlers[MAX_PINNED_ROUTINES];
     
-    platform_critical_section env;
+    vm_mutex env;
     
     ValueCellTable globals;
     ValueTable strings;
     ObjString* initString;
     ObjString* libraryPath;
 
-    platform_critical_section heap;
+    vm_mutex heap;
+    O1HeapInstance* heap_instance;
 
     Value tempRoots[TEMP_ROOTS_MAX];
     Value* tempRootsTop;

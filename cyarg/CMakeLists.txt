@@ -1,8 +1,8 @@
 # PICO SDK defaults to 3.13 minimum
 cmake_minimum_required(VERSION 3.13)
 
-set(CMAKE_C_STANDARD 11)
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_C_STANDARD 23)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
@@ -11,9 +11,9 @@ if(WIN32)
 else()
     set(USERHOME $ENV{HOME})
 endif()
-set(sdkVersion 2.2.0)
-set(toolchainVersion 14_2_Rel1)
-set(picotoolVersion 2.2.0)
+set(sdkVersion 2.3.0)
+set(toolchainVersion 15_2_Rel1)
+set(picotoolVersion 2.3.0)
 set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
 if (EXISTS ${picoVscode})
     include(${picoVscode})
@@ -105,8 +105,8 @@ add_executable(cyarg
     channel.c
     yargtype.h
     yargtype.c
-    platform_hal.h
-    platform_hal.c
+    vm_mutex.h
+    vm_mutex.c
     sync_group.h
     sync_group.c
     fs/fs.h
@@ -115,6 +115,8 @@ add_executable(cyarg
     pack_load.c
     pack_format.h
     pack.h
+    ../external/o1heap/o1heap/o1heap.c
+    ../external/o1heap/o1heap/o1heap.h
     )
 
 if (CYARG_HOSTING STREQUAL "HOSTED")

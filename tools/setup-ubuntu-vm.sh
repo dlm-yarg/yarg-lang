@@ -14,7 +14,7 @@ if [ "$1" = "pico" ]; then
     mkdir -p pico-tooling
     pushd pico-tooling
 
-    ARM_CROSS_COMPILER_VERSION="14.2.rel1"
+    ARM_CROSS_COMPILER_VERSION="15.2.rel1"
     ARM_CROSS_COMPILER_HOST="$(arch)"
     ARM_TOOLCHAIN_FILENAME="arm-gnu-toolchain-${ARM_CROSS_COMPILER_VERSION}-${ARM_CROSS_COMPILER_HOST}-arm-none-eabi.tar.xz"
     
@@ -26,14 +26,14 @@ if [ "$1" = "pico" ]; then
     echo "export PATH=\"$TOOLCHAIN_DIR/bin:\$PATH\"" >> ~/.bashrc
 
     git clone --recurse-submodules https://github.com/raspberrypi/pico-sdk.git \
-        --branch 2.2.0 --single-branch --depth 1
+        --branch 2.3.0 --single-branch --depth 1
 
     PICO_SDK_DIR="$(pwd)/pico-sdk"
     export PICO_SDK_PATH="$PICO_SDK_DIR"
     echo "export PICO_SDK_PATH=\"$PICO_SDK_DIR\"" >> ~/.bashrc
 
     git clone https://github.com/raspberrypi/picotool.git \
-              --branch 2.2.0-a4 --single-branch --depth 1
+              --branch 2.3.0 --single-branch --depth 1
     cd picotool
     mkdir build
     cd build

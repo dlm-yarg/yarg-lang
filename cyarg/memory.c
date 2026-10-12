@@ -1,5 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdalign.h>
+#include <assert.h>
 
 #include "compiler.h"
 #include "memory.h"
@@ -8,13 +10,30 @@
 #include "ast.h"
 #include "channel.h"
 #include "sync_group.h"
-#include "platform_hal.h"
+#include "vm_mutex.h"
+
+#include "../external/o1heap/o1heap/o1heap.h"
 
 #ifdef DEBUG_LOG_GC
 #include "debug.h"
 #endif
 
 #define GC_HEAP_GROW_FACTOR 2
+
+void init_heap_instance(O1HeapInstance** instance) {
+
+#if defined(CYARG_SELF_HOSTED)
+    static alignas(O1HEAP_ALIGNMENT)uint8_t heapArena[190 * 1024];
+#else
+    static alignas(O1HEAP_ALIGNMENT)uint8_t heapArena[10000 * 1024];
+#endif
+
+    *instance = o1heapInit(heapArena, sizeof(heapArena));
+    if (*instance == NULL) {
+        PRINTERR("Failed to initialize heap instance.\n");
+        exit(1);
+    }
+}
 
 // can only be called during gc, so the heap critical section is already held.
 void* gc_free(void* pointer, size_t oldSize, size_t newSize) {
@@ -24,12 +43,12 @@ void* gc_free(void* pointer, size_t oldSize, size_t newSize) {
     }
     vm.bytesAllocated += newSize - oldSize;
 
-    free(pointer);
+    o1heapFree(vm.heap_instance, pointer);
     return NULL;
 }
 
 void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
-    platform_critical_section_enter_blocking(&vm.heap);
+    vm_mutex_enter_blocking(&vm.heap);
 
     vm.bytesAllocated += newSize - oldSize;
     if (newSize > oldSize) {
@@ -43,23 +62,23 @@ void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
     }
 
     if (newSize == 0) {
-        free(pointer);
-        platform_critical_section_exit(&vm.heap);
+        o1heapFree(vm.heap_instance, pointer);
+        vm_mutex_exit(&vm.heap);
         return NULL;
     }
 
-    void* result = realloc(pointer, newSize);
+    void* result = o1heapReallocate(vm.heap_instance, pointer, newSize);
     if (result == NULL) {
         PRINTERR("help! no memory.");
         exit(1);
     }
-    platform_critical_section_exit(&vm.heap);
+    vm_mutex_exit(&vm.heap);
     return result;
 }
 
 void tempRootPush(Value value) {
 
-    platform_critical_section_enter_blocking(&vm.heap);
+    vm_mutex_enter_blocking(&vm.heap);
 
     *vm.tempRootsTop = value;
     vm.tempRootsTop++;
@@ -68,14 +87,14 @@ void tempRootPush(Value value) {
         fatalVMError("Allocation Stash Max Exeeded.");
     }
 
-    platform_critical_section_exit(&vm.heap);
+    vm_mutex_exit(&vm.heap);
 }
 
 Value tempRootPop() {
-    platform_critical_section_enter_blocking(&vm.heap);
+    vm_mutex_enter_blocking(&vm.heap);
     vm.tempRootsTop--;
     Value result = *vm.tempRootsTop;
-    platform_critical_section_exit(&vm.heap);
+    vm_mutex_exit(&vm.heap);
     return result;
 }
 
@@ -93,7 +112,7 @@ void markObject(Obj* object) {
 
     if (vm.grayCapacity < vm.grayCount + 1) {
         vm.grayCapacity = GROW_CAPACITY(vm.grayCapacity);
-        vm.grayStack = (Obj**)realloc(vm.grayStack, sizeof(Obj*) * vm.grayCapacity);
+        vm.grayStack = (Obj**)o1heapReallocate(vm.heap_instance, vm.grayStack, sizeof(Obj*) * vm.grayCapacity);
 
         if (vm.grayStack == NULL) exit(1);
     }
@@ -213,6 +232,7 @@ static void blackenObject(Obj* object) {
             break;
         }
         case OBJ_NATIVE: break;
+        case OBJ_BUILTIN: break;
         case OBJ_CHANNELCONTAINER: {
             ObjChannelContainer* channel = (ObjChannelContainer*)object;
             markChannel(channel);
@@ -489,6 +509,7 @@ static void freeObject(Obj* object) {
             break;
         }
         case OBJ_NATIVE: FREE(ObjNative, object); break;
+        case OBJ_BUILTIN: FREE(ObjBuiltin, object); break;
         case OBJ_ROUTINE:
             FREE(ObjRoutine, object);
             break;
@@ -652,6 +673,8 @@ void collectGarbage() {
     size_t before = vm.bytesAllocated;
 #endif
 
+    assert(o1heapDoInvariantsHold(vm.heap_instance));
+
     markRoots();
     traceReferences();
     tableRemoveWhite(&vm.strings);
@@ -677,7 +700,7 @@ void freeObjects() {
         object = next;
     }
 
-    free(vm.grayStack);
+    o1heapFree(vm.heap_instance, vm.grayStack);
 }
 
 void printObjects() {

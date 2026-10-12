@@ -19,6 +19,10 @@ Connect your Pico to your favourite serial terminal. Minicom and Putty are popul
 
 Building yarg from source is required for some ports of Yarg, and to contribute to the language itself.
 
+## Contributions
+
+Contribution guidelines are in the docs directory: [CONTRIBUTING.md][contrib]
+
 ## Repository Structure
 
 | dir | Description |
@@ -137,4 +141,3 @@ while (true) {
     gpio_put(led_io, state);
 }
 ```
->>>>>>> forkbase/main

@@ -136,8 +136,10 @@ void initVMMemory() {
 
     vm.nextGC = FIRST_GC_AT;
 
-    platform_critical_section_init(&vm.heap);
-    platform_critical_section_init(&vm.env);
+    vm_mutex_init(&vm.heap);
+    vm_mutex_init(&vm.env);
+
+    init_heap_instance(&vm.heap_instance);
 }
 
 void initVMRuntime() {
@@ -263,6 +265,17 @@ static InterpretResult callValue(ObjRoutine* routine, Value callee, int argCount
                 NativeFn native = AS_NATIVE(callee);
                 Value result = NIL_VAL;
                 if (native(routine, argCount, &result)) {
+                    popN(routine, argCount + 1);
+                    push(routine, result);
+                    return INTERPRET_OK;
+                } else {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+            }
+            case OBJ_BUILTIN: {
+                BuiltinFun builtin = AS_BUILTIN(callee);
+                Value result = NIL_VAL;
+                if (builtin(routine, argCount, &result)) {
                     popN(routine, argCount + 1);
                     push(routine, result);
                     return INTERPRET_OK;
@@ -506,13 +519,7 @@ static void concatenate(ObjRoutine* routine) {
     ObjString* b = AS_STRING(peek(routine, 0));
     ObjString* a = AS_STRING(peek(routine, 1));
 
-    int length = a->length + b->length;
-    char* chars = ALLOCATE(char, length + 1);
-    memcpy(chars, a->chars, a->length);
-    memcpy(chars + a->length, b->chars, b->length);
-    chars[length] = '\0';
-
-    ObjString* result = takeString(chars, length);
+    ObjString* result = concatenateStrings(a, b);
     pop(routine);
     pop(routine);
     push(routine, OBJ_VAL(result));
@@ -744,11 +751,7 @@ InterpretResult run(ObjRoutine* routine) {
             return INTERPRET_RUNTIME_ERROR;
         }
         if (routine->traceExecution) {
-            PRINTERR("[%p]", routine);
-            printValueStack(routine, "          ");
-            PRINTERR("[%p]", routine);
-            disassembleInstruction(&frame->closure->function->chunk, 
-                                (int)(frame->ip - frame->closure->function->chunk.code));
+            traceExecution(routine);
         }
 
         uint8_t instruction;
@@ -802,28 +805,28 @@ InterpretResult run(ObjRoutine* routine) {
                 break;
             }
             case OP_GET_GLOBAL: {
-                platform_critical_section_enter_blocking(&vm.env);
+                vm_mutex_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
                 ValueCell cell;
                 if (!tableCellGet(&vm.globals, name, &cell)) {
                     runtimeError(routine, "Undefined variable (OP_GET_GLOBAL) '%s'.", name->chars);
-                    platform_critical_section_exit(&vm.env);
+                    vm_mutex_exit(&vm.env);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 push(routine, cell.value);
-                platform_critical_section_exit(&vm.env);
+                vm_mutex_exit(&vm.env);
                 break;
             }
             case OP_DEFINE_GLOBAL: {
-                platform_critical_section_enter_blocking(&vm.env);
+                vm_mutex_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
                 tableCellSet(&vm.globals, name, *peekCell(routine, 0));
                 pop(routine);
-                platform_critical_section_exit(&vm.env);
+                vm_mutex_exit(&vm.env);
                 break;
             }
             case OP_SET_GLOBAL: {
-                platform_critical_section_enter_blocking(&vm.env);
+                vm_mutex_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
                 ValueCell* lhs = NULL;
                 if (tableCellGetPlace(&vm.globals, name, &lhs)) {
@@ -832,15 +835,15 @@ InterpretResult run(ObjRoutine* routine) {
 
                     if (!assignToValueCellTarget(lhsTrg, rhs->value)) {
                         runtimeError(routine, "Cannot set global variable to incompatible type.");
-                        platform_critical_section_exit(&vm.env);
+                        vm_mutex_exit(&vm.env);
                         return INTERPRET_RUNTIME_ERROR;
                     }
                 } else {
                     runtimeError(routine, "Undefined variable (OP_SET_GLOBAL) '%s'.", name->chars);
-                    platform_critical_section_exit(&vm.env);
+                    vm_mutex_exit(&vm.env);
                     return INTERPRET_RUNTIME_ERROR;
                 }
-                platform_critical_section_exit(&vm.env);
+                vm_mutex_exit(&vm.env);
                 break;
             }
             case OP_INITIALISE: {
@@ -1162,8 +1165,11 @@ InterpretResult run(ObjRoutine* routine) {
                 break;
             }
             case OP_PRINT: {
-                printValue(pop(routine));
-                printf("\n");
+                ObjString* string = valueToString(peek(routine, 0));
+                tempRootPush(OBJ_VAL(string));
+                printf("%s\n", string->chars);
+                tempRootPop();
+                pop(routine);
                 break;
             }
             case OP_POKE: {
@@ -1171,7 +1177,7 @@ InterpretResult run(ObjRoutine* routine) {
                 Value assignment = peek(routine, 1);
                 Value assignment_type = concrete_typeof(assignment);
                 tempRootPush(assignment_type);
-                if (!isAddressValue(location) && !isUint32Pointer(location)) {
+                if (!(isAddressValue(location) || isUint32Pointer(location))) {
                     tempRootPop();
                     runtimeError(routine, "Location must be a pointer to an uint32 or address.");
                     return INTERPRET_RUNTIME_ERROR;

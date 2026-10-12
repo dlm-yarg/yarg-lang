@@ -10,6 +10,7 @@
 
 #include "memory.h"
 #include "vm.h"
+#include "debug.h"
 
 bool addSlice(ObjRoutine* routine);
 
@@ -208,10 +209,6 @@ ValueCell* frameSlot(ObjRoutine* routine, CallFrame* frame, size_t index) {
     return peekCell(routine, (int) (routine->stackTopIndex - (stackElementIndex + 1)));
 }
 
-Value nativeArgument(ObjRoutine* routine, size_t argCount, size_t argument) {
-    return peek(routine, (int)argCount - 1 - (int)argument);
-}
-
 size_t stackOffsetOf(CallFrame* frame, size_t frameIndex) {
     return frame->stackEntryIndex + frameIndex;
 }
@@ -332,4 +329,67 @@ ValueCellTarget peekCellTarget(ObjRoutine* routine, int distance) {
     ValueCell* target = peekCell(routine, distance);
     ValueCellTarget result = { .value = &target->value, .cellType = target->cellType};
     return result;
+}
+
+static void traceValueStack(ObjRoutine* routine) {
+    const unsigned int max_stack_trace_lines = 3;
+    const unsigned int max_stack_line_width = 5;
+    assert(max_stack_trace_lines > 1);
+
+    size_t stackSize = routine->stackTopIndex;
+    size_t stack_lines = (stackSize / max_stack_line_width);
+    if (stackSize % max_stack_line_width != 0) {
+        stack_lines++;
+    }
+
+    for (int line = stack_lines, line_cursor = 0; line >= 0 && line_cursor < stack_lines; line--, line_cursor++) {
+        char prefix[21] = "                    ";
+        if (line_cursor == 0) { // first line identifes the routine and the total stack size
+            ObjString* routineStr = valueToString(OBJ_VAL(routine));
+            snprintf(prefix, sizeof(prefix), "%s[%3zu]:", routineStr->chars, stackSize);
+        }
+        // if this the last line to trace, and there are more stack elements skipped, then indicate that with an ellipsis
+        if (line_cursor == max_stack_trace_lines - 1 && line_cursor > 0 && line_cursor != stack_lines - 1) {
+            snprintf(&prefix[17], 4, "...");
+        }
+        printf("%s", prefix);
+        for (size_t cursor = 0; cursor < max_stack_line_width; cursor++) {
+            size_t slot = (line - 1) * max_stack_line_width + cursor;
+            if (slot >= stackSize) break;
+            ValueCell* cell = peekCell(routine, (int)(stackSize - 1 - slot));
+            ObjString* valueStr = valueToString(cell->value);
+            tempRootPush(OBJ_VAL(valueStr));
+            char value_description[12];
+            if (valueStr->length > 11) {
+                snprintf(value_description, sizeof(value_description), "%8.8s...", valueStr->chars);
+            } else {
+                snprintf(value_description, sizeof(value_description), "%11.11s", valueStr->chars);
+            }
+            tempRootPop();
+            ObjString* typeStr = valueToString(cell->cellType ? OBJ_VAL(cell->cellType) : NIL_VAL);
+            tempRootPush(OBJ_VAL(typeStr));
+            char type_description[11] = "       any";
+            if (typeStr->length > 10 && cell->cellType) {
+                snprintf(type_description, sizeof(type_description), "%7.7s...", typeStr->chars);
+            } else if (cell->cellType) {
+                snprintf(type_description, sizeof(type_description), "%7.7s", typeStr->chars);
+            }
+            tempRootPop();
+            printf("[%s|%s]", value_description, type_description);
+        }
+        printf("\n");
+        if (line_cursor == max_stack_trace_lines - 1 && line > 0) {
+            break;
+        }
+    }
+}
+
+void traceExecution(ObjRoutine* routine) {
+    CallFrame* frame = &routine->frames[routine->frameCount - 1];
+
+    traceValueStack(routine);
+    ObjString* routineStr = valueToString(OBJ_VAL(routine));
+    printf("%s %s:", routineStr->chars, frame->closure->function->fName ? frame->closure->function->fName->chars : "script");
+    disassembleInstruction(&frame->closure->function->chunk, 
+        (int)(frame->ip - frame->closure->function->chunk.code));
 }
