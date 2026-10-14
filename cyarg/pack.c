@@ -3,6 +3,7 @@
 
 #include "object.h"
 #include "memory.h"
+#include "big-int/big-int.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -95,6 +96,11 @@ void flattenConstants(int chunkIndex, Chunk const *chunk, FlatFiles *f) {
             fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_D, .index_ = f->doublesFile_.n_ };
             fileExtend(&f->doublesFile_, 4, sizeof *f->doublesFile_.i_);
             f->doublesFile_.i_[f->doublesFile_.n_++] = AS_DOUBLE(*v);
+        } else if (IS_INT(*v)) {
+            fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_I, .index_ = f->intsFile_.n_ };
+            fileExtend(&f->intsFile_, 16, sizeof *f->intsFile_.i_);
+            f->intsFile_.i_[f->intsFile_.n_++] = *VALUE_AS_BIG_SMALL_INT(*v);
+            break;
         } else if (IS_OBJ(*v)) {
             switch (AS_OBJ(*v)->type) {
             case OBJ_FUNCTION: {
@@ -102,12 +108,6 @@ void flattenConstants(int chunkIndex, Chunk const *chunk, FlatFiles *f) {
                 fileExtend(&f->funsFile_, 4, sizeof *f->funsFile_.i_);
                 fc = &f->funsFile_.i_[chunkIndex].chunk_; // fc invalidated by fileExtend() above
                 f->funsFile_.i_[f->funsFile_.n_++].f_ = AS_FUNCTION(*v);
-                break;
-            }
-            case OBJ_INT: {
-                fc->constTypesAndOffsets_.i_[i] = (ConstItem){ .type_ = PACK_CONST_TYPE_I, .index_ = f->intsFile_.n_ };
-                fileExtend(&f->intsFile_, 16, sizeof *f->intsFile_.i_);
-                f->intsFile_.i_[f->intsFile_.n_++] = AS_INTOBJ(*v);
                 break;
             }
             case OBJ_STRING: {
@@ -192,7 +192,7 @@ void calcStringAndIntOffsets(FlatFiles *f) {
                 }
             }
         }
-        Int *from = &f->intsFile_.i_[iI]->bigInt;
+        Int *from = BIG_SMALL_INT_AS_INT(&f->intsFile_.i_[iI]);
         int len = (int)((char *) from->w_ - (char *) from);
         assert(len == 4);
         len += sizeof (uint16_t) * (from->d_ + from->d_ % 2);
@@ -322,9 +322,9 @@ int pack(char const *sourceFileName, FlatFiles *f, FILE *file) {
 
     DP(ints__ = offset__);
     for (int iI = 0; iI < f->intsFile_.n_; iI++) {
-        Int *bigInt = &f->intsFile_.i_[iI]->bigInt;
+        Int *i = BIG_SMALL_INT_AS_INT(&f->intsFile_.i_[iI]);
         IntConcrete254 t;
-        int_set_t(bigInt, int_init_concrete254(&t));
+        int_set_t(i, int_init_concrete254(&t));
         t.m_ = t.d_ + t.d_ % 2;
         written = fwrite__(&t, sizeof (Int) + sizeof (uint16_t) * t.m_, 1, file);
         if (written != 1) return EX_SOFTWARE;

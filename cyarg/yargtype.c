@@ -457,64 +457,65 @@ bool isInitialisableType(ObjConcreteYargType* lhsType, Value rhsValue, Value *pr
     } else {
         if (IS_INT(rhsValue))
         {
-            ObjInt *i = (ObjInt *) rhsValue.as.obj;
-            if (i->isLiteral)
+            BigSmallInt *bsi = VALUE_AS_BIG_SMALL_INT(rhsValue);
+            if (bsi->literal_)
             {
+                Int *i = VALUE_AS_INT(rhsValue);
                 switch (lhsType->yt)
                 {
                 case TypeInt8:
-                    if (int_is_range(&i->bigInt, INT8_MIN, INT8_MAX) == INT_WITHIN)
+                    if (int_is_range(i, INT8_MIN, INT8_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = I8_VAL(int_to_i32(&i->bigInt));
+                        *promotedRhs = I8_VAL(int_to_i32(i));
                         return true;
                     }
                     break;
                 case TypeUint8:
-                    if (int_is_range(&i->bigInt, 0, UINT8_MAX) == INT_WITHIN)
+                    if (int_is_range(i, 0, UINT8_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = UI8_VAL(int_to_u32(&i->bigInt));
+                        *promotedRhs = UI8_VAL(int_to_u32(i));
                         return true;
                     }
                     break;
                 case TypeInt16:
-                    if (int_is_range(&i->bigInt, INT16_MIN, INT16_MAX) == INT_WITHIN)
+                    if (int_is_range(i, INT16_MIN, INT16_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = I16_VAL(int_to_i32(&i->bigInt));
+                        *promotedRhs = I16_VAL(int_to_i32(i));
                         return true;
                     }
                     break;
                 case TypeUint16:
-                    if (int_is_range(&i->bigInt, 0, UINT16_MAX) == INT_WITHIN)
+                    if (int_is_range(i, 0, UINT16_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = UI16_VAL(int_to_u32(&i->bigInt));
+                        *promotedRhs = UI16_VAL(int_to_u32(i));
                         return true;
                     }
                     break;
                 case TypeInt32:
-                    if (int_is_range(&i->bigInt, INT32_MIN, INT32_MAX) == INT_WITHIN)
+                    if (int_is_range(i, INT32_MIN, INT32_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = I32_VAL(int_to_i32(&i->bigInt));
+                        *promotedRhs = I32_VAL(int_to_i32(i));
                         return true;
                     }
                     break;
                 case TypeUint32:
-                    if (int_is_range(&i->bigInt, 0, UINT32_MAX) == INT_WITHIN)
+                    if (int_is_range(i, 0, UINT32_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = UI32_VAL(int_to_u32(&i->bigInt));
+                        *promotedRhs = UI32_VAL(int_to_u32(i));
                         return true;
                     }
                     break;
                 case TypeInt64:
-                    if (int_is_range(&i->bigInt, INT64_MIN, INT64_MAX) == INT_WITHIN)
+                    if (int_is_range(i, INT64_MIN, INT64_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = I64_VAL(int_to_i64(&i->bigInt));
+                        *promotedRhs = I64_VAL(int_to_i64(i));
                         return true;
                     }
                     break;
                 case TypeUint64:
-                    if (int_is_range(&i->bigInt, 0, UINT64_MAX) == INT_WITHIN)
+                    if (int_is_range(i, 0, UINT64_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = UI64_VAL(int_to_u64(&i->bigInt));
+                        *promotedRhs = UI64_VAL(int_to_u64(i));
                         return true;
                     }
                     break;

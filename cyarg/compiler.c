@@ -236,16 +236,16 @@ static void emitConstant(Value value) {
     case VAL_ADDRESS: // fall through
     case VAL_DOUBLE:
         break;
-    case VAL_OBJ:
-        if (IS_INT(value)) {
-            ObjInt *oi = (ObjInt *) value.as.obj;
-            if (int_is_range(&oi->bigInt, -UINT24_MAX, UINT24_MAX) == INT_WITHIN) {
-                v = int_to_i32(&oi->bigInt);
-                asObject = false;
-            }
-        } else {
-            assert(value.as.obj->type == OBJ_STRING);
+    case VAL_BIG_SMALL_INT: {
+        Int *i = VALUE_AS_INT(value);
+        if (int_is_range(i, -UINT24_MAX, UINT24_MAX) == INT_WITHIN) {
+            v = int_to_i32(i);
+            asObject = false;
         }
+        break;
+    }
+    case VAL_OBJ:
+        assert(value.as.obj->type == OBJ_STRING);
         break;
     default:
         assert(!"unsupported type as constant");
@@ -253,6 +253,12 @@ static void emitConstant(Value value) {
     }
 
     if (asObject) {
+        if (value.type == VAL_BIG_SMALL_INT) {
+            Int *i = VALUE_AS_INT(value);
+            if (i->d_ > i->m_ || i->overflow_) {
+                printf("What1! %p\n", i);
+            }
+        }
         emitBytes(OP_CONSTANT, makeConstant(value));
     } else {
         emitImmediateConstant(v);
@@ -352,10 +358,12 @@ static void generateNumber(ObjExprNumber* num) {
         emitConstant(DOUBLE_VAL(num->dbl));
         break;
     case NUMBER_INT: {
-        ObjInt *objInt = allocateIntObject(num->bigInt.d_);
-        objInt->isLiteral = true;
-        int_set_t(&num->bigInt, &objInt->bigInt);
-        emitConstant(OBJ_VAL(objInt));
+        Value v;
+        allocateIntValue(&v, num->bigInt.d_);
+        VALUE_AS_BIG_SMALL_INT(v)->literal_ = true;
+        VALUE_AS_INT(v)->literal_ = true;
+        int_set_t(&num->bigInt, VALUE_AS_INT(v));
+        emitConstant(v);
         break;
     }
     default:

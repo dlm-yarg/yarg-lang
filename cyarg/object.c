@@ -40,6 +40,7 @@ ObjInt* allocateIntObject(size_t numDigits) {
     assert(numDigits <= 254 && numDigits >= 2);
     ObjInt *i = (ObjInt *) allocateObject(sizeof (ObjInt) + numDigits * sizeof (uint16_t), OBJ_INT);
     i->bigInt.m_ = numDigits;
+    i->bigInt.obj_ = true;
     return i;
 }
 
@@ -138,18 +139,6 @@ ObjBuiltin* newBuiltin(BuiltinFun function) {
     return builtin;
 }
 
-ObjInt* newInt(int64_t value) {
-    ObjInt *i = allocateIntObject(sizeof value / sizeof (uint16_t));
-    int_set_i(value, &i->bigInt);
-    return i;
-}
-
-ObjInt* newIntU(uint64_t value) {
-    ObjInt *i = allocateIntObject(sizeof value / sizeof (uint16_t));
-    int_set_u(value, &i->bigInt);
-    return i;
-}
-
 Value defaultIntValue() {
     ObjInt *intObj = allocateIntObject(1);
     int_init(&intObj->bigInt);
@@ -241,8 +230,8 @@ void offsetPointerDestination(ObjPackedPointer* pointer, size_t offset) {
 
 bool isAddressValue(Value val) {
     if (IS_INT(val)) {
-        ObjInt *i = AS_INTOBJ(val);
-        return i->isLiteral;
+        BigSmallInt *i = VALUE_AS_BIG_SMALL_INT(val);
+        return i->literal_;
     } else if (IS_ADDRESS(val)) {
         return true;
     } else {
@@ -583,7 +572,7 @@ ObjString* objectToString(Value value) {
             return structToString(AS_STRUCT(value));
             break;
         case OBJ_INT: {
-            Int *i = AS_INT(value);
+            Int *i = OBJ_AS_INT(value);
             char sb[INT_STRLEN_FOR_INT254];
             char const* s = int_to_s(i, sb, INT_STRLEN_FOR_INT254);
             return copyString(s, (int)strlen(s));

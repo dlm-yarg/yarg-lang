@@ -14,7 +14,7 @@
 #define PACKAGE_MAGIC_LEN 6
 
 typedef struct ObjString ObjString;
-typedef struct ObjInt ObjInt;
+typedef struct BigSmallInt BigSmallInt;
 typedef struct ObjFunction ObjFunction;
 typedef struct Chunk Chunk;
 
@@ -113,7 +113,7 @@ typedef struct {
 typedef struct {
     uint32_t n_;
     uint32_t extent_;
-        ObjString **i_;
+    ObjString **i_;
     int totalStringLength_;
 } StringsFile;
 
@@ -126,7 +126,7 @@ typedef struct {
 typedef struct {
     uint32_t n_;
     uint32_t extent_;
-    ObjInt **i_;
+    BigSmallInt *i_;
     int totalIntsLength_;
 } IntsFile;
 

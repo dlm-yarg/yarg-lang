@@ -229,7 +229,8 @@ static void noLongerLiteralInt(Value *value)
 {
     if (IS_INT(*value))
     {
-        ((ObjInt *) value->as.obj)->isLiteral = false;
+        VALUE_AS_BIG_SMALL_INT(*value)->literal_ = false;
+        VALUE_AS_INT(*value)->literal_ = false; // in the small case this will repeat the assignment above, in the large case there is literal_ in the value and the object
     }
 }
 
@@ -460,6 +461,12 @@ ObjString* valueToString(Value value) {
         case VAL_I64: string = i64ToString(AS_I64(value)); break;
         case VAL_UI64: string = ui64ToString(AS_UI64(value)); break;
         case VAL_ADDRESS: string = addressToString(AS_ADDRESS(value)); break;
+        case VAL_BIG_SMALL_INT: {
+            Int *i = VALUE_AS_INT(value);
+            char sb[INT_STRLEN_FOR_INT254];
+            char const* s = int_to_s(i, sb, INT_STRLEN_FOR_INT254);
+            return copyString(s, (int)strlen(s));
+        }
         case VAL_OBJ: string = objectToString(value); break;
     }
     return string;
@@ -510,7 +517,7 @@ bool is_positive_integer32(Value a) {
     } else if (IS_I64(a) && AS_I64(a) >= 0 && AS_I64(a) <= UINT32_MAX) {
         return true;
     } else if (IS_INT(a)) {
-        return int_is_range(AS_INT(a), 0, UINT32_MAX) == INT_WITHIN;
+        return int_is_range(VALUE_AS_INT(a), 0, UINT32_MAX) == INT_WITHIN;
     }
     return false;
 }
@@ -533,8 +540,8 @@ uint32_t as_positive_integer32(Value a) {
     } else if (IS_UI64(a) && AS_UI64(a) <= UINT32_MAX) {
         return (uint32_t) AS_UI64(a);
     } else if (IS_INT(a)) {
-        if (int_is_range(AS_INT(a), 0, UINT32_MAX) == INT_WITHIN) {
-            return int_to_u32(AS_INT(a));
+        if (int_is_range(VALUE_AS_INT(a), 0, UINT32_MAX) == INT_WITHIN) {
+            return int_to_u32(VALUE_AS_INT(a));
         }
     }
     return 0;
@@ -557,4 +564,16 @@ PackedValueStore* storedAddressof(Value value) {
 uintptr_t pinUniformArray(ObjPackedUniformArray* array) {
     pinObj((Obj*)array);
     return (uintptr_t) array->store.storedValue;
+}
+
+void allocateIntValue(Value *newBigSmallInt, size_t numDigits) {
+    newBigSmallInt->type = VAL_BIG_SMALL_INT;
+    BigSmallInt *bsi = &newBigSmallInt->as.bigSmallInt;
+    if (numDigits > 2) {
+        bsi->objInt_ = allocateIntObject(numDigits);
+        bsi->obj_ = true;
+    } else {
+        bsi->i_.m_ = 2;
+        bsi->obj_ = false;
+    }
 }

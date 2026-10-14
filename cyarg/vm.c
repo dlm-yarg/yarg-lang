@@ -530,12 +530,12 @@ static void promote(Value *left, Value *right)
     assert(left != 0 && right != 0);
 
     Value *toPromote = 0, *promotionToTypeOf;
-    if (IS_INT(*left) && (AS_INTOBJ(*left)->isLiteral))
+    if (IS_INT(*left) && (VALUE_AS_INT(*left)->literal_))
     {
         toPromote = left;
         promotionToTypeOf = right;
     }
-    else if (IS_INT(*right) && (AS_INTOBJ(*right)->isLiteral))
+    else if (IS_INT(*right) && (VALUE_AS_INT(*right)->literal_))
     {
         toPromote = right;
         promotionToTypeOf = left;
@@ -543,7 +543,7 @@ static void promote(Value *left, Value *right)
     if (toPromote != 0)
     {
         ValueType promoteTo = promotionToTypeOf->type;
-        Int *bigInt = AS_INT(*toPromote);
+        Int *bigInt = VALUE_AS_INT(*toPromote);
 
         switch (promoteTo)
         {
@@ -754,10 +754,13 @@ InterpretResult run(ObjRoutine* routine) {
             traceExecution(routine);
         }
 
-        uint8_t instruction;
-        switch (instruction = READ_BYTE()) {
+        uint8_t instruction = READ_BYTE();
+        switch (instruction) {
             case OP_CONSTANT: {
+//                printf("Read C %u\n", *frame->ip);
                 Value constant = READ_CONSTANT();
+//                Value constant = frame->closure->function->chunk.constants.values[*frame->ip++];
+
                 push(routine, constant);
                 break;
             }
@@ -771,10 +774,13 @@ InterpretResult run(ObjRoutine* routine) {
                 {
                     num += 65536 * READ_BYTE();
                 }
-                ObjInt *i = newIntU(num);
-                i->isLiteral = true;
-                i->bigInt.neg_ = instruction == OP_IMMEDIATE_N8 || instruction == OP_IMMEDIATE_N16 || instruction == OP_IMMEDIATE_N24;
-                push(routine, OBJ_VAL(i));
+                Value i;
+                i.type = VAL_BIG_SMALL_INT;
+                i.as.bigSmallInt.i_.m_ = 2;
+                int_set_u(num, (Int *)&i.as.bigSmallInt.i_);
+                i.as.bigSmallInt.literal_ = true;
+                i.as.bigSmallInt.i_.neg_ = instruction == OP_IMMEDIATE_N8 || instruction == OP_IMMEDIATE_N16 || instruction == OP_IMMEDIATE_N24;
+                push(routine, i);
                 break;
             }
             case OP_NIL: push(routine, NIL_VAL); break;
@@ -924,9 +930,9 @@ InterpretResult run(ObjRoutine* routine) {
 
                     pop(routine);
                     push(routine, result);
-                } else if (IS_INT(peek(routine, 0)))
-                {
-                    Int *b = AS_INT(pop(routine));
+                } else if (IS_INT(peek(routine, 0))) {
+                    Value i = pop(routine);
+                    Int *b = VALUE_AS_INT(i);
                     ObjString* name = READ_STRING();
                     if (strcmp(name->chars, "overflow") == 0)
                     {
@@ -1198,7 +1204,7 @@ InterpretResult run(ObjRoutine* routine) {
                 }
                 else
                 {
-                    nominal_address = int_to_u64(AS_INT(location));
+                    nominal_address = int_to_u64(VALUE_AS_INT(location));
                 }
 #if defined (CYARG_SELF_HOSTED)
                 volatile uint32_t* reg = (volatile uint32_t*) nominal_address;
@@ -1559,18 +1565,22 @@ InterpretResult compileScript(ObjString* filename, Value* result) {
 
 void unaryIntOp(ObjRoutine* routine, int op) {
     assert(op == OP_NEGATE);
-    Int* a = AS_INT(peek(routine, 0));
-    ObjInt *r = allocateIntObject(a->d_);
-    int_set_t(a, &r->bigInt);
-    int_neg(&r->bigInt);
+    Value i = peek(routine, 0);
+    Int *a = VALUE_AS_INT(i);
+    Value negI;
+    allocateIntValue(&negI, a->d_);
+    int_set_t(a, VALUE_AS_INT(negI));
+    int_neg(VALUE_AS_INT(negI));
     pop(routine);
-    push(routine, OBJ_VAL(r));
+    push(routine, negI);
 }
 
 void binaryIntOp(ObjRoutine* routine, char const *c)
 {
-    Int *a = AS_INT(peek(routine, 1));
-    Int *b = AS_INT(peek(routine, 0));
+    Value va = peek(routine, 1);
+    Value vb = peek(routine, 0);
+    Int *a = VALUE_AS_INT(va);
+    Int *b = VALUE_AS_INT(vb);
 
     int s = 0;
     switch (*c)
@@ -1591,32 +1601,36 @@ void binaryIntOp(ObjRoutine* routine, char const *c)
         assert(!"IntOp");
     }
     if (s > 254) s = 254;
-    ObjInt *r = allocateIntObject(s);
-    int_init(&r->bigInt);
+    Value r;
+    allocateIntValue(&r, s);
+    Int *i = VALUE_AS_INT(r);
+    int_init(i);
 
     switch (*c)
     {
-    case '+': int_add(a, b, &r->bigInt); break;
-    case '-': int_sub(a, b, &r->bigInt); break;
-    case '*': int_mul(a, b, &r->bigInt); break;
-    case '/': int_div(a, b, &r->bigInt, 0); break; // todo - compiler should optimise for /%
+    case '+': int_add(a, b, i); break;
+    case '-': int_sub(a, b, i); break;
+    case '*': int_mul(a, b, i); break;
+    case '/': int_div(a, b, i, 0); break; // todo - compiler should optimise for /%
     case '%': {
         IntConcrete254 q;
         int_init_concrete254(&q);
-        int_div(a, b, (Int *) &q, &r->bigInt); // todo int_div should handle q == 0
+        int_div(a, b, (Int *) &q, i); // todo int_div should handle q == 0
         break;
     }
     default:
         assert(!"IntOp");
     }
     routine->stackTopIndex -= 2;
-    push(routine, OBJ_VAL(r));
+    push(routine, r);
 }
 
 void binaryIntBoolOp(ObjRoutine* routine, char const *op)
 {
-    Int *b = AS_INT(pop(routine));
-    Int *a = AS_INT(pop(routine));
+    Value vb = pop(routine);
+    Value va = pop(routine);
+    Int *a = VALUE_AS_INT(va);
+    Int *b = VALUE_AS_INT(vb);
     IntComp ic = int_is(a, b);
     bool r;
     switch (*op)

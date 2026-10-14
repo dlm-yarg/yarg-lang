@@ -25,6 +25,7 @@ typedef union {
     uint64_t ui64;
     int64_t i64;
     uintptr_t address;
+    BigSmallInt bigSmallInt;
     Obj* obj;
 } AnyValue;
 
@@ -41,6 +42,7 @@ typedef enum {
     VAL_UI64,
     VAL_I64,
     VAL_ADDRESS,
+    VAL_BIG_SMALL_INT,
     VAL_OBJ,
 } ValueType;
 
@@ -70,7 +72,9 @@ typedef struct {
 #define IS_I64(value)      ((value).type == VAL_I64)
 #define IS_ADDRESS(value)  ((value).type == VAL_ADDRESS)
 #define IS_OBJ(value)      ((value).type == VAL_OBJ)
-#define IS_INT(value)      ((value).type == VAL_OBJ && (value).as.obj->type == OBJ_INT)
+#define IS_INT(value)       ((value).type == VAL_BIG_SMALL_INT)
+#define IS_BIG_INT(value)   ((value).type == VAL_BIG_SMALL_INT && (value).as.bigSmallInt.obj_)
+#define IS_SMALL_INT(value) ((value).type == VAL_BIG_SMALL_INT && !(value).as.bigSmallInt.obj_)
 
 #define AS_OBJ(value)      ((value).as.obj)
 #define AS_BOOL(value)     ((value).as.boolean)
@@ -84,6 +88,10 @@ typedef struct {
 #define AS_I64(value)      ((value).as.i64)
 #define AS_ADDRESS(value)  ((value).as.address)
 #define AS_DOUBLE(value)   ((value).as.dbl)
+#define VALUE_AS_BIG_SMALL_INT(value)   (&(value).as.bigSmallInt)
+#define VALUE_AS_INT(value)             ((value).as.bigSmallInt.obj_ ? &(value).as.bigSmallInt.objInt_->bigInt : (Int *)&(value).as.bigSmallInt.i_)
+#define VALUE_AS_OBJINT(value)          ((value).as.bigSmallInt.objInt_)
+#define BIG_SMALL_INT_AS_INT(bsi)       ((bsi)->obj_ ? &(bsi)->objInt_->bigInt : (Int *)&(bsi)->i_)
 
 #define BOOL_VAL(value)     ((Value){VAL_BOOL, {.boolean = value }})
 #define NIL_VAL             ((Value){VAL_NIL, {.i32 = 0 }})
@@ -161,5 +169,7 @@ void freeDynamicValueArray(DynamicValueArray* array);
 PackedValueStore* storedAddressof(Value value);
 
 uintptr_t pinUniformArray(ObjPackedUniformArray* array);
+
+void allocateIntValue(Value *newBigSmallInt, size_t numDigits);
 
 #endif

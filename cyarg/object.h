@@ -50,8 +50,7 @@ typedef struct ObjConcreteYargTypeMap ObjConcreteYargTypeMap;
 #define AS_POINTER(value)      ((ObjPackedPointer*)AS_OBJ(value))
 #define AS_STRUCT(value)       ((ObjPackedStruct*)AS_OBJ(value))
 #define AS_SYNCGROUP(value)    ((ObjSyncGroup*)AS_OBJ(value))
-#define AS_INTOBJ(value)       ((ObjInt*)AS_OBJ(value))
-#define AS_INT(value)          (&(AS_INTOBJ(value)->bigInt))
+#define OBJ_AS_INT(value)      (&((ObjInt*)AS_OBJ(value))->bigInt)
 #define AS_MAP(value)          ((ObjMap*)AS_OBJ(value))
 
 typedef enum {
@@ -160,7 +159,6 @@ struct ObjString {
 
 typedef struct ObjInt {
     Obj obj;
-    bool isLiteral;
     Int bigInt;
 } ObjInt;
 
@@ -245,8 +243,6 @@ ObjString* takeString(char* chars, int length);
 ObjString* copyString(const char* chars, int length);
 ObjString* copyStringWithEscapes(const char* chars, int length);
 ObjUpvalue* newUpvalue(ValueCell* slot, size_t stackOffset);
-ObjInt* newInt(int64_t value);
-ObjInt* newIntU(uint64_t value);
 
 PackedValue arrayElement(PackedValue array, size_t index);
 size_t arrayCardinality(PackedValue array);
