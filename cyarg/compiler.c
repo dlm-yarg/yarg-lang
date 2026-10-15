@@ -253,12 +253,12 @@ static void emitConstant(Value value) {
     }
 
     if (asObject) {
-        if (value.type == VAL_BIG_SMALL_INT) {
-            Int *i = VALUE_AS_INT(value);
-            if (i->d_ > i->m_ || i->overflow_) {
-                printf("What1! %p\n", i);
-            }
-        }
+//        if (value.type == VAL_BIG_SMALL_INT) {
+//            Int *i = VALUE_AS_INT(value);
+//            if (i->d_ > i->m_ || i->overflow_) {
+//                printf("What1! %p\n", i);
+//            }
+//        }
         emitBytes(OP_CONSTANT, makeConstant(value));
     } else {
         emitImmediateConstant(v);

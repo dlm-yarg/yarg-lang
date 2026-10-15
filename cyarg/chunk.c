@@ -35,15 +35,15 @@ void writeChunk(Chunk* chunk, uint8_t byte, int line) {
     chunk->count++;
 }
 
-Int *iiii = 0;
+//Int *iiii = 0;
 
 int addConstant(Chunk* chunk, Value value) {
-    if (iiii != 0) {
-        printf("D %u %u\n", iiii->d_, iiii->m_);
-        if (iiii->d_ != 4 || iiii->m_ != 4) {
-            printf("D What!\n");
-        }
-    }
+//    if (iiii != 0) {
+//        printf("D %u %u\n", iiii->d_, iiii->m_);
+//        if (iiii->d_ != 4 || iiii->m_ != 4) {
+//            printf("D What!\n");
+//        }
+//    }
 
     for (int i = 0; i < chunk->constants.count; i++) {
         Value *is = &chunk->constants.values[i];

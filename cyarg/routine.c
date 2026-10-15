@@ -272,12 +272,12 @@ static ValueCell* slot(ObjRoutine* routine, size_t index) {
 }
 
 void push(ObjRoutine* routine, Value value) {
-    if (value.type == VAL_BIG_SMALL_INT) {
-        Int *i = VALUE_AS_INT(value);
-        if (i->d_ > i->m_ || i->overflow_) {
-            printf("What2! %p\n", i);
-        }
-    }
+//    if (value.type == VAL_BIG_SMALL_INT) {
+//        Int *i = VALUE_AS_INT(value);
+////        if (i->d_ > i->m_ || i->overflow_) {
+//            printf("What2! %p\n", i);
+//        }
+//    }
     ValueCell* nextSlot = slot(routine, routine->stackTopIndex);
 
     nextSlot->value = value;
@@ -318,7 +318,7 @@ void popN(ObjRoutine* routine, size_t count) {
 void popFrame(ObjRoutine* routine, CallFrame* frame) {
     routine->stackTopIndex = frame->stackEntryIndex;
 }
-extern Int *iiii;
+//extern Int *iiii;
 
 Value peek(ObjRoutine* routine, int distance) {
     ValueCell* cell = peekCell(routine, distance);
@@ -336,15 +336,15 @@ Value peek(ObjRoutine* routine, int distance) {
 //        cell->value.as.bigSmallInt.objInt_->bigInt.neg_ = neg;
 //        cell->value.as.bigSmallInt.objInt_->bigInt.overflow_ = overflow;
 //    }
-    if (iiii != 0) {
-        printf("P %u %u\n", iiii->d_, iiii->m_);
-    }
-    if (cell->value.type == VAL_BIG_SMALL_INT) {
-        Int *i = VALUE_AS_INT(cell->value);
-        if (i->d_ > i->m_ || i->overflow_) {
-            printf("What3! %p\n", i);
-        }
-    }
+//    if (iiii != 0) {
+//        printf("P %u %u\n", iiii->d_, iiii->m_);
+//    }
+//    if (cell->value.type == VAL_BIG_SMALL_INT) {
+//        Int *i = VALUE_AS_INT(cell->value);
+//        if (i->d_ > i->m_ || i->overflow_) {
+//            printf("What3! %p\n", i);
+//        }
+//    }
     return cell->value;
 }
 
@@ -372,7 +372,7 @@ static void traceValueStack(ObjRoutine* routine) {
         stack_lines++;
     }
 
-    for (int line = stack_lines, line_cursor = 0; line >= 0 && line_cursor < stack_lines; line--, line_cursor++) {
+    for (int line = (int)stack_lines, line_cursor = 0; line >= 0 && line_cursor < stack_lines; line--, line_cursor++) {
         char prefix[21] = "                    ";
         if (line_cursor == 0) { // first line identifes the routine and the total stack size
             ObjString* routineStr = valueToString(OBJ_VAL(routine));
