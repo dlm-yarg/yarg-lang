@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
+#include <assert.h>
 
 #include "object.h"
 #include "memory.h"
@@ -82,6 +83,10 @@ void markPackedValue(PackedValue value) {
     } else if (type_packs_as_container(value.storedType)) {
         markPackedContainer(value);
         return;
+    } else if (value.storedType->yt == TypeInt) {
+        if (value.storedValue->as.bigSmallInt.obj_) {
+            markObject((Obj *)value.storedValue->as.bigSmallInt.objInt_);
+        }
     } else if (type_packs_as_obj(value.storedType)) {
         markObject((Obj*)value.storedType);
         markObject(value.storedValue->as.obj);
@@ -96,9 +101,10 @@ void initialisePackedValue(PackedValue packedValue) {
     } else {
         switch (packedValue.storedType->yt) {
             case TypeAny: packedValue.storedValue->asValue = NIL_VAL; break;
-            case TypeBool: packedValue.storedValue->asValue = BOOL_VAL(false); break;
-            case TypeDouble: packedValue.storedValue->asValue = DOUBLE_VAL(0); break;
-            case TypeInt8: packedValue.storedValue->as.i8 = 0; break;
+            case TypeBool: *(bool *)packedValue.storedValue = false; break;
+            case TypeDouble: packedValue.storedValue->as.dbl = 0.0; break;
+            case TypeInt: int_init_concrete2(& packedValue.storedValue->as.bigSmallInt.i_); break;
+            case TypeInt8: *(int8_t *)packedValue.storedValue = 0; break;
             case TypeUint8: packedValue.storedValue->as.ui8 = 0; break;
             case TypeInt16: packedValue.storedValue->as.i16 = 0; break;
             case TypeUint16: packedValue.storedValue->as.ui16 = 0; break;
@@ -124,7 +130,6 @@ void initialisePackedValue(PackedValue packedValue) {
                 }
                 break;
             }
-            case TypeInt:
             case TypePointer:
             case TypeString:
             case TypeClass:
@@ -147,9 +152,10 @@ Value unpackValue(PackedValue packedValue) {
     } else {
         switch (packedValue.storedType->yt) {
             case TypeAny: return packedValue.storedValue->asValue;
-            case TypeBool: return packedValue.storedValue->asValue;
-            case TypeDouble: return packedValue.storedValue->asValue;
-            case TypeInt8: return I8_VAL(packedValue.storedValue->as.i8);
+            case TypeBool: return BOOL_VAL(*(bool *)packedValue.storedValue);
+            case TypeDouble: return DOUBLE_VAL(packedValue.storedValue->as.dbl);
+            case TypeInt: return INT_VAL(packedValue.storedValue->as.bigSmallInt);
+            case TypeInt8: return I8_VAL(*(int8_t *)packedValue.storedValue);
             case TypeUint8: return UI8_VAL(packedValue.storedValue->as.ui8);
             case TypeInt16: return I16_VAL(packedValue.storedValue->as.i16);
             case TypeUint16: return UI16_VAL(packedValue.storedValue->as.ui16);
@@ -157,19 +163,14 @@ Value unpackValue(PackedValue packedValue) {
             case TypeUint32: return UI32_VAL(packedValue.storedValue->as.ui32);
             case TypeInt64: return I64_VAL(packedValue.storedValue->as.i64);
             case TypeUint64: return UI64_VAL(packedValue.storedValue->as.ui64);
+            
             case TypeStruct: {
                 return OBJ_VAL(newPackedStructAt(packedValue));
             }
             case TypeArray: {
                 return OBJ_VAL(newPackedUniformArrayAt(packedValue));
             }
-            case TypeInt: {
-                if (packedValue.storedValue->as.obj) {
-                    return OBJ_VAL(packedValue.storedValue->as.obj);
-                } else {
-                    return defaultIntValue();
-                }
-            }
+
             case TypePointer:
             case TypeString:
             case TypeClass:
@@ -194,10 +195,12 @@ static void packValue(PackedValue packedStorageTarget, Value value) {
         packedStorageTarget.storedValue->asValue = value;
     } else {
         switch (packedStorageTarget.storedType->yt) {
-            case TypeAny: packedStorageTarget.storedValue->asValue = value; break;
-            case TypeBool: packedStorageTarget.storedValue->asValue = value; break;
-            case TypeDouble: packedStorageTarget.storedValue->asValue = value; break;
-            case TypeInt8: packedStorageTarget.storedValue->as.i8 = AS_I8(value); break;
+        case TypeAny: packedStorageTarget.storedValue->asValue = value; break;
+        case TypeBool: *(bool *) packedStorageTarget.storedValue = AS_BOOL(value); break;
+        case TypeDouble: packedStorageTarget.storedValue->as.boolean = AS_DOUBLE(value); break;
+        case TypeInt: packedStorageTarget.storedValue->as.bigSmallInt = *VALUE_AS_BIG_SMALL_INT(value); break;
+
+            case TypeInt8: *(int8_t *)packedStorageTarget.storedValue = AS_I8(value); break;
             case TypeUint8: packedStorageTarget.storedValue->as.ui8 = AS_UI8(value); break;
             case TypeInt16: packedStorageTarget.storedValue->as.i16 = AS_I16(value); break;
             case TypeUint16: packedStorageTarget.storedValue->as.ui16 = AS_UI16(value); break;
@@ -205,6 +208,7 @@ static void packValue(PackedValue packedStorageTarget, Value value) {
             case TypeUint32: packedStorageTarget.storedValue->as.ui32 = AS_UI32(value); break;
             case TypeInt64: packedStorageTarget.storedValue->as.i64 = AS_I64(value); break;
             case TypeUint64: packedStorageTarget.storedValue->as.ui64 = AS_UI64(value); break;
+
             case TypePointer:
             case TypeString:
             case TypeClass:
@@ -213,11 +217,8 @@ static void packValue(PackedValue packedStorageTarget, Value value) {
             case TypeRoutine:
             case TypeChannel:
             case TypeYargType:
-            case TypeInt:
-            case TypeMap: {
-                packedStorageTarget.storedValue->as.obj = AS_OBJ(value);
-                break;
-            }
+            case TypeMap: packedStorageTarget.storedValue->as.obj = AS_OBJ(value); break;
+
             case TypeStruct:
             case TypeArray:
                 break;
@@ -577,7 +578,6 @@ void allocateIntValue(Value *newBigSmallInt, size_t numDigits) {
         bsi->objInt_ = allocateIntObject(numDigits);
         bsi->obj_ = true;
     } else {
-        bsi->i_.m_ = 2;
-        bsi->obj_ = false;
+        (void) int_init_concrete2(&bsi->i_);
     }
 }

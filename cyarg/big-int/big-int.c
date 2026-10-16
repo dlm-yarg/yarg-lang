@@ -65,6 +65,7 @@ void int_init(Int *i)
     assert(i->m_ != 0 && i->m_ % 2 == 0);
     i->neg_ = false;
     i->overflow_ = false;
+    i->literal_ = false;
     i->d_ = 1;
     i->w_[0] = 0;
 }
@@ -72,6 +73,7 @@ void int_init(Int *i)
 Int *int_init_concrete2(IntConcrete2 *i)
 {
     i->m_ = 2;
+    i->obj_ = false;
     int_init((Int *) i);
     return (Int *) i;
 }
@@ -79,6 +81,7 @@ Int *int_init_concrete2(IntConcrete2 *i)
 Int *int_init_concrete4(IntConcrete4 *i)
 {
     i->m_ = 4;
+    i->obj_ = false;
     int_init((Int *) i);
     return (Int *) i;
 }
@@ -86,6 +89,7 @@ Int *int_init_concrete4(IntConcrete4 *i)
 Int *int_init_concrete254(IntConcrete254 *i)
 {
     i->m_ = 254;
+    i->obj_ = false;
     int_init((Int *) i);
     return (Int *) i;
 }

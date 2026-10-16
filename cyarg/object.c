@@ -140,9 +140,9 @@ ObjBuiltin* newBuiltin(BuiltinFun function) {
 }
 
 Value defaultIntValue() {
-    ObjInt *intObj = allocateIntObject(1);
-    int_init(&intObj->bigInt);
-    return OBJ_VAL(intObj);
+    Value i = { .type = VAL_BIG_SMALL_INT };
+    (void) int_init_concrete2(&i.as.bigSmallInt.i_);
+    return i;
 }
 
 PackedValue arrayElement(PackedValue array, size_t index) {

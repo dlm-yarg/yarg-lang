@@ -96,6 +96,7 @@ typedef struct {
 #define BOOL_VAL(value)     ((Value){VAL_BOOL, {.boolean = value }})
 #define NIL_VAL             ((Value){VAL_NIL, {.i32 = 0 }})
 #define DOUBLE_VAL(value)   ((Value){VAL_DOUBLE, {.dbl = value }})
+#define INT_VAL(value)      ((Value){VAL_BIG_SMALL_INT, {.bigSmallInt = value }})
 #define I8_VAL(value)       ((Value){VAL_I8, {.i8 = value}})
 #define UI8_VAL(value)      ((Value){VAL_UI8, {.ui8 = value}})
 #define I16_VAL(value)      ((Value){VAL_I16, {.i16 = value}})
@@ -104,7 +105,7 @@ typedef struct {
 #define UI32_VAL(value)     ((Value){VAL_UI32, {.ui32 = value }})
 #define I64_VAL(a)          ((Value){VAL_I64, {.i64 = a}})
 #define UI64_VAL(a)         ((Value){VAL_UI64, {.ui64 = a}})
-#define ADDRESS_VAL(value)  ((Value){VAL_ADDRESS, { .address = value}})
+#define ADDRESS_VAL(value)  ((Value){VAL_ADDRESS, {.address = value}})
 #define OBJ_VAL(object)     ((Value){VAL_OBJ, {.obj = (Obj*)object}})
 
 #if IS_64BIT

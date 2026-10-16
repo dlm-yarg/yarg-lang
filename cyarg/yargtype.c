@@ -202,8 +202,8 @@ bool type_packs_as_obj(ObjConcreteYargType* type) {
         case TypeUint64:
         case TypeArray:
         case TypeStruct:
-            return false;
         case TypeInt:
+            return false;
         case TypeString:
         case TypeClass:
         case TypeInstance:
@@ -336,9 +336,13 @@ size_t yt_sizeof_type_storage(Value type) {
         ObjConcreteYargType* t = AS_YARGTYPE(type);
         switch (t->yt) {
         case TypeAny:
+            return sizeof (Value);
         case TypeBool:
+            return sizeof (int8_t);
         case TypeDouble:
-            return sizeof(Value);
+            return sizeof (double);
+        case TypeInt:
+            return sizeof (BigSmallInt);
         case TypeInt8:
             return sizeof(int8_t);
         case TypeUint8:
@@ -363,7 +367,6 @@ size_t yt_sizeof_type_storage(Value type) {
             ObjConcreteYargTypeArray* array = (ObjConcreteYargTypeArray*)t;
             return arrayElementSize(array) * array->cardinality;
         }
-        case TypeInt:
         case TypeString:
         case TypeClass:
         case TypeInstance:
@@ -386,7 +389,7 @@ Value defaultValue(Value type) {
         switch (ct->yt) {
             case TypeBool: return BOOL_VAL(false);
             case TypeInt: return defaultIntValue();
-            case TypeDouble: return DOUBLE_VAL(0);
+            case TypeDouble: return DOUBLE_VAL(0.0);
             case TypeInt8: return I8_VAL(0);
             case TypeUint8: return UI8_VAL(0);
             case TypeInt16: return I16_VAL(0);

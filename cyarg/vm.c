@@ -774,10 +774,8 @@ InterpretResult run(ObjRoutine* routine) {
                 {
                     num += 65536 * READ_BYTE();
                 }
-                Value i;
-                i.type = VAL_BIG_SMALL_INT;
-                i.as.bigSmallInt.i_.m_ = 2;
-                i.as.bigSmallInt.i_.obj_ = false;
+                Value i = { .type = VAL_BIG_SMALL_INT };
+                (void) int_init_concrete2(&i.as.bigSmallInt.i_);
                 i.as.bigSmallInt.i_.literal_ = true;
                 int_set_u(num, (Int *)&i.as.bigSmallInt.i_);
                 i.as.bigSmallInt.i_.neg_ = instruction == OP_IMMEDIATE_N8 || instruction == OP_IMMEDIATE_N16 || instruction == OP_IMMEDIATE_N24;
