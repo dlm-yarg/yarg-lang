@@ -378,7 +378,7 @@ static void defineMethod(ObjRoutine* routine, ObjString* name) {
 
 static bool derefArrayElement(ObjRoutine* routine) {
     if (!is_positive_integer32(peek(routine, 0))) {
-        runtimeError(routine, "Expected an array and a positive or unsigned integer.");
+        runtimeError(routine, "1 Expected an array and a positive or unsigned integer.");
         return false;
     }
     size_t index = as_positive_integer32(peek(routine, 0));
@@ -446,7 +446,7 @@ static bool derefElement(ObjRoutine* routine) {
 static bool setArrayElement(ObjRoutine* routine, ObjPackedUniformArray* array, Value indexVal, Value rhs) {
 
     if (!is_positive_integer32(indexVal)) {
-        runtimeError(routine, "Expected an array and a positive or unsigned integer.");
+        runtimeError(routine, "2 Expected an array and a positive or unsigned integer.");
         return false;
     }
 
@@ -487,7 +487,7 @@ static bool setElement(ObjRoutine* routine) {
     } else if (IS_UNIFORMARRAY(collection)) {
         result = setArrayElement(routine, AS_UNIFORMARRAY(collection), index, rhs);
     } else {
-        runtimeError(routine, "Expected an array and a positive or unsigned integer.");
+        runtimeError(routine, "3 Expected an array and a positive or unsigned integer.");
         return false;
     }
 

@@ -127,7 +127,7 @@ void markObject(Obj* object) {
 
 void markValue(Value value) {
     if (IS_OBJ(value)) markObject(AS_OBJ(value));
-    if (IS_BIG_INT(value)) markObject(VALUE_AS_OBJINT(value));
+    if (IS_BIG_INT(value)) markObject((Obj *)VALUE_AS_OBJINT(value));
 }
 
 void markValueCell(ValueCell* cell) {
