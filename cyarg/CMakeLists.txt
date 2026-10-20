@@ -1,7 +1,7 @@
 # PICO SDK defaults to 3.13 minimum
 cmake_minimum_required(VERSION 3.13)
 
-set(CMAKE_C_STANDARD 23)
+set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -12,7 +12,7 @@ else()
     set(USERHOME $ENV{HOME})
 endif()
 set(sdkVersion 2.3.0)
-set(toolchainVersion 15_2_Rel1)
+set(toolchainVersion 14_2_Rel1)
 set(picotoolVersion 2.3.0)
 set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
 if (EXISTS ${picoVscode})
@@ -81,6 +81,8 @@ add_executable(cyarg
     debug.c
     value.h
     value.c
+    value_cell.h
+    value_cell.c
     routine.h
     routine.c
     vm.h
@@ -95,6 +97,8 @@ add_executable(cyarg
     scanner.c
     object.h
     object.c
+    vmobject.h
+    vmobject.c
     table.h
     table.c
     native.h
@@ -105,10 +109,16 @@ add_executable(cyarg
     channel.c
     yargtype.h
     yargtype.c
+    yargobject.h
+    yargobject.c
+    packed_containers.h
+    packed_containers.c
     vm_mutex.h
     vm_mutex.c
     sync_group.h
     sync_group.c
+    xip_library.c
+    xip_library.h
     fs/fs.h
     big-int/big-int.h
     big-int/big-int.c
@@ -126,6 +136,13 @@ target_sources(cyarg
       hosted.c
       hosted.h)
 endif()
+
+if (CYARG_HOSTING STREQUAL "HOSTED")
+target_sources(cyarg PRIVATE bootstrap/cyarg_hosted_ylib.c)
+else()
+target_sources(cyarg PRIVATE bootstrap/cyarg_ylib.c)
+endif()
+
 
 if (CYARG_FEATURE_FILESYSTEM STREQUAL "LITTLEFS")
 target_sources(cyarg

@@ -1,15 +1,18 @@
+#include "parser.h"
+
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
 #include <assert.h>
-
-#include "parser.h"
-#include "ast.h"
-#include "memory.h"
-
-#include "scanner.h"
 #include <stdbool.h>
 #include <limits.h>
+#include <string.h>
+
+#include "ast.h"
+#include "memory.h"
+#include "yargobject.h"
+
+#include "scanner.h"
 
 typedef enum {
     PREC_NONE,
@@ -221,7 +224,7 @@ static uint64_t strtoNum(const char* literal, int length, int radix) {
 static ObjExpr* namedVariable(Token name, bool canAssign) {
 
     ObjString* nameString = copyString(name.start, name.length);
-    tempRootPush(OBJ_VAL(nameString));
+    tempRootPush(STRING_VAL(nameString));
 
     ObjExprNamedVariable* expr = newExprNamedVariable(name.start, name.length);
 
@@ -365,6 +368,7 @@ static ObjExpr* builtin(bool canAssign) {
     switch (parser.previous.type) {
         case TOKEN_PEEK: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_PEEK, 1);
         case TOKEN_READ_YARG_SOURCE: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_READ_YARG_SOURCE, 1);
+        case TOKEN_VM_READ_XIP_FILE: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_READ_XIP_FILE, 1);
         case TOKEN_COMPILE: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_COMPILE, 1);
         case TOKEN_MAKE_ROUTINE: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_MAKE_ROUTINE, 1);
         case TOKEN_MAKE_CHANNEL: return (ObjExpr*) newExprBuiltin(EXPR_BUILTIN_MAKE_CHANNEL, 1);
@@ -435,7 +439,7 @@ static ObjExprTypeStruct* structExpression() {
     while (!check(TOKEN_RIGHT_BRACE)) {
         ObjStmtFieldDeclaration* field = fieldStmt();
         pushWorkingNode((Obj*)field);
-        appendToDynamicValueArray(&struct_declaration->fieldsByIndex, OBJ_VAL(field));
+        appendToDynamicValueArray(&struct_declaration->fieldsByIndex, IMPL_OBJ_VAL(field));
         popWorkingNode();
     }
     
@@ -824,6 +828,7 @@ static AstParseRule rules[] = {
     [TOKEN_UINT32]               = {type,      NULL,   PREC_NONE},
     [TOKEN_UINT64]               = {type,      NULL,   PREC_NONE},
     [TOKEN_VAR]                  = {NULL,      NULL,   PREC_NONE},
+    [TOKEN_VM_READ_XIP_FILE]     = {builtin,   NULL,   PREC_NONE},
     [TOKEN_WHILE]                = {NULL,      NULL,   PREC_NONE},
     [TOKEN_YIELD]                = {NULL,      NULL,   PREC_NONE},
     [TOKEN_TS_SET]               = {builtin,   NULL,   PREC_NONE},

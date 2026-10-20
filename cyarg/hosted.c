@@ -1,48 +1,40 @@
+#include "hosted.h"
+
 #include <stdlib.h>
 #include <sysexits.h>
 #include <assert.h>
+#include <string.h>
 
 #include "common.h"
-#include "hosted.h"
 #include "object.h"
 #include "memory.h"
 #include "debug.h"
 #include "pack.h"
 #include "vm.h"
+#include "vmobject.h"
 
 Host vmHost;
 
-static char* libraryNameFor(const char* importname, const char* libraryPath) {
-    size_t namelen = strlen(importname);
-    size_t pathlen = 0;
-    if (libraryPath) {
-        pathlen = strlen(libraryPath);
+int bootHosted() {
+    vmHost.exitCode = EX_OK;
+
+    InterpretResult result = bootXIP();
+
+    if (result == INTERPRET_RUNTIME_ERROR) {
+        return EX_SOFTWARE;
+    } else {
+        return vmHost.exitCode;
     }
-    char* filename = malloc(pathlen + 1 + namelen + 1);
-    if (filename) {
-        if (libraryPath) {
-            strcpy(filename, libraryPath);
-            if (libraryPath[pathlen - 1] != '/') {
-                strcat(filename, "/");
-            }
-        } else {
-            strcpy(filename, "");
-        }
-        strcat(filename, importname);
-    }
-    return filename;
 }
 
-int runHostedFile(const char* libraryPath, const char* path) {
-
-    char* replPath = libraryNameFor(path, libraryPath);
-    ObjString* replPathString = copyString(replPath, (int) strlen(replPath));
-    tempRootPush(OBJ_VAL(replPathString));
-    free(replPath);
+int bootstrapHostedFile(const char* path) {
 
     vmHost.exitCode = EX_OK;
 
-    InterpretResult result = bootYargSourceFile(replPathString);
+    ObjString* pathString = copyString(path, (int) strlen(path));
+    tempRootPush(STRING_VAL(pathString));
+
+    InterpretResult result = bootScript(pathString);
 
     tempRootPop();
     if (result == INTERPRET_RUNTIME_ERROR) {
@@ -55,7 +47,7 @@ int runHostedFile(const char* libraryPath, const char* path) {
 int compileFile(const char* path, const char* outputPath) {
 
     ObjString* pathString = copyString(path, (int) strlen(path));
-    tempRootPush(OBJ_VAL(pathString));
+    tempRootPush(STRING_VAL(pathString));
 
     Value compilerResult;
     InterpretResult result = compileScript(pathString, &compilerResult);
@@ -80,7 +72,7 @@ int compileFile(const char* path, const char* outputPath) {
 int disassembleFile(const char* path) {
 
     ObjString* pathString = copyString(path, (int)strlen(path));
-    tempRootPush(OBJ_VAL(pathString));
+    tempRootPush(STRING_VAL(pathString));
 
     Value compilerResult;
     InterpretResult result = compileScript(pathString, &compilerResult);
