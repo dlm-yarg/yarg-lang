@@ -773,14 +773,14 @@ static inline uint16_t const *min(uint16_t const *a, uint16_t const *b)
 int64_t int_to_i64(Int const *i)
 {
     FourDigits r;
-    r.ll64_ = 0;
-    uint16_t const *const ih = (uint16_t const *) i->w_;
-    uint16_t const *s = ih;
-    uint16_t const *e = min(&ih[4], &ih[i->d_]);
-    uint16_t *d = &r.a16_;
-    while (s < e)
+    r.l32_ = i->w_[0];
+    if  (i->d_ < 2)
     {
-        *d++ = *s++;
+        r.h32_ = 0;
+    }
+    else
+    {
+        r.h32_ =  i->w_[1];
     }
     if (i->neg_)
     {
@@ -795,10 +795,7 @@ int64_t int_to_i64(Int const *i)
     }
     else
     {
-        if (r.ull64_ > 0x7FFFFFFFFFFFFFFFu)
-        {
-            r.ll64_ = 0x7FFFFFFFFFFFFFFF;
-        }
+        r.ull64_ &= 0x7FFFFFFFFFFFFFFFu;
     }
     return r.ll64_;
 }
@@ -806,14 +803,18 @@ int64_t int_to_i64(Int const *i)
 uint64_t int_to_u64(Int const *i)
 {
     FourDigits r;
-    r.ull64_ = 0;
-    uint16_t const *const ih = (uint16_t const *) i->w_;
-    uint16_t const *s = ih;
-    uint16_t const *e = min(&ih[4], &ih[i->d_]);
-    uint16_t *d = &r.a16_;
-    while (s < e)
+    r.l32_ = i->w_[0];
+    if  (i->d_ < 2)
     {
-        *d++ = *s++;
+        r.h32_ = 0;
+    }
+    else
+    {
+        r.h32_ =  i->w_[1];
+    }
+    if (i->neg_)
+    {
+        r.ull64_ = 0;
     }
     return r.ull64_;
 }
@@ -821,31 +822,20 @@ uint64_t int_to_u64(Int const *i)
 int32_t int_to_i32(Int const *i)
 {
     TwoDigits r;
-    r.i32_ = 0;
-    uint16_t const *const ih = (uint16_t const *) i->w_;
-    uint16_t const *s = ih;
-    uint16_t const *e = min(&ih[2], &ih[i->d_]);
-    uint16_t *d = &r.l16_;
-    while (s < e)
-    {
-        *d++ = *s++;
-    }
+    r.u32_ = i->w_[0];
     if (i->neg_)
     {
-        if (r.u32_ >= 0x80000000u)
+        if (r.u32_ > 0x80000000u)
         {
-            r.i32_ = -0x80000000;
+            r.u32_ = -0x80000000u;
         }
-        else
-        {
-            r.i32_ = -r.u32_;
-        }
+        r.i32_ = -r.i32_;
     }
     else
     {
-        if (r.u32_ > 0x7FFFFFFF)
+        if (r.u32_ > 0x7FFFFFFFu)
         {
-            r.u32_ = 0x7FFFFFFF;
+            r.u32_ = 0x7FFFFFFFu;
         }
     }
     return r.i32_;
@@ -853,17 +843,8 @@ int32_t int_to_i32(Int const *i)
 
 uint32_t int_to_u32(Int const *i)
 {
-    TwoDigits r;
-    r.u32_ = 0;
-    uint16_t const *const ih = (uint16_t const *) i->w_;
-    uint16_t const *s = ih;
-    uint16_t const *e = min(&ih[2], &ih[i->d_]);
-    uint16_t *d = &r.l16_;
-    while (s < e)
-    {
-        *d++ = *s++;
-    }
-    return r.u32_;
+    uint32_t r = i->w_[0];
+    return r;
 }
 
 void int_invariant(Int const *i)

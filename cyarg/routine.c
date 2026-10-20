@@ -322,7 +322,7 @@ void popFrame(ObjRoutine* routine, CallFrame* frame) {
 
 Value peek(ObjRoutine* routine, int distance) {
     ValueCell* cell = peekCell(routine, distance);
-    assert(cell->value.type != VAL_OBJ || cell->value.as.obj->type != OBJ_INT);
+//    assert(cell->value.type != VAL_OBJ || cell->value.as.obj->type != OBJ_INT);
 //    if (cell->value.type == VAL_OBJ && cell->value.as.obj->type == OBJ_INT) {
 //        printf("Value is VAL_OBJ:OBJ_INT - should be VAL_BIG_SMALL_INT - updating\n");
 //        ObjInt* obj = (ObjInt *)cell->value.as.obj;

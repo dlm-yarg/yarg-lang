@@ -56,6 +56,7 @@ fun int_rand()
     }
 }
 
+
 var int[job_size + 4] rts;
 print "small-int-perform benchmark: job size: " + string(job_size) + ", max job length: " + string(max_job_length) + "secs";
 
