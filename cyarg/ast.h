@@ -2,6 +2,10 @@
 #define cyarg_ast_h
 
 #include "object.h"
+#include "value.h"
+#include "big-int/big-int.h"
+
+#include <stdio.h>
 
 typedef struct ObjStmt ObjStmt;
 
@@ -55,6 +59,7 @@ typedef enum {
 
 typedef enum {
     EXPR_BUILTIN_READ_YARG_SOURCE,
+    EXPR_BUILTIN_READ_XIP_FILE,
     EXPR_BUILTIN_COMPILE,
     EXPR_BUILTIN_MAKE_ROUTINE,
     EXPR_BUILTIN_MAKE_CHANNEL,

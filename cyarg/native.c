@@ -1,10 +1,12 @@
+#include "native.h"
+
 #include <stdio.h>
 #include <time.h>
+#include <string.h>
 
 #include "common.h"
 #include "object.h"
 #include "value.h"
-#include "native.h"
 #include "routine.h"
 #include "vm.h"
 #include "fs/fs.h"
@@ -21,6 +23,8 @@
 #include "test-system/testSystem.h"
 #endif
 
+#include "xip_library.h"
+
 static Value nativeArgument(ObjRoutine* routine, size_t argCount, size_t argument) {
     return peek(routine, (int)argCount - 1 - (int)argument);
 }
@@ -35,23 +39,29 @@ bool irq_add_shared_handlerNative(ObjRoutine* routine, int argCount, Value* resu
         runtimeError(routine, "Expected an address.");
         return false;
     }
-    if (!is_positive_integer32(numVal)) {
+    if (!is_positive_integer(numVal)) {
         runtimeError(routine, "Expected an a positive integer.");
         return false;
     }
-    if (!is_positive_integer32(prioVal)) {
+    if (!is_positive_integer(prioVal)) {
         runtimeError(routine, "Expected an a positive integer for priority.");
         return false;
     }        
 
-    unsigned int num = as_positive_integer32(numVal);
+    size_t num = as_positive_integer(numVal);
+    if (num > UINT32_MAX) {
+        runtimeError(routine, "Interrupt must fit in uint32");
+        return false;
+    }
+    
+    uint32_t interrupt_num = (uint32_t) num;
     uintptr_t isrRoutine = AS_ADDRESS(address);
 
 #if defined(CYARG_PICO_SDK_TARGET)
-    unsigned int prio = as_positive_integer32(prioVal);
-    irq_add_shared_handler(num, (irq_handler_t) isrRoutine, prio);
+    size_t prio = as_positive_integer(prioVal);
+    irq_add_shared_handler(interrupt_num, (irq_handler_t) isrRoutine, prio);
 #elif defined(CYARG_FEATURE_TEST_SYSTEM)
-    tsAddInterruptHandler(num, (void *) isrRoutine);
+    tsAddInterruptHandler(interrupt_num, (void *) isrRoutine);
 #else
     #error "No IRQ handler implementation for this build."
 #endif
@@ -68,18 +78,23 @@ bool irq_remove_handlerNative(ObjRoutine* routine, int argCount, Value* result) 
         runtimeError(routine, "Expected an address.");
         return false;
     }
-    if (!is_positive_integer32(numVal)) {
+    if (!is_positive_integer(numVal)) {
         runtimeError(routine, "Expected an a positive integer.");
         return false;
     }
-
-    unsigned int num = as_positive_integer32(numVal);
+    size_t num = as_positive_integer(numVal);
+    if (num > UINT32_MAX) {
+        runtimeError(routine, "Interrupt must fit in uint32");
+        return false;
+    }
+    
+    uint32_t interrupt_num = (uint32_t) num;
     uintptr_t isrRoutine = AS_ADDRESS(address);
 
 #if defined(CYARG_PICO_SDK_TARGET)
-    irq_remove_handler(num, (irq_handler_t) isrRoutine);
+    irq_remove_handler(interrupt_num, (irq_handler_t) isrRoutine);
 #elif defined(CYARG_FEATURE_TEST_SYSTEM)
-    tsRemoveInterruptHandler(num, (void *) isrRoutine);
+    tsRemoveInterruptHandler(interrupt_num, (void *) isrRoutine);
 #else
     #error "No IRQ handler implementation for this build."
 #endif
@@ -106,18 +121,18 @@ bool clock_get_hzNative(ObjRoutine* routine, int argCount, Value* result) {
     }
     Value numVal = nativeArgument(routine, argCount, 0);
 
-    if (!is_positive_integer32(numVal)) {
+    if (!is_positive_integer(numVal)) {
         runtimeError(routine, "Argument must be a positive integer");
         return false;
     }
 
-    uint32_t res = 0;
+    size_t res = 0;
 
 #ifdef CYARG_PICO_SDK_TARGET
-    res = clock_get_hz(as_positive_integer32(numVal));
+    res = clock_get_hz(as_positive_integer(numVal));
 #endif
 
-    *result = UI32_VAL(res);
+    *result = SIZE_T_UI_VAL(res);
     return true;
 }
 
@@ -137,7 +152,7 @@ bool stdin_getsNative(ObjRoutine* routine, int argCount, Value* result) {
         buffer[length - 1] = '\0';
         length--;
     }
-    *result = OBJ_VAL(copyString(buffer, (int) length));
+    *result = STRING_VAL(copyString(buffer, (int) length));
     return true;
 }
 
@@ -185,17 +200,17 @@ bool host_argnNative(ObjRoutine* routine, int argCount, Value* result) {
     }
 
     Value indexVal = nativeArgument(routine, argCount, 0);
-    if (!is_positive_integer32(indexVal)) {
+    if (!is_positive_integer(indexVal)) {
         runtimeError(routine, "Expected a positive integer.");
         return false;
     }
-    uint32_t index = as_positive_integer32(indexVal);
+    size_t index = as_positive_integer(indexVal);
     if (index >= vmHost.argc) {
         runtimeError(routine, "Argument index out of range.");
         return false;
     }
 
-    *result = OBJ_VAL(copyString(vmHost.argv[index], (int) strlen(vmHost.argv[index])));
+    *result = STRING_VAL(copyString(vmHost.argv[index], (int) strlen(vmHost.argv[index])));
     return true;
 }
 
@@ -206,11 +221,11 @@ bool host_exitCodeNative(ObjRoutine* routine, int argCount, Value* result) {
     }
 
     Value codeVal = nativeArgument(routine, argCount, 0);
-    if (!is_positive_integer32(codeVal)) {
+    if (!is_positive_integer(codeVal)) {
         runtimeError(routine, "Expected a positive integer.");
         return false;
     }
-    uint32_t code = as_positive_integer32(codeVal);
+    size_t code = as_positive_integer(codeVal);
     vmHost.exitCode = (int) code;
     *result = NIL_VAL;
     return true;
@@ -227,7 +242,7 @@ bool readFileIntoBufferNative(ObjRoutine* routine, int argCount, Value* result) 
     Value bufferVal = nativeArgument(routine, argCount, 1);
     Value bufferSizeVal = nativeArgument(routine, argCount, 2);
 
-    if (!is_positive_integer32(bufferSizeVal)) {
+    if (!is_positive_integer(bufferSizeVal)) {
         runtimeError(routine, "Expected a positive integer for the buffer size.");
         return false;
     }
@@ -242,7 +257,7 @@ bool readFileIntoBufferNative(ObjRoutine* routine, int argCount, Value* result) 
     }
 
     const char* path = AS_CSTRING(pathVal);
-    size_t bufferSize = as_positive_integer32(bufferSizeVal);
+    size_t bufferSize = as_positive_integer(bufferSizeVal);
     uint8_t* buf = (uint8_t*) AS_ADDRESS(bufferVal);
 
     readFileIntoBuffer(path, buf, bufferSize);
@@ -284,5 +299,35 @@ bool fileExistsNative(ObjRoutine* routine, int argCount, Value* result) {
     const char* path = AS_CSTRING(pathVal);
 
     *result = BOOL_VAL(fileExists(path));
+    return true;
+}
+
+bool vm_xip_string_nodeNative(ObjRoutine* routine, int argCount, Value* result) {
+    if (argCount != 1) {
+        runtimeError(routine, "Expected 1 argument but got %d.", argCount);
+        return false;
+    }
+
+    Value nodeVal = nativeArgument(routine, argCount, 0);
+    if (!is_positive_integer(nodeVal)) {
+        runtimeError(routine, "Expected a positive integer for the node.");
+        return false;
+    }
+
+    size_t node = as_positive_integer(nodeVal);
+    if (node > UINT16_MAX) {
+        runtimeError(routine, "Node value out of range.");
+        return false;
+    }
+    uint16_t node16 = (uint16_t) node;
+
+    const char* string = xipLibraryStringNode(node16);
+    if (string == NULL) {
+        runtimeError(routine, "String node not found.");
+        return false;
+    }
+
+    Value stringVal = cstring_val(string);
+    *result = stringVal;
     return true;
 }

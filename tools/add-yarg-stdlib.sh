@@ -15,6 +15,3 @@ bin/yarg cp -fs "$FS_PATH" -src yarg/specimen/dma.ya -dest dma.ya
 bin/yarg cp -fs "$FS_PATH" -src yarg/specimen/ws2812.ya -dest ws2812.ya
 bin/yarg cp -fs "$FS_PATH" -src yarg/specimen/apa102.ya -dest apa102.ya
 bin/yarg cp -fs "$FS_PATH" -src yarg/specimen/m0plus.ya -dest m0plus.ya
-bin/yarg cp -fs "$FS_PATH" -src yarg/specimen/repl.ya -dest repl.ya
-bin/yarg cp -fs "$FS_PATH" -src yarg/specimen/yarg.ya -dest yarg.ya
-bin/yarg cp -fs "$FS_PATH" -src yarg/specimen/cyarg.ya -dest cyarg.ya

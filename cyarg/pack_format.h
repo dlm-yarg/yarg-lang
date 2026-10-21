@@ -5,6 +5,8 @@
 
 #include <stdint.h>
 
+//#define DEBUG_PACK 1
+
 #if defined(DEBUG_PACK)
 #define DP(DPA) do { DPA; } while (0)
 #else
@@ -62,13 +64,13 @@ extern int16_t const packageVersion;
 // x1   function names (M)x16 -- included if (L > 0) debug/error reporting, truncated if over 15 chars
 
 #if defined(DEBUG_PACK)
-uint32_t chunks__ = 0;
-uint32_t ints__ = 0;
-uint32_t strings__ = 0;
-uint32_t code__ = 0;
-uint32_t lines__ = 0;
-uint32_t names__ = 0;
-uint32_t end__ = 0;
+extern uint32_t chunks__;
+extern uint32_t ints__;
+extern uint32_t strings__;
+extern uint32_t code__;
+extern uint32_t lines__;
+extern uint32_t names__;
+extern uint32_t end__;
 #endif
 
 typedef struct {

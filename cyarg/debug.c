@@ -1,12 +1,43 @@
+#include "debug.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <string.h>
 
-#include "debug.h"
 #include "object.h"
+#include "yargobject.h"
 #include "value.h"
 #include "yargtype.h"
 #include "routine.h"
+#include "memory.h"
+
+void printValue(Value value) {
+    fprintValue(stdout, value);
+}
+
+void fprintValue(FILE* op, Value value) {
+    if (IS_STRING(value)) {
+        char* cstring = AS_CSTRING(value);
+        FPRINTMSG(op, "%s", cstring);
+    } else {
+        ObjString* string = valueToString(value);
+        tempRootPush(STRING_VAL(string));
+        FPRINTMSG(op, "%s", string->chars);
+        tempRootPop();
+    }
+}
+
+void printObj(const Obj* object) {
+    fprintObj(stdout, object);
+}
+
+void fprintObj(FILE* op, const Obj* object) {
+    ObjString* string = objectToString(object);
+    tempRootPush(STRING_VAL(string));
+    FPRINTMSG(op, "%s", string->chars);
+    tempRootPop();
+}
 
 void disassembleChunk(Chunk* chunk, const char* name) {
     printf("== %s ==\n", name);
@@ -30,26 +61,24 @@ void disassembleChunk(Chunk* chunk, const char* name) {
 }
 
 static char const *valueType(Value *v) {
-    switch (v->type) {
-    case VAL_BOOL: return "bool";
-    case VAL_NIL: return "";
-    case VAL_DOUBLE: return "double";
-    case VAL_I8: return "i8";
-    case VAL_UI8: return "ui8";
-    case VAL_I16: return "i16";
-    case VAL_UI16: return "ui16";
-    case VAL_I32: return "i32";
-    case VAL_UI32: return "ui32";
-    case VAL_UI64: return "ui64";
-    case VAL_I64: return "i64";
-    case VAL_ADDRESS: return "address";
-    case VAL_OBJ:
-        switch (AS_OBJ(*v)->type) {
-        case OBJ_INT: return "int";
-        case OBJ_STRING: return "string";
-        default: return "valueType.Obj?";
-        }
-    default: return "valueType?";
+    if (IS_NIL(*v)) return "";
+    else if (IS_IMPL_OBJ(*v)) return "valueType?";
+    else if (IS_BOOL(*v)) return "bool";
+    else if (IS_NIL(*v)) return "";
+    else if (IS_DOUBLE(*v)) return "double";
+    else if (IS_I8(*v)) return "i8";
+    else if (IS_UI8(*v)) return "ui8";
+    else if (IS_I16(*v)) return "i16";
+    else if (IS_UI16(*v)) return "ui16";
+    else if (IS_I32(*v)) return "i32";
+    else if (IS_UI32(*v)) return "ui32";
+    else if (IS_I64(*v)) return "i64";
+    else if (IS_UI64(*v)) return "ui64";
+    else if (IS_ADDRESS(*v)) return "address";
+    else if (IS_STRING(*v)) return "string";
+    else if (IS_INT(*v)) return "int";
+    else {
+        return "valueType?";
     }
 }
 
@@ -109,6 +138,7 @@ static int builtinInstruction(const char* name, Chunk* chunk, int offset) {
     switch (slot) {
         case BUILTIN_PEEK: printf("peek"); break;
         case BUILTIN_READ_YARG_SOURCE: printf("read_yarg_source"); break;
+        case BUILTIN_READ_XIP_FILE: printf("vm_read_xip_file"); break;
         case BUILTIN_COMPILE: printf("compile"); break;
         case BUILTIN_MAKE_ROUTINE: printf("make_routine"); break;
         case BUILTIN_MAKE_CHANNEL: printf("make_channel"); break;
@@ -321,6 +351,8 @@ int disassembleInstruction(Chunk* chunk, int offset) {
             return simpleInstruction("OP_SET_PTR_TARGET", offset);
         case OP_PLACE:
             return simpleInstruction("OP_PLACE", offset);
+        case OP_DUPLICATE:
+            return simpleInstruction("OP_DUPLICATE", offset);
         default:
             printf("Unknown opcode %d\n", instruction);
             return offset + 1;

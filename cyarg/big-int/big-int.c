@@ -630,32 +630,39 @@ bool int_is_zero(Int const *i)
 
 IntComp int_is(Int const *a, Int const *b)
 {
-    uint16_t const *const ah = (uint16_t const *) a->w_;
-    uint16_t const *const bh = (uint16_t const *) b->w_;
     IntComp r;
-    if (a->neg_ != b->neg_) // check for zero and -ve zero
+    if (a == b)
     {
-        if (a->d_ == 1 && b->d_ == 1 && ah[0] == 0 && bh[0]  == 0)
-        {
-            r = INT_EQ;
-        }
-        else
-        {
-            r = a->neg_ ? INT_LT : INT_GT;
-        }
+        r = INT_EQ;
     }
-    else // same sign
+    else
     {
-        r = int_is_abs(a, b);
-        if (a->neg_)
+        uint16_t const *const ah = (uint16_t const *) a->w_;
+        uint16_t const *const bh = (uint16_t const *) b->w_;
+        if (a->neg_ != b->neg_)
         {
-            if (r == INT_LT)
+            if (a->d_ == 1 && b->d_ == 1 && ah[0] == 0 && bh[0]  == 0) // check for zero and -ve zero
             {
-                r = INT_GT;
+                r = INT_EQ;
             }
-            else if (r == INT_GT)
+            else
             {
-                r = INT_LT;
+                r = a->neg_ ? INT_LT : INT_GT;
+            }
+        }
+        else // same sign
+        {
+            r = int_is_abs(a, b);
+            if (a->neg_)
+            {
+                if (r == INT_LT)
+                {
+                    r = INT_GT;
+                }
+                else if (r == INT_GT)
+                {
+                    r = INT_LT;
+                }
             }
         }
     }
@@ -763,11 +770,6 @@ char const *int_to_s(Int const *i, char *s, int n)
     }
 
     return out;
-}
-
-static inline uint16_t const *min(uint16_t const *a, uint16_t const *b)
-{
-    if (a < b) return a; else return b;
 }
 
 int64_t int_to_i64(Int const *i)

@@ -34,7 +34,7 @@ typedef struct
     uint8_t m_; // max (16-bit) digits - allocated size, always even
 } IntHeader;
 
-typedef struct
+typedef struct Int
 {
     uint16_t neg_ : 1;
     uint16_t overflow_ : 1;
@@ -81,12 +81,6 @@ typedef struct // largest concrete type of int - can be a global or a local - us
     uint8_t m_; // 254
     uint32_t w_[254 / 2];
 } IntConcrete254;
-
-// To create BSIs these need to be changed
-// however, they may be used int compilation as long as emit const creates a big/small int value
-//ObjInt *newInt(int64_t value);
-//ObjInt *allocateIntObject(size_t);
-//ObjInt *newIntU(uint64_t value);
 
 typedef struct BigSmallInt
 {

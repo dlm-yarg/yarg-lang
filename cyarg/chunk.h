@@ -66,7 +66,8 @@ typedef enum {
     OP_SET_CELL_TYPE,
     OP_DEREF_PTR,
     OP_SET_PTR_TARGET,
-    OP_PLACE
+    OP_PLACE,
+    OP_DUPLICATE
 } OpCode;
 
 typedef struct {
@@ -87,6 +88,7 @@ typedef struct Chunk {
 
 typedef enum {
     BUILTIN_READ_YARG_SOURCE,
+    BUILTIN_READ_XIP_FILE,
     BUILTIN_COMPILE,
     BUILTIN_MAKE_ROUTINE,
     BUILTIN_MAKE_CHANNEL,
