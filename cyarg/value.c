@@ -117,15 +117,11 @@ Value concrete_typeof(Value a) {
 }
 
 Value duplicateValue(Value src) {
-    if (IS_INT(src)) {
-        if (src.as.bigSmallInt.objInt_) {
-            Value lhs;
-            allocateIntValue(&lhs, src.as.bigSmallInt.objInt_->bigInt.d_);
-            int_set_t(&src.as.bigSmallInt.objInt_->bigInt, AS_INT(lhs));
-            return lhs;
-        } else {
-            return src;
-        }
+    if (IS_BIG_INT(src)) {
+        Value lhs;
+        allocateIntValue(&lhs, AS_BIG_SMALL_INT(src).objInt_->bigInt.d_);
+        int_set_t(&AS_BIG_SMALL_INT(src).objInt_->bigInt, AS_INT(lhs));
+        return lhs;
     } else if (IS_STRUCT(src)) {
         return duplicateStruct(src);
     } else if (IS_UNIFORMARRAY(src)) {

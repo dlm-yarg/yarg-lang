@@ -240,9 +240,9 @@ static void emitConstant(Value value) {
         emitBytes(OP_CONSTANT, makeConstant(value));
     }
     else if (IS_INT(value)) {
-        ObjInt *oi = (ObjInt *) value.as.obj;
-        if (int_is_range(&oi->bigInt, -UINT24_MAX, UINT24_MAX) == INT_WITHIN) {
-            int32_t v = int_to_i32(&oi->bigInt);
+        Int *i = AS_INT(value);
+        if (int_is_range(i, -UINT24_MAX, UINT24_MAX) == INT_WITHIN) {
+            int32_t v = int_to_i32(i);
             emitImmediateConstant(v);
         }
         else {

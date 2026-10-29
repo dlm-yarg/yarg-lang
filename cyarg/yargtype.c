@@ -42,7 +42,6 @@ bool is_obj_yargtype(const ObjConcreteYargType* type) {
     else if (type == &yargTypes.class_) return true;
     else if (type == &yargTypes.string) return true;
     else if (type == &yargTypes.type) return true;
-    else if (type == &yargTypes.integer) return true;
     else if (type == &yargTypes.function) return true;
     else if (type->yt == TypeStruct) return true;
     else if (type->yt == TypeArray) return true;

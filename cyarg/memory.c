@@ -143,8 +143,10 @@ void markValue(Value value) {
     if (isObjValue(value)) {
         markObject(value.as.obj);
     }
+    else if (IS_BIG_INT(value)) {
+        markObject(AS_OBJINT(value));
+    }
     markObject((Obj*)value.type);
-    // todo check the above does   if (IS_BIG_INT(value)) markObject((Obj *)VALUE_AS_OBJINT(value));
 }
 
 void markValueCell(ValueCell* cell) {
