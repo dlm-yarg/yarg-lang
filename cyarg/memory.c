@@ -144,7 +144,7 @@ void markValue(Value value) {
         markObject(value.as.obj);
     }
     else if (IS_BIG_INT(value)) {
-        markObject(AS_OBJINT(value));
+        markObject((Obj *)AS_OBJINT(value));
     }
     markObject((Obj*)value.type);
 }
