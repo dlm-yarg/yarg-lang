@@ -776,7 +776,7 @@ int64_t int_to_i64(Int const *i)
 {
     FourDigits r;
     r.l32_ = i->w_[0];
-    if  (i->d_ < 2)
+    if  (i->d_ <= 2)
     {
         r.h32_ = 0;
     }
@@ -806,7 +806,7 @@ uint64_t int_to_u64(Int const *i)
 {
     FourDigits r;
     r.l32_ = i->w_[0];
-    if  (i->d_ < 2)
+    if  (i->d_ <= 2)
     {
         r.h32_ = 0;
     }
