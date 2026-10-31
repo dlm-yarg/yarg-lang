@@ -63,7 +63,7 @@ while (count < int32(job_size)) {
     if (rand() % uint32(2) == uint32(1)) candidate16 = -candidate16;
     var int candidate8 = int_rand() % 256;
     if (rand() % uint32(2) == uint32(1)) candidate8 = -candidate8;
-    print string(candidate32) + " " + string(candidate24) + " " + string(candidate16) + " " + string(candidate8);
+
     rand_calls = rand_calls + 4;
     if (candidate32 != 0) {
         rts[count] = candidate32;
