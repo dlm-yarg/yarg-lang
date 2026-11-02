@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdalign.h>
 #include <assert.h>
+#include <inttypes.h>
 
 #include "compiler.h"
 #include "vm.h"
@@ -700,7 +701,7 @@ void fprintHeapDiagnostics(FILE* out) {
     fprintf(out, "  Capacity: %zu\n", diagnostics.capacity);
     fprintf(out, "  Peak Allocation: %zu\n", diagnostics.peak_allocated);
     fprintf(out, "  Peak Requested: %zu\n", diagnostics.peak_request_size);
-    fprintf(out, "  Failed Allocations: %llu\n", diagnostics.oom_count);
+    fprintf(out, "  Failed Allocations: %" PRIu64 "\n", diagnostics.oom_count);
 }
 
 void collectGarbage() {
