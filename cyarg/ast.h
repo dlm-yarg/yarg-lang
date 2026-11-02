@@ -299,36 +299,27 @@ ObjExprNumber* newExprNumberInt(int numberDecimalDigits);
 ObjExprNumber* newExprNumberFromCint(int constant);
 ObjExprLiteral* newExprLiteral(ExprLiteral literal);
 ObjExprAddress* newExprAddress(uintptr_t value);
-ObjExprString* newExprString(const char* str, int strLength);
+ObjExprString* newExprString(ObjRoutine* context, const char* str, int strLength);
 ObjExprPair* newExprPair(ObjExpr* a, ObjExpr* b);
 ObjExprOperation* newExprOperation(ObjExpr* rhs, ExprOp op);
 ObjExprGrouping* newExprGrouping(ObjExpr* expression);
-ObjExprNamedVariable* newExprNamedVariable(const char* name, int nameLength);
+ObjExprNamedVariable* newExprNamedVariable(ObjRoutine* context, const char* name, int nameLength);
 ObjExprCall* newExprCall();
 ObjExprCollectionInitializer* newExprCollectionInitializer();
 ObjExprCollectionElement* newExprCollectionElement();
 ObjExprBuiltin* newExprBuiltin(ExprBuiltin fn, int arity);
-ObjExprDot* newExprDot(const char* name, int nameLength);
-ObjExprSuper* newExprSuper(const char* name, int nameLength);
+ObjExprDot* newExprDot(ObjRoutine* context, const char* name, int nameLength);
+ObjExprSuper* newExprSuper(ObjRoutine* context, const char* name, int nameLength);
 ObjExprTypeLiteral* newExprType(ExprTypeLiteral type);
 ObjExprTypeStruct* newExprTypeStruct();
 ObjExprTypeIndexedCollection* newExprTypeIndexedCollection();
 
-ObjStmtExpression* newStmtExpression(ObjExpr* expr, ObjType statement, int line);
-ObjStmtBlock* newStmtBlock(int line);
-ObjStmtPoke* newStmtPoke(int line);
+ObjStmt* pushNewStmt(ObjRoutine* context, ObjType type, int line);
+ObjStmt* pushNewStmtDeclaration(ObjRoutine* context, ObjType type, const char* name, int nameLength, int line);
 
-ObjStmtVarDeclaration* newStmtVarDeclaration(const char* name, int nameLength, int line);
-ObjStmtPlaceDeclaration* newStmtPlaceDeclaration(int line);
-ObjStmtFunDeclaration* newStmtFunDeclaration(const char* name, int nameLength, int line);
-ObjStmtClassDeclaration* newStmtClassDeclaration(const char* name, int nameLength, int line);
-ObjStmtFieldDeclaration* newStmtFieldDeclaration(const char* name, int nameLength, int line);
+void appendPlaceAlias(ObjRoutine* context, ObjStmtPlaceDeclaration* place, ObjExpr* location, const char* name, int nameLength);
 
-void appendPlaceAlias(ObjStmtPlaceDeclaration* place, ObjExpr* location, const char* name, int nameLength);
-
-ObjStmtIf* newStmtIf(int line);
-ObjStmtWhile* newStmtWhile(int line);
-ObjStmtFor* newStmtFor(int line);
+ObjString* valueAsSourceString(Value value);
 
 void printStmts(ObjStmt* stmts);
 void printExpr(ObjExpr* expr);

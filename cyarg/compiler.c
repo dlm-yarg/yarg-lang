@@ -13,6 +13,9 @@
 #include "object.h"
 #include "yargobject.h"
 #include "scanner.h"
+#include "routine.h"
+#include "packed_containers.h"
+#include "yargstructtype.h"
 
 static void generateExpr(ObjExpr* expr);
 
@@ -36,11 +39,12 @@ typedef struct {
 
 typedef struct Compiler {
     struct Compiler* enclosing;
+    ObjRoutine* context;
     ObjFunction* function;
-    ObjAst* ast;
     FunctionType type;
     ObjStmt* recent;
-    bool hadError;
+
+    DynamicObjArray errors;
     bool panicMode;
 
     Local locals[UINT8_COUNT];
@@ -54,24 +58,23 @@ typedef struct ClassCompiler {
     bool hasSuperclass;
 } ClassCompiler;
 
-bool hadCompilerError = false;
 static struct Compiler* current = NULL;
 static ClassCompiler* currentClass = NULL;
 
-static void initCompiler(Compiler* compiler, FunctionType type, ObjString* name) {
+static void initCompiler(Compiler* compiler, FunctionType type, ObjString* name, ObjRoutine* context) {
 
     compiler->enclosing = current;
-    compiler->ast = NULL;
+    compiler->context = context;
     compiler->function = NULL;
     compiler->type = type;
     compiler->recent = NULL;
-    compiler->hadError = false;
+    initDynamicObjArray(&compiler->errors);
     compiler->panicMode = false;
 
     compiler->localCount = 0;
     compiler->scopeDepth = 0;
 
-    compiler->ast = newObjAst();
+    // set the current compiler before we start adding new objects to it.
     current = compiler;
 
     compiler->function = newFunction();
@@ -96,31 +99,36 @@ static void errorAt(const char* location, const char* message) {
 
     current->panicMode = true;
 
-    int line = current->recent ? current->recent->line : 1;
-    FPRINTMSG(stderr, "[line %d] Error", line);
+    size_t bufferLength = DECIMAL_DIGITS_BOUND(int) + 13; // strlen("[line ] Error");
+    if (location) bufferLength += strlen(location) + 5; // " at ''"
+    if (message) bufferLength += strlen(message) + 2; // ": "
+    bufferLength += 1; // for null terminator
 
+    char* buffer = (char*)ALLOCATE(char, bufferLength);
+    snprintf(buffer, bufferLength, "[line %d] Error", current->recent ? current->recent->line : 1);
     if (location) {
-        FPRINTMSG(stderr, " at '%s'", location);
+        strcat(buffer, " at '");
+        strcat(buffer, location);
+        strcat(buffer, "'");
     }
 
-    FPRINTMSG(stderr, ": %s\n", message);
-    current->hadError = true;
+    if (message) {
+        strcat(buffer, ": ");
+        strcat(buffer, message);
+    }
+
+    ObjString* errorString = copyString(buffer, bufferLength - 1);
+    appendToDynamicObjArray(&current->errors, (Obj*)errorString);
+    vm_free(buffer);
 }
 
 static void errorAtValue(Value location, const char* message) {
     if (current->panicMode) return;
 
-    current->panicMode = true;
-
-    int line = current->recent ? current->recent->line : 1;
-    FPRINTMSG(stderr, "[line %d] Error", line);
-
-    FPRINTMSG(stderr, " at '");
-    printSourceValue(stderr, location);
-    FPRINTMSG(stderr, "'");
-
-    FPRINTMSG(stderr, ": %s\n", message);
-    current->hadError = true;
+    ObjString* locationString = valueAsSourceString(location);
+    push(current->context, STRING_VAL(locationString));
+    errorAt(locationString->chars, message);
+    pop(current->context);
 }
 
 
@@ -240,9 +248,9 @@ static void emitConstant(Value value) {
         emitBytes(OP_CONSTANT, makeConstant(value));
     }
     else if (IS_INT(value)) {
-        ObjInt *oi = (ObjInt *) value.as.obj;
-        if (int_is_range(&oi->bigInt, -UINT24_MAX, UINT24_MAX) == INT_WITHIN) {
-            int32_t v = int_to_i32(&oi->bigInt);
+        Int *i = AS_INT(value);
+        if (int_is_range(i, -UINT24_MAX, UINT24_MAX) == INT_WITHIN) {
+            int32_t v = int_to_i32(i);
             emitImmediateConstant(v);
         }
         else {
@@ -350,10 +358,12 @@ static void generateNumber(ObjExprNumber* num) {
         emitConstant(DOUBLE_VAL(num->dbl));
         break;
     case NUMBER_INT: {
-        ObjInt *objInt = allocateIntObject(num->bigInt.d_);
-        objInt->isLiteral = true;
-        int_set_t(&num->bigInt, &objInt->bigInt);
-        emitConstant(INTOBJ_VAL(objInt));
+        Value v;
+        allocateIntValue(&v, num->bigInt.d_);
+        AS_BIG_SMALL_INT(v).literal_ = true;
+        AS_INT(v)->literal_ = true;
+        int_set_t(&num->bigInt, AS_INT(v));
+        emitConstant(v);
         break;
     }
     default:
@@ -530,11 +540,11 @@ static void generateExprCollectionInit(ObjExprCollectionInitializer* collection)
             emitByte(OP_SET_ELEMENT);
         } else {
             ObjExpr* element = (ObjExpr*)newExprNumberFromCint(i);
-            tempObjRootPush((Obj*)element);
+            push(current->context, IMPL_OBJ_VAL((Obj*)element));
             generateExpr(element);
             generateExpr((ObjExpr*)item_or_pair);
             emitByte(OP_SET_ELEMENT);
-            tempRootPop();
+            pop(current->context);
         }
     }
 }
@@ -616,9 +626,9 @@ static void generateExprSuper(ObjExprSuper* super) {
     uint8_t name = identifierConstant(super->name);
 
     ObjString* this_ = copyString("this", 4);
-    tempRootPush(STRING_VAL(this_));
+    push(current->context, STRING_VAL(this_));
     ObjString* super_ = copyString("super", 5);
-    tempRootPush(STRING_VAL(super_));
+    push(current->context, STRING_VAL(super_));
 
     generateGetNamedVariable(this_);
     if (super->call) {
@@ -631,8 +641,8 @@ static void generateExprSuper(ObjExprSuper* super) {
         emitBytes(OP_GET_SUPER, name);
     }
 
-    tempRootPop();
-    tempRootPop();
+    pop(current->context);
+    pop(current->context);
 }
 
 static void generateExprType(ObjExprTypeLiteral* type) {
@@ -873,7 +883,8 @@ static void generateStmtIf(ObjStmtIf* ctrl) {
 
 static void generateFunction(FunctionType type, ObjStmtFunDeclaration* decl) {
     Compiler compiler;
-    initCompiler(&compiler, type, decl->name);
+    assert(current->context != NULL);
+    initCompiler(&compiler, type, decl->name, current->context);
     beginScope();
 
     for (int i = 0; i < decl->parameters.objectCount; i++) {
@@ -882,6 +893,8 @@ static void generateFunction(FunctionType type, ObjStmtFunDeclaration* decl) {
     }
 
     generate(decl->body);
+
+    assert(current->enclosing != NULL);
 
     ObjFunction* function = endCompiler();
     function->arity = decl->parameters.objectCount;
@@ -995,7 +1008,7 @@ static void generateStmtMethodDeclaration(ObjStmtFunDeclaration* method) {
 
     FunctionType type = TYPE_METHOD;
     ObjString* init = copyString("init", 4);
-    tempRootPush(STRING_VAL(init));
+    push(current->context, STRING_VAL(init));
     if (identifiersEqual(method->name, init)) {
         type = TYPE_INITIALIZER;
     }
@@ -1003,7 +1016,7 @@ static void generateStmtMethodDeclaration(ObjStmtFunDeclaration* method) {
     generateFunction(type, method);
 
     emitBytes(OP_METHOD, constant);
-    tempRootPop(); // init
+    pop(current->context); // init
 }
 
 static void generateStmtClassDeclaration(ObjStmtClassDeclaration* decl) {
@@ -1023,14 +1036,14 @@ static void generateStmtClassDeclaration(ObjStmtClassDeclaration* decl) {
 
         beginScope();
         ObjString* super = copyString("super", 5);
-        tempRootPush(STRING_VAL(super));
+        push(current->context, STRING_VAL(super));
         addLocal(super);
         defineVariable(0);
 
         generateGetNamedVariable(decl->name);
         emitByte(OP_INHERIT);
         classCompiler.hasSuperclass = true;
-        tempRootPop(); // super
+        pop(current->context); // super
     }
 
     // Make the class name conveniently available on the stack for method definition.
@@ -1129,55 +1142,80 @@ static void generate(ObjStmt* stmt) {
 static ObjFunction* endCompiler() {
     emitReturn();
 
-    current->ast = NULL;
+    current->context = NULL;
     current->recent = NULL;
-    hadCompilerError |= current->hadError;
     ObjFunction* function = current->function;
 
-    current = current->enclosing;
+    if (current->errors.objectCount > 0 && current->enclosing) {
+        for (int i = 0; i < current->errors.objectCount; i++) {
+            appendToDynamicObjArray(&current->enclosing->errors, current->errors.objects[i]);
+        }
+    }
+    freeDynamicObjArray(&current->errors);
 
+    current = current->enclosing;
     return function;
 }
 
-ObjFunction* compile(const char* source) {
-    hadCompilerError = false;
+Value compile(ObjRoutine* context) {
+    Value source = peek(context, 0);
 
-    initScanner(source);
+    ObjScanner* scanner = newScanner(AS_STRING(source));
+    push(context, IMPL_OBJ_VAL((Obj*)scanner));
+
+    ObjAst* ast = newObjAst();
+    push(context, IMPL_OBJ_VAL((Obj*)ast));
+
+    ObjParser* parser = newParser(context, ast, scanner);
+    push(context, IMPL_OBJ_VAL((Obj*)parser));
+
     struct Compiler compiler;
-    initCompiler(&compiler, TYPE_SCRIPT, NULL);
+    initCompiler(&compiler, TYPE_SCRIPT, NULL, context);
 
-#ifdef DEBUG_AST_PARSE
-    collectGarbage();
-    size_t bytesAllocated = vm.bytesAllocated;
-#endif
-
-    bool parseError = parse(current->ast);
-
-#ifdef DEBUG_AST_PARSE
-    collectGarbage();
-    printf("Parse Tree (%zu net bytes)\n", vm.bytesAllocated - bytesAllocated);
-    printStmts(current->ast->statements);
-#endif
-
-    if (!parseError) {
-
-        generate(current->ast->statements);
+    Value parseErrors = parse(context);
+    push(context, parseErrors);
+    if (IS_NIL(parseErrors)) {
+        generate(ast->statements);
     }
 
-    ObjFunction* function = endCompiler();
+    Value errors = duplicateAsValueArray(&compiler.errors);
+    push(context, errors);
     
-    bool compileError = parseError || hadCompilerError;
+    ObjFunction* function = endCompiler();
+    push(context, FUNCTION_VAL(function));
 
-    return compileError ? NULL : function;
+    Value result = allocValueStructPair("compileError", "result");
+    push(context, result);
+
+    if (!IS_NIL(parseErrors)) {
+        setStructField(result, 0, parseErrors);
+        setStructField(result, 1, NIL_VAL);
+    } else if (!IS_NIL(errors)) {
+        setStructField(result, 0, errors);
+        setStructField(result, 1, NIL_VAL);
+    } else {
+        setStructField(result, 0, NIL_VAL);
+        setStructField(result, 1, FUNCTION_VAL(function));
+    }
+
+    pop(context); // result
+    pop(context); // function
+    pop(context); // errors
+    pop(context); // parser
+    pop(context); // ast
+    pop(context); // scanner
+
+    pop(context); // parseErrors
+    return result;
 }
 
 void markCompilerRoots() {
     Compiler* compiler = current;
     while (compiler != NULL) {
         markObject((Obj*)compiler->function);
-        markObject((Obj*)compiler->ast);
+        markObject((Obj*)compiler->context);
         markObject((Obj*)compiler->recent);
-        markParserRoots();
+        markDynamicObjArray(&compiler->errors);
 
         for (int i = 0; i < compiler->localCount; i++) {
             markObject((Obj*)compiler->locals[i].name);

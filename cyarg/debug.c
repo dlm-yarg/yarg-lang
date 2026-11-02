@@ -11,6 +11,7 @@
 #include "yargtype.h"
 #include "routine.h"
 #include "memory.h"
+#include "pack_format.h"
 
 void printValue(Value value) {
     fprintValue(stdout, value);
@@ -47,15 +48,15 @@ void disassembleChunk(Chunk* chunk, const char* name) {
     for (int i = 0; i < chunk->constants.count; i++) {
         if (IS_FUNCTION(chunk->constants.values[i])) {
             ObjFunction *fun = AS_FUNCTION(chunk->constants.values[i]);
-            char *funNameC = realloc(0, fun->fName->length + 1);
+            char *funNameC = vm_allocate(fun->fName->length + 1);
             memcpy(funNameC, fun->fName->chars, fun->fName->length + 1);
             int line = fun->chunk.numLines > 0 ? fun->chunk.lines[0].line : 0;
             size_t l = snprintf(0, 0, "%s/%s(%d)", name, funNameC, line);
-            char *funName = realloc(0, l + 1);
+            char *funName = vm_allocate(l + 1);
             snprintf(funName, l + 1, "%s/%s(%d)", name, funNameC, line);
             disassembleChunk(&fun->chunk, funName);
-            free(funName);
-            free(funNameC);
+            vm_free(funName);
+            vm_free(funNameC);
         }
     }
 }
@@ -357,4 +358,24 @@ int disassembleInstruction(Chunk* chunk, int offset) {
             printf("Unknown opcode %d\n", instruction);
             return offset + 1;
     }
+}
+
+void print_cyarg_info() {
+#ifdef CYARG_SELF_HOSTED
+    printf("self-hosted\n");
+#elif CYARG_OS_HOSTED
+    printf("os-hosted\n");
+#else
+    printf("unknown hosting environment\n");
+#endif
+#if IS_64BIT
+    printf("64-bit word size\n");
+#elif IS_32BIT
+    printf("32-bit word size\n");
+#else
+    printf("Unknown word size\n");
+#endif
+    printf("sizeof(Value): %zu\n", sizeof(Value));
+    printf("sizeof(ValueCell): %zu\n", sizeof(ValueCell));
+    printf("Yarg binary format version: 0x%04x\n", packageVersion);
 }

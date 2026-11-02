@@ -117,38 +117,33 @@ void fatalVMError(const char* format, ...) {
     vfprintf(stderr, format, args);
     va_end(args);
 
-    FPRINTMSG(stderr, "fatal VM error\n");
+    PRINTERR("fatal VM error\n");
     exit(5);
 }
 
-void yarg_panic(void) {
-    assert(false && "yarg panic");
-    exit(EXIT_FAILURE);
-}
-
-static void defineNative(const char* name, NativeFn function) {
+static void defineNative(ObjRoutine* context, const char* name, NativeFn function) {
     ObjString* nameString = copyString(name, (int)strlen(name));
-    tempRootPush(STRING_VAL(nameString));
+    push(context, STRING_VAL(nameString));
     ObjNative* native = newNative(function);
-    tempObjRootPush((Obj*)native);
+    push(context, IMPL_OBJ_VAL(native));
 
     ValueCell cell;
     cell.value = NATIVE_VAL(native);
     cell.cellType = NULL;
     tableCellSet(&vm.globals, nameString, cell);
-    tempRootPop();
-    tempRootPop();
+    pop(context);
+    pop(context);
 }
 
-static void defineGlobal(const char* name, Value value) {
+static void defineGlobal(ObjRoutine* context, const char* name, Value value) {
     ObjString* nameString = copyString(name, (int)strlen(name));
-    tempRootPush(STRING_VAL(nameString));
+    push(context, STRING_VAL(nameString));
 
     ValueCell cell;
     cell.value = value;
     cell.cellType = NULL;
     tableCellSet(&vm.globals, nameString, cell);
-    tempRootPop();
+    pop(context);
 }
 
 void initVMMemory() {
@@ -189,30 +184,32 @@ void initVMRuntime() {
     
     vm.initString = copyString("init", 4);
 
-    defineNative("clock", clockNative);
-    defineNative("c_clock_get_hz", clock_get_hzNative);
+    defineNative(&vm.core0, "clock", clockNative);
+    defineNative(&vm.core0, "c_clock_get_hz", clock_get_hzNative);
 
-    defineNative("irq_remove_handler", irq_remove_handlerNative);
-    defineNative("irq_add_shared_handler", irq_add_shared_handlerNative);
+    defineNative(&vm.core0, "irq_remove_handler", irq_remove_handlerNative);
+    defineNative(&vm.core0, "irq_add_shared_handler", irq_add_shared_handlerNative);
 
-    defineNative("c_stdin_gets", stdin_getsNative);
-    defineNative("c_stdin_eof", stdin_eofNative);
-    defineNative("c_stdout_puts", stdout_putsNative);
+    defineNative(&vm.core0, "c_stdin_gets", stdin_getsNative);
+    defineNative(&vm.core0, "c_stdin_eof", stdin_eofNative);
+    defineNative(&vm.core0, "c_stdout_puts", stdout_putsNative);
+    defineNative(&vm.core0, "c_stderr_puts", stderr_putsNative);
+    defineNative(&vm.core0, "c_stderr_put_newline", stderr_put_newlineNative);
 
-    defineNative("c_readFileIntoBuffer", readFileIntoBufferNative);
-    defineNative("c_fileSize", fileSizeNative);
-    defineNative("c_fileExists", fileExistsNative);
+    defineNative(&vm.core0, "c_readFileIntoBuffer", readFileIntoBufferNative);
+    defineNative(&vm.core0, "c_fileSize", fileSizeNative);
+    defineNative(&vm.core0, "c_fileExists", fileExistsNative);
 
 #if defined(CYARG_FEATURE_HOSTED_REPL)
-    defineNative("host_argc", host_argcNative);
-    defineNative("host_argn", host_argnNative);
-    defineNative("host_exitCode", host_exitCodeNative);
+    defineNative(&vm.core0, "host_argc", host_argcNative);
+    defineNative(&vm.core0, "host_argn", host_argnNative);
+    defineNative(&vm.core0, "host_exitCode", host_exitCodeNative);
 #endif
 
     uintptr_t vm_xip_start = (uintptr_t)xipLibHeader;
-    defineGlobal("vm_xip_start", ADDRESS_VAL(vm_xip_start));
+    defineGlobal(&vm.core0, "vm_xip_start", ADDRESS_VAL(vm_xip_start));
 
-    defineNative("vm_xip_string_node", vm_xip_string_nodeNative);
+    defineNative(&vm.core0, "vm_xip_string_node", vm_xip_string_nodeNative);
 }
 
 void freeVM() {
@@ -323,23 +320,41 @@ static InterpretResult invokeFromClass(ObjRoutine* routine, ObjClass* klass, Obj
 static InterpretResult invoke(ObjRoutine* routine, ObjString* name, int argCount) {
     Value receiver = peek(routine, argCount);
 
-    if (!IS_INSTANCE(receiver)) {
+    if (!IS_INSTANCE(receiver) && !IS_STRUCT(receiver)) {
         runtimeError(routine, "Only instances have methods.");
         return INTERPRET_RUNTIME_ERROR;
     }
 
-    ObjInstance* instance = AS_INSTANCE(receiver);
+    if (IS_INSTANCE(receiver)) {
+        ObjInstance* instance = AS_INSTANCE(receiver);
 
-    Value value;
-    if (tableGet(&instance->fields, name, &value)) {
-        ValueCell* target = peekCell(routine, argCount);
+        Value value;
+        if (tableGet(&instance->fields, name, &value)) {
+            ValueCell* target = peekCell(routine, argCount);
 
-        target->value = value;
-        target->cellType = NULL;
-        return callValue(routine, value, argCount);
+            target->value = value;
+            target->cellType = NULL;
+            return callValue(routine, value, argCount);
+        }
+
+        return invokeFromClass(routine, instance->klass, name, argCount);
+    } else {
+        assert(IS_STRUCT(receiver));
+
+        size_t index;
+        const ObjConcreteYargTypeStruct* structType = (const ObjConcreteYargTypeStruct*)receiver.type;
+        if (!structFieldIndex(structType, name, &index)) {
+            runtimeError(routine, "field not present in struct.");
+            return INTERPRET_RUNTIME_ERROR;
+        }
+        Value result = structField(receiver, index);
+        if (!IS_CLOSURE(result)) {
+            runtimeError(routine, "field value must be function.");
+            return INTERPRET_RUNTIME_ERROR;
+        }
+
+        return callfn(routine, AS_CLOSURE(result), argCount) ? INTERPRET_OK : INTERPRET_RUNTIME_ERROR;
     }
-
-    return invokeFromClass(routine, instance->klass, name, argCount);
 }
 
 static bool bindMethod(ObjRoutine* routine, ObjClass* klass, ObjString* name) {
@@ -429,11 +444,14 @@ static bool derefArrayElement(ObjRoutine* routine) {
     return true;
 }
 
-static bool derefMapElement(ObjRoutine* routine, ObjMap* map, Value key) {
+static bool derefMapElement(ObjRoutine* routine) {
+    Value key = peek(routine, 0);
+    Value mapVal = peek(routine, 1);
     if (!IS_STRING(key)) {
         runtimeError(routine, "Expected a string key.");
         return false;
     }
+    ObjMap* map = AS_MAP(mapVal);
     Value result;
     if (!tableGet(&map->entries, AS_STRING(key), &result)) {
         result = NIL_VAL;
@@ -444,17 +462,36 @@ static bool derefMapElement(ObjRoutine* routine, ObjMap* map, Value key) {
     return true;
 }
 
+static bool derefStructElement(ObjRoutine* routine) {
+    Value indexVal = peek(routine, 0);
+    Value container = peek(routine, 1);
+
+    if (!is_positive_integer(indexVal)) {
+        runtimeError(routine, "Expected a positive integer.");
+        return false;
+    }
+    
+    size_t index = as_positive_integer(indexVal);
+    Value result = structField(container, index);
+
+    pop(routine);
+    pop(routine);
+    push(routine, result);
+    return true;
+}
+
 static bool derefElement(ObjRoutine* routine) {
 
     Value collection = peek(routine, 1);
-    Value index = peek(routine, 0);
 
     if (IS_UNIFORMARRAY(collection) || isArrayPointer(collection)) {
         return derefArrayElement(routine);
     } else if (IS_MAP(collection)) {
-        return derefMapElement(routine, AS_MAP(collection), index);
+        return derefMapElement(routine);
+    } else if (IS_STRUCT(collection)) {
+        return derefStructElement(routine);
     } else {
-        runtimeError(routine, "Expected a map or array as target.");
+        runtimeError(routine, "Expected a map, struct, or array as target.");
         return false;
     }
     return false;
@@ -505,6 +542,9 @@ static bool setElement(ObjRoutine* routine) {
         result = setMapElement(routine, AS_MAP(collection), index, rhs);
     } else if (IS_UNIFORMARRAY(collection)) {
         result = setAnArrayElement(routine, collection, index, rhs);
+    } else if (IS_STRUCT(collection)) {
+        runtimeError(routine, "Setting struct elements is not supported yet.");
+        return false;
     } else {
         runtimeError(routine, "Expected an array and a positive or unsigned integer.");
         return false;
@@ -545,12 +585,12 @@ static void promote(Value *left, Value *right)
     assert(left != 0 && right != 0);
 
     Value *toPromote = 0, *promotionToTypeOf;
-    if (IS_INT(*left) && (AS_INTOBJ(*left)->isLiteral))
+    if (IS_INT(*left) && (AS_INT(*left)->literal_))
     {
         toPromote = left;
         promotionToTypeOf = right;
     }
-    else if (IS_INT(*right) && (AS_INTOBJ(*right)->isLiteral))
+    else if (IS_INT(*right) && (AS_INT(*right)->literal_))
     {
         toPromote = right;
         promotionToTypeOf = left;
@@ -612,20 +652,20 @@ static void promote(Value *left, Value *right)
     }
 }
 
-void reportBinaryOpTypeError(ObjRoutine* routine, Value lhs, Value rhs, const char* op) {
+void runtimeBinaryOpTypeError(ObjRoutine* routine, const char* op, const char* message) {
+    Value lhs = peek(routine, 1);
+    Value rhs = peek(routine, 0);
+
     Value lhsType = concrete_typeof(lhs);
-    tempRootPush(lhsType);
+    push(routine, lhsType);
     Value rhsType = concrete_typeof(rhs);
-    tempRootPush(rhsType);
+    push(routine, rhsType);
     ObjString* lhsTypeName = valueToString(lhsType);
-    tempRootPush(STRING_VAL(lhsTypeName));
+    push(routine, STRING_VAL(lhsTypeName));
     ObjString* rhsTypeName = valueToString(rhsType);
-    tempRootPush(STRING_VAL(rhsTypeName));
-    runtimeError(routine, "%s Operands %s %s must both be numbers, integers or unsigned integers.", op, lhsTypeName->chars, rhsTypeName->chars);
-    tempRootPop();
-    tempRootPop();
-    tempRootPop();
-    tempRootPop();
+    push(routine, STRING_VAL(rhsTypeName));
+
+    runtimeError(routine, "%s Operands %s %s must both be %s", op, lhsTypeName->chars, rhsTypeName->chars, message);
 }
 
 InterpretResult run(ObjRoutine* routine) {
@@ -684,7 +724,7 @@ InterpretResult run(ObjRoutine* routine) {
         } else if (IS_INT(peek(routine, 0)) && IS_INT(peek(routine, 1))) { \
             binaryIntOp(routine, #op); \
         } else { \
-            reportBinaryOpTypeError(routine, peek(routine, 1), peek(routine, 0), #op); \
+            runtimeBinaryOpTypeError(routine, #op, "numbers, integers or unsigned integers."); \
             return INTERPRET_RUNTIME_ERROR; \
         } \
     } while (false)
@@ -729,7 +769,7 @@ InterpretResult run(ObjRoutine* routine) {
         } else if (IS_INT(peek(routine, 0)) && IS_INT(peek(routine, 1))) { \
             binaryIntBoolOp(routine, #op); \
         } else { \
-            reportBinaryOpTypeError(routine, peek(routine, 1), peek(routine, 0), #op); \
+            runtimeBinaryOpTypeError(routine, #op, "numbers, integers or unsigned integers."); \
             return INTERPRET_RUNTIME_ERROR; \
         } \
     } while (false)
@@ -757,7 +797,7 @@ InterpretResult run(ObjRoutine* routine) {
             uint64_t c = a op b; \
             push(routine, UI64_VAL(c)); \
         } else { \
-            runtimeError(routine, #op " Operands %d %d must be unsigned integers.", peek(routine, 1).type, peek(routine, 0).type); \
+            runtimeBinaryOpTypeError(routine, #op, "unsigned integers."); \
             return INTERPRET_RUNTIME_ERROR; \
         } \
     } while (false)
@@ -771,8 +811,8 @@ InterpretResult run(ObjRoutine* routine) {
             traceExecution(routine);
         }
 
-        uint8_t instruction;
-        switch (instruction = READ_BYTE()) {
+        uint8_t instruction = READ_BYTE();
+        switch (instruction) {
             case OP_CONSTANT: {
                 Value constant = READ_CONSTANT();
                 push(routine, constant);
@@ -788,10 +828,14 @@ InterpretResult run(ObjRoutine* routine) {
                 {
                     num += 65536 * READ_BYTE();
                 }
-                ObjInt *i = newIntU(num);
-                i->isLiteral = true;
-                i->bigInt.neg_ = instruction == OP_IMMEDIATE_N8 || instruction == OP_IMMEDIATE_N16 || instruction == OP_IMMEDIATE_N24;
-                push(routine, INTOBJ_VAL(i));
+
+                Value i = { .type = &yargTypes.integer };
+                (void) int_init_concrete2(&i.as.bigSmallInt.i_);
+                i.as.bigSmallInt.i_.literal_ = true;
+                int_set_u(num, (Int *)&i.as.bigSmallInt.i_);
+                i.as.bigSmallInt.i_.neg_ = instruction == OP_IMMEDIATE_N8 || instruction == OP_IMMEDIATE_N16 || instruction == OP_IMMEDIATE_N24;
+                int_invariant(AS_INT(i));
+                push(routine, i);
                 break;
             }
             case OP_NIL: push(routine, NIL_VAL); break;
@@ -948,9 +992,9 @@ InterpretResult run(ObjRoutine* routine) {
                     tempRootPop();
                     pop(routine);
                     push(routine, result);
-                } else if (IS_INT(peek(routine, 0)))
-                {
-                    Int *b = AS_INT(pop(routine));
+                } else if (IS_INT(peek(routine, 0))) {
+                    Value i = pop(routine);
+                    Int *b = AS_INT(i);
                     ObjString* name = READ_STRING();
                     if (strcmp(name->chars, "overflow") == 0)
                     {
@@ -1189,24 +1233,20 @@ InterpretResult run(ObjRoutine* routine) {
             }
             case OP_PRINT: {
                 ObjString* string = valueToString(peek(routine, 0));
-                tempRootPush(STRING_VAL(string));
+                push(routine, STRING_VAL(string));
                 printf("%s\n", string->chars);
-                tempRootPop();
+                pop(routine);
                 pop(routine);
                 break;
             }
             case OP_POKE: {
                 Value location = peek(routine, 0);
                 Value assignment = peek(routine, 1);
-                Value assignment_type = concrete_typeof(assignment);
-                tempRootPush(assignment_type);
                 if (!(isAddressValue(location) || isUint32Pointer(location))) {
-                    tempRootPop();
                     runtimeError(routine, "Location must be a pointer to an uint32 or address.");
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 if (!is_positive_integer(assignment)) {
-                    tempRootPop();
                     runtimeError(routine, "Value must be a positive integer.");
                     return INTERPRET_RUNTIME_ERROR;
                 }
@@ -1238,7 +1278,6 @@ InterpretResult run(ObjRoutine* routine) {
 #endif
                 printf("poke 0x%08lx, 0x%08zx\n", nominal_address, val);
 #endif
-                tempRootPop();
                 pop(routine);
                 pop(routine);
 
@@ -1377,7 +1416,6 @@ InterpretResult run(ObjRoutine* routine) {
                 uint8_t fieldCount = READ_BYTE();
                 ObjConcreteYargTypeStruct* st = (ObjConcreteYargTypeStruct*) newYargStructType(fieldCount);
                 tempObjRootPush((Obj*)st);
-                size_t fieldOffset = 0;
                 for (uint8_t i = 0; i < fieldCount; i++) {
                     // field type can be nil (any) or a concrete Yarg type
                     Value fieldTypeVal = peek(routine, 2);
@@ -1387,14 +1425,20 @@ InterpretResult run(ObjRoutine* routine) {
                     }
 
                     ObjString* fieldName = AS_STRING(peek(routine, 0));
+                    size_t existing_index = 0;
+                    bool fieldExists = structFieldIndex(st, fieldName, &existing_index);
+                    if (fieldExists) {
+                        runtimeError(routine, "Field already exists in struct.");
+                        return INTERPRET_RUNTIME_ERROR;
+                    }
 
                     // offset value can be nil (auto) or a positive integer
                     Value offsetValue = peek(routine, 1);
                     if (IS_NIL(offsetValue)) {
-                        fieldOffset = addFieldType(st, i, fieldOffset, fieldType, fieldName);
+                        appendFieldType(st, fieldType, fieldName);
                     } else if (is_positive_integer(offsetValue)) {
                         size_t offset = as_positive_integer(offsetValue);
-                        fieldOffset = addFieldTypeAtOffset(st, i, fieldType, offset, fieldName);
+                        appendFieldTypeAtOffset(st, fieldType, offset, fieldName);
                     }
                     pop(routine);
                     pop(routine);
@@ -1479,8 +1523,11 @@ InterpretResult run(ObjRoutine* routine) {
                 }
                 uintptr_t address = AS_ADDRESS(location);
                 const ObjConcreteYargType* pointerType = newYargPointerType(AS_YARGTYPE(type));
+                push(routine, YARGTYPE_VAL(pointerType));
 
                 Value result = createPackedValueContainerAt((void*)address, pointerType);
+
+                pop(routine);
 
                 pop(routine);
                 pop(routine);
@@ -1525,6 +1572,8 @@ uint8_t bootstrap[] = {
     OP_CONSTANT, 0,
     OP_CALL, 1,
     OP_CALL, 1,
+    OP_IMMEDIATE_P8, 1,
+    OP_ELEMENT,
     OP_CALL, 0,
     OP_RETURN
 };
@@ -1549,6 +1598,8 @@ uint8_t xip_bootstrap[] = {
     OP_IMMEDIATE_P8, 1,
     OP_CALL, 2,
     OP_CALL, 1,
+    OP_IMMEDIATE_P8, 1,
+    OP_ELEMENT,
     OP_CALL, 0,
     OP_RETURN
 };
@@ -1596,18 +1647,22 @@ InterpretResult bootXIP() {
 
 void unaryIntOp(ObjRoutine* routine, int op) {
     assert(op == OP_NEGATE);
-    Int* a = AS_INT(peek(routine, 0));
-    ObjInt *r = allocateIntObject(a->d_);
-    int_set_t(a, &r->bigInt);
-    int_neg(&r->bigInt);
+    Value i = peek(routine, 0);
+    Int *a = AS_INT(i);
+    Value negI;
+    allocateIntValue(&negI, a->d_);
+    int_set_t(a, AS_INT(negI));
+    int_neg(AS_INT(negI));
     pop(routine);
-    push(routine, INTOBJ_VAL(r));
+    push(routine, negI);
 }
 
 void binaryIntOp(ObjRoutine* routine, char const *c)
 {
-    Int *a = AS_INT(peek(routine, 1));
-    Int *b = AS_INT(peek(routine, 0));
+    Value va = peek(routine, 1);
+    Value vb = peek(routine, 0);
+    Int *a = AS_INT(va);
+    Int *b = AS_INT(vb);
 
     int s = 0;
     switch (*c)
@@ -1632,32 +1687,36 @@ void binaryIntOp(ObjRoutine* routine, char const *c)
         assert(!"IntOp");
     }
     if (s > 254) s = 254;
-    ObjInt *r = allocateIntObject(s);
-    int_init(&r->bigInt);
+    Value r;
+    allocateIntValue(&r, s);
+    Int *i = AS_INT(r);
+    int_init(i);
 
     switch (*c)
     {
-    case '+': int_add(a, b, &r->bigInt); break;
-    case '-': int_sub(a, b, &r->bigInt); break;
-    case '*': int_mul(a, b, &r->bigInt); break;
-    case '/': int_div(a, b, &r->bigInt, 0); break; // todo - compiler should optimise for /%
+    case '+': int_add(a, b, i); break;
+    case '-': int_sub(a, b, i); break;
+    case '*': int_mul(a, b, i); break;
+    case '/': int_div(a, b, i, 0); break; // todo - compiler should optimise for /%
     case '%': {
         IntConcrete254 q;
         int_init_concrete254(&q);
-        int_div(a, b, (Int *) &q, &r->bigInt); // todo int_div should handle q == 0
+        int_div(a, b, (Int *) &q, i); // todo int_div should handle q == 0
         break;
     }
     default:
         assert(!"IntOp");
     }
     routine->stackTopIndex -= 2;
-    push(routine, INTOBJ_VAL(r));
+    push(routine, r);
 }
 
 void binaryIntBoolOp(ObjRoutine* routine, char const *op)
 {
-    Int *b = AS_INT(pop(routine));
-    Int *a = AS_INT(pop(routine));
+    Value vb = pop(routine);
+    Value va = pop(routine);
+    Int *a = AS_INT(va);
+    Int *b = AS_INT(vb);
     IntComp ic = int_is(a, b);
     bool r;
     switch (*op)

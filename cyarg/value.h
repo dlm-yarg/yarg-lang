@@ -51,7 +51,9 @@ typedef struct {
 #define IS_I64(value)      ((value).type == &yargTypes.int64)
 #define IS_UI64(value)     ((value).type == &yargTypes.uint64)
 #define IS_ADDRESS(value)  ((value).type == &yargTypes.address)
-#define IS_INT(value)      ((value).type == &yargTypes.integer && (value).as.obj->type == OBJ_INT)
+#define IS_INT(value)      ((value).type == &yargTypes.integer)
+#define IS_BIG_INT(value)       ((value).type == &yargTypes.integer && (value).as.bigSmallInt.obj_)
+#define IS_SMALL_INT(value)     ((value).type == &yargTypes.integer && !(value).as.bigSmallInt.obj_)
 #define IS_IMPL_OBJ(value) ((value).type == &yargTypes.implementation_obj && (value).as.obj != NULL)
 #define IS_OBJ(value)      isObjValue(value)
 
@@ -67,6 +69,10 @@ typedef struct {
 #define AS_I64(value)      ((value).as.i64)
 #define AS_ADDRESS(value)  ((value).as.address)
 #define AS_DOUBLE(value)   ((value).as.dbl)
+#define AS_BIG_SMALL_INT(value)   ((value).as.bigSmallInt)
+#define BIG_SMALL_INT_AS_INT(bsi) ((bsi).obj_ ? &(bsi).objInt_->bigInt : (Int *)&(bsi).i_)
+#define AS_INT(value)             (BIG_SMALL_INT_AS_INT(AS_BIG_SMALL_INT(value)))
+#define AS_OBJINT(value)          (AS_BIG_SMALL_INT(value).objInt_)
 
 #define NIL_VAL             ((Value){.type = NULL, .as.obj = NULL})
 
@@ -82,7 +88,7 @@ typedef struct {
 #define UI64_VAL(a)         ((Value){.type = &yargTypes.uint64, {.ui64 = a}})
 #define ADDRESS_VAL(value)  ((Value){.type = &yargTypes.address, { .address = value}})
 #define IMPL_OBJ_VAL(object)     ((Value){.type = &yargTypes.implementation_obj, {.obj = (Obj*)object}})
-#define TYPED_VAL(object, type) ((Value){.type = ((const ObjConcreteYargType*)type), .as.obj = (Obj*) object})
+#define TYPED_VAL(object, t) ((Value){.type = ((const ObjConcreteYargType*)t), .as.obj = (Obj*) object})
 
 
 #if IS_64BIT
@@ -113,9 +119,11 @@ bool valuesEqual(Value a, Value b);
 
 ObjString* valueToString(Value value);
 
+// Dynamic array of Values. Takes ownership of the passed value before growing the array.
 typedef struct {
     int capacity;
     int count;
+    Value stash;
     Value* values;
 } DynamicValueArray;
 
@@ -131,7 +139,11 @@ bool isAddressValue(Value value);
 
 bool isObjType(Value value, ObjType type);
 bool isObjValue(Value value);
+bool is_promotable_to_val(Obj* object);
+Value as_val(Obj* object);
 
 bool isInitialisableType(const ObjConcreteYargType* lhsType, Value rhsValue, Value *promotedRhs); // promotedRhs will be VAL_NIL if no promotion
+
+void allocateIntValue(Value *newBigSmallInt, size_t numDigits);
 
 #endif

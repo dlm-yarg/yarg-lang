@@ -17,15 +17,6 @@ void initChunk(Chunk* chunk) {
     initDynamicValueArray(&chunk->constants);
 }
 
-void freeChunk(Chunk* chunk) {
-    if (!chunk->xip) {
-        FREE_ARRAY(uint8_t, chunk->code, chunk->capacity);
-    }
-    FREE_ARRAY(ChunkSource, chunk->lines, chunk->lineCapacity);
-    freeDynamicValueArray(&chunk->constants);
-    initChunk(chunk);
-}
-
 void writeChunk(Chunk* chunk, uint8_t byte, int line) {
     if (chunk->capacity < chunk->count + 1) {
         int oldCapacity = chunk->capacity;
@@ -47,8 +38,6 @@ int addConstant(Chunk* chunk, Value value) {
         }
     }
 
-    tempRootPush(value);
     appendToDynamicValueArray(&chunk->constants, value);
-    tempRootPop();
     return chunk->constants.count - 1;
 }

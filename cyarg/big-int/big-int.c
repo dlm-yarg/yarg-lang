@@ -65,6 +65,7 @@ void int_init(Int *i)
     assert(i->m_ != 0 && i->m_ % 2 == 0);
     i->neg_ = false;
     i->overflow_ = false;
+    i->literal_ = false;
     i->d_ = 1;
     i->w_[0] = 0;
 }
@@ -72,6 +73,7 @@ void int_init(Int *i)
 Int *int_init_concrete2(IntConcrete2 *i)
 {
     i->m_ = 2;
+    i->obj_ = false;
     int_init((Int *) i);
     return (Int *) i;
 }
@@ -79,6 +81,7 @@ Int *int_init_concrete2(IntConcrete2 *i)
 Int *int_init_concrete4(IntConcrete4 *i)
 {
     i->m_ = 4;
+    i->obj_ = false;
     int_init((Int *) i);
     return (Int *) i;
 }
@@ -86,6 +89,7 @@ Int *int_init_concrete4(IntConcrete4 *i)
 Int *int_init_concrete254(IntConcrete254 *i)
 {
     i->m_ = 254;
+    i->obj_ = false;
     int_init((Int *) i);
     return (Int *) i;
 }
@@ -626,32 +630,39 @@ bool int_is_zero(Int const *i)
 
 IntComp int_is(Int const *a, Int const *b)
 {
-    uint16_t const *const ah = (uint16_t const *) a->w_;
-    uint16_t const *const bh = (uint16_t const *) b->w_;
     IntComp r;
-    if (a->neg_ != b->neg_) // check for zero and -ve zero
+    if (a == b)
     {
-        if (a->d_ == 1 && b->d_ == 1 && ah[0] == 0 && bh[0]  == 0)
-        {
-            r = INT_EQ;
-        }
-        else
-        {
-            r = a->neg_ ? INT_LT : INT_GT;
-        }
+        r = INT_EQ;
     }
-    else // same sign
+    else
     {
-        r = int_is_abs(a, b);
-        if (a->neg_)
+        uint16_t const *const ah = (uint16_t const *) a->w_;
+        uint16_t const *const bh = (uint16_t const *) b->w_;
+        if (a->neg_ != b->neg_)
         {
-            if (r == INT_LT)
+            if (a->d_ == 1 && b->d_ == 1 && ah[0] == 0 && bh[0]  == 0) // check for zero and -ve zero
             {
-                r = INT_GT;
+                r = INT_EQ;
             }
-            else if (r == INT_GT)
+            else
             {
-                r = INT_LT;
+                r = a->neg_ ? INT_LT : INT_GT;
+            }
+        }
+        else // same sign
+        {
+            r = int_is_abs(a, b);
+            if (a->neg_)
+            {
+                if (r == INT_LT)
+                {
+                    r = INT_GT;
+                }
+                else if (r == INT_GT)
+                {
+                    r = INT_LT;
+                }
             }
         }
     }
@@ -761,22 +772,17 @@ char const *int_to_s(Int const *i, char *s, int n)
     return out;
 }
 
-static inline uint16_t const *min(uint16_t const *a, uint16_t const *b)
-{
-    if (a < b) return a; else return b;
-}
-
 int64_t int_to_i64(Int const *i)
 {
     FourDigits r;
-    r.ll64_ = 0;
-    uint16_t const *const ih = (uint16_t const *) i->w_;
-    uint16_t const *s = ih;
-    uint16_t const *e = min(&ih[4], &ih[i->d_]);
-    uint16_t *d = &r.a16_;
-    while (s < e)
+    r.l32_ = i->w_[0];
+    if  (i->d_ <= 2)
     {
-        *d++ = *s++;
+        r.h32_ = 0;
+    }
+    else
+    {
+        r.h32_ =  i->w_[1];
     }
     if (i->neg_)
     {
@@ -791,10 +797,7 @@ int64_t int_to_i64(Int const *i)
     }
     else
     {
-        if (r.ull64_ > 0x7FFFFFFFFFFFFFFFu)
-        {
-            r.ll64_ = 0x7FFFFFFFFFFFFFFF;
-        }
+        r.ull64_ &= 0x7FFFFFFFFFFFFFFFu;
     }
     return r.ll64_;
 }
@@ -802,14 +805,18 @@ int64_t int_to_i64(Int const *i)
 uint64_t int_to_u64(Int const *i)
 {
     FourDigits r;
-    r.ull64_ = 0;
-    uint16_t const *const ih = (uint16_t const *) i->w_;
-    uint16_t const *s = ih;
-    uint16_t const *e = min(&ih[4], &ih[i->d_]);
-    uint16_t *d = &r.a16_;
-    while (s < e)
+    r.l32_ = i->w_[0];
+    if  (i->d_ <= 2)
     {
-        *d++ = *s++;
+        r.h32_ = 0;
+    }
+    else
+    {
+        r.h32_ =  i->w_[1];
+    }
+    if (i->neg_)
+    {
+        r.ull64_ = 0;
     }
     return r.ull64_;
 }
@@ -817,31 +824,20 @@ uint64_t int_to_u64(Int const *i)
 int32_t int_to_i32(Int const *i)
 {
     TwoDigits r;
-    r.i32_ = 0;
-    uint16_t const *const ih = (uint16_t const *) i->w_;
-    uint16_t const *s = ih;
-    uint16_t const *e = min(&ih[2], &ih[i->d_]);
-    uint16_t *d = &r.l16_;
-    while (s < e)
-    {
-        *d++ = *s++;
-    }
+    r.u32_ = i->w_[0];
     if (i->neg_)
     {
-        if (r.u32_ >= 0x80000000u)
+        if (r.u32_ > 0x80000000u)
         {
-            r.i32_ = -0x80000000;
+            r.u32_ = -0x80000000u;
         }
-        else
-        {
-            r.i32_ = -r.u32_;
-        }
+        r.i32_ = -r.i32_;
     }
     else
     {
-        if (r.u32_ > 0x7FFFFFFF)
+        if (r.u32_ > 0x7FFFFFFFu)
         {
-            r.u32_ = 0x7FFFFFFF;
+            r.u32_ = 0x7FFFFFFFu;
         }
     }
     return r.i32_;
@@ -849,17 +845,8 @@ int32_t int_to_i32(Int const *i)
 
 uint32_t int_to_u32(Int const *i)
 {
-    TwoDigits r;
-    r.u32_ = 0;
-    uint16_t const *const ih = (uint16_t const *) i->w_;
-    uint16_t const *s = ih;
-    uint16_t const *e = min(&ih[2], &ih[i->d_]);
-    uint16_t *d = &r.l16_;
-    while (s < e)
-    {
-        *d++ = *s++;
-    }
-    return r.u32_;
+    uint32_t r = i->w_[0];
+    return r;
 }
 
 void int_invariant(Int const *i)

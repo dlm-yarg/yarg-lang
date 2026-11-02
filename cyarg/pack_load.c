@@ -14,7 +14,7 @@
 enum { PACKAGE_OK = 0, PACKAGE_DATAERR = 65, PACKAGE_PROTOCOL = 71, PACKAGE_SOFTWARE = 70 };
 
 int8_t const packageMagic[PACKAGE_MAGIC_LEN] = {0x79, 0x0a, 0x72, 0x67, 0xff, 0x42};
-int16_t const packageVersion = 0x2603;
+int16_t const packageVersion = 0x2604;
 
 ObjFunction *loadPackageFromBuffer(ObjRoutine* context, uint8_t* buffer, size_t bufferSize) {
     int r = PACKAGE_OK;
@@ -76,7 +76,7 @@ ObjFunction *loadPackageFromBuffer(ObjRoutine* context, uint8_t* buffer, size_t 
     }
 
     ObjFunction *currentFunction;
-    functions = realloc(0, h->numChunks_ * sizeof (ObjFunction *));
+    functions = vm_allocate(h->numChunks_ * sizeof (ObjFunction *));
 
     for (int i = 0; i < h->numChunks_; i++) {
         functions[i] = newFunction();
@@ -112,7 +112,7 @@ ObjFunction *loadPackageFromBuffer(ObjRoutine* context, uint8_t* buffer, size_t 
                         int capacity = cf->chunk.lineCapacity;
                         int newCapacity = capacity + 16;
                         cf->chunk.lineCapacity = newCapacity;
-                        cf->chunk.lines = reallocate(cf->chunk.lines, sizeof (ChunkSource) * capacity, sizeof (ChunkSource) * newCapacity);
+                        cf->chunk.lines = vm_reallocate(cf->chunk.lines, sizeof (ChunkSource) * newCapacity);
                     }
                     cf->chunk.lines[cf->chunk.numLines++] = (ChunkSource){ .address = offset - start, .line = i + 1};
                     break;
@@ -147,36 +147,29 @@ ObjFunction *loadPackageFromBuffer(ObjRoutine* context, uint8_t* buffer, size_t 
             case PACK_CONST_TYPE_S: {
                 char *thisString = (char *)&stringFile[index];
                 ObjString *obj = copyString(thisString, (int)strlen(thisString)); // mark as xip
-                Value value = STRING_VAL(obj);
-                push(context, value);
-                appendToDynamicValueArray(&currentFunction->chunk.constants, value);
-                pop(context);
+                appendToDynamicValueArray(&currentFunction->chunk.constants, STRING_VAL(obj));
                 DP(printf(":\"%s\"", thisString));
                 break;
             }
             case PACK_CONST_TYPE_I: {
                 Int const *thisInt = (Int const *)&intFile[index];
-                ObjInt *obj = allocateIntObject(thisInt->d_);
-                push(context, INTOBJ_VAL(obj));
-                memcpy(&obj->bigInt, thisInt, sizeof (Int) + obj->bigInt.m_ * sizeof (uint16_t)); // should be able to shallow copy
-                Value value = INTOBJ_VAL(obj);
+                Value value;
+                allocateIntValue(&value, thisInt->d_);
+                Int *loadedInt = AS_INT(value);
+                memcpy(loadedInt, thisInt, sizeof (Int) + loadedInt->m_ * sizeof (uint16_t)); // should be able to shallow copy
                 appendToDynamicValueArray(&currentFunction->chunk.constants, value);
-                pop(context);
-                DP(printf(":");
-                int_print(thisInt));
+                DP(printf(":"); int_print(thisInt));
                 break;
             }
             case PACK_CONST_TYPE_D: {
                 double thisFloat = doubles[index];
-                Value value = DOUBLE_VAL(thisFloat);
-                appendToDynamicValueArray(&currentFunction->chunk.constants, value); // should be able to shallow copy
+                appendToDynamicValueArray(&currentFunction->chunk.constants, DOUBLE_VAL(thisFloat)); // should be able to shallow copy
                 DP(printf(":%f", thisFloat));
                 break;
             }
             case PACK_CONST_TYPE_F: {
                 ObjFunction *thisFun = functions[index];
-                Value value = FUNCTION_VAL(thisFun);
-                appendToDynamicValueArray(&currentFunction->chunk.constants, value);
+                appendToDynamicValueArray(&currentFunction->chunk.constants, FUNCTION_VAL(thisFun));
                 if (thisFun->fName != 0) {
                     char name[21];
                     int len = thisFun->fName->length;
@@ -191,8 +184,7 @@ ObjFunction *loadPackageFromBuffer(ObjRoutine* context, uint8_t* buffer, size_t 
             }
             case PACK_CONST_TYPE_A: {
                 int64_t thisAddress = addresses[index];
-                Value value = ADDRESS_VAL((uintptr_t)thisAddress);
-                appendToDynamicValueArray(&currentFunction->chunk.constants, value); // should be able to shallow copy
+                appendToDynamicValueArray(&currentFunction->chunk.constants, ADDRESS_VAL((uintptr_t)thisAddress)); // should be able to shallow copy
                 DP(printf(":%llx", thisAddress));
                 break;
             }
@@ -207,7 +199,7 @@ exit:
         for (int i = 0; i < h->numChunks_; i++) {
             pop(context);
         }
-        free(functions);
+        vm_free(functions);
     } else {
         currentFunction = 0;
     }

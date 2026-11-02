@@ -42,7 +42,6 @@ bool is_obj_yargtype(const ObjConcreteYargType* type) {
     else if (type == &yargTypes.class_) return true;
     else if (type == &yargTypes.string) return true;
     else if (type == &yargTypes.type) return true;
-    else if (type == &yargTypes.integer) return true;
     else if (type == &yargTypes.function) return true;
     else if (type->yt == TypeStruct) return true;
     else if (type->yt == TypeArray) return true;
@@ -102,11 +101,6 @@ size_t arrayElementOffset(const ObjConcreteYargTypeArray* arrayType, size_t inde
     return index * yt_sizeof_type_storage(arrayElementType((const ObjConcreteYargType*)arrayType));
 }
 
-size_t arrayCardinality(const ObjConcreteYargType* arrayType) {
-    const ObjConcreteYargTypeArray* t = (const ObjConcreteYargTypeArray*) arrayType;
-    return t->cardinality;
-}
-
 ObjConcreteYargType* newYargStructType(size_t fieldCount) {
     ObjConcreteYargTypeStruct* t = ALLOCATE_OBJ(ObjConcreteYargTypeStruct, OBJ_YARGTYPE_STRUCT);
     t->core.yt = TypeStruct;
@@ -140,27 +134,35 @@ ObjConcreteYargType* newYargPointerType(const ObjConcreteYargType* targetType) {
     return (ObjConcreteYargType*)p;
 }
 
-size_t addFieldType(ObjConcreteYargTypeStruct* st, size_t index, size_t fieldOffset, ObjConcreteYargType* type, ObjString* name) {
+void appendFieldType(ObjConcreteYargTypeStruct* st, ObjConcreteYargType* type, ObjString* name) {
+    size_t index = st->field_names.count;
+
+    assert(st->field_types[index] == NULL);
+
     st->field_types[index] = type;
     tableSet(&st->field_names, name, SIZE_T_UI_VAL(index));
-    size_t alignmentPadding = 0;
-    size_t alignment = yt_alignmentfor_type_storage(type);
-    alignmentPadding = (alignment - (fieldOffset % alignment)) % alignment;
+
+    size_t fieldAlignment = yt_alignmentfor_type_storage(type);
+    size_t fieldOffset = st->storage_size;
+    size_t alignmentPadding = (fieldAlignment - (fieldOffset % fieldAlignment)) % fieldAlignment;
+    
     st->field_indexes[index] = fieldOffset + alignmentPadding;
-    if (alignment > st->alignment) {
-        st->alignment = alignment;
-    }
     st->storage_size = fieldOffset + alignmentPadding + yt_sizeof_type_storage(type);
-    return st->storage_size;
+
+    if (fieldAlignment > st->alignment) {
+        st->alignment = fieldAlignment;
+    }
 }
 
-size_t addFieldTypeAtOffset(ObjConcreteYargTypeStruct* st, size_t index, ObjConcreteYargType* type, size_t offset, ObjString* name) {
+void appendFieldTypeAtOffset(ObjConcreteYargTypeStruct* st, ObjConcreteYargType* type, size_t offset, ObjString* name) {
+    size_t index = st->field_names.count;
+
+    assert(st->field_types[index] == NULL);
+
     st->field_types[index] = type;
     tableSet(&st->field_names, name, SIZE_T_UI_VAL(index));
-    uint32_t alignmentPadding = 0;
     st->field_indexes[index] = offset;
-    st->storage_size = offset + alignmentPadding + yt_sizeof_type_storage(type);
-    return st->storage_size;
+    st->storage_size = offset + yt_sizeof_type_storage(type);
 }
 
 size_t structFieldOffset(const ObjConcreteYargTypeStruct* type, size_t fieldIndex) {
@@ -325,6 +327,7 @@ size_t yt_alignmentfor_type_storage(const ObjConcreteYargType* type) {
             return yt_alignmentfor_type_storage(elementType);
         }
         case TypeInt:
+            return sizeof (BigSmallInt);
         case TypeString:
         case TypeClass:
         case TypeInstance:
@@ -377,64 +380,65 @@ bool isInitialisableType(const ObjConcreteYargType* lhsType, Value rhsValue, Val
     } else {
         if (IS_INT(rhsValue))
         {
-            ObjInt *i = (ObjInt *) rhsValue.as.obj;
-            if (i->isLiteral)
+            BigSmallInt *bsi = &AS_BIG_SMALL_INT(rhsValue);
+            if (bsi->literal_)
             {
+                Int *i = AS_INT(rhsValue);
                 switch (lhsType->yt)
                 {
                 case TypeInt8:
-                    if (int_is_range(&i->bigInt, INT8_MIN, INT8_MAX) == INT_WITHIN)
+                    if (int_is_range(i, INT8_MIN, INT8_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = I8_VAL(int_to_i32(&i->bigInt));
+                        *promotedRhs = I8_VAL(int_to_i32(i));
                         return true;
                     }
                     break;
                 case TypeUint8:
-                    if (int_is_range(&i->bigInt, 0, UINT8_MAX) == INT_WITHIN)
+                    if (int_is_range(i, 0, UINT8_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = UI8_VAL(int_to_u32(&i->bigInt));
+                        *promotedRhs = UI8_VAL(int_to_u32(i));
                         return true;
                     }
                     break;
                 case TypeInt16:
-                    if (int_is_range(&i->bigInt, INT16_MIN, INT16_MAX) == INT_WITHIN)
+                    if (int_is_range(i, INT16_MIN, INT16_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = I16_VAL(int_to_i32(&i->bigInt));
+                        *promotedRhs = I16_VAL(int_to_i32(i));
                         return true;
                     }
                     break;
                 case TypeUint16:
-                    if (int_is_range(&i->bigInt, 0, UINT16_MAX) == INT_WITHIN)
+                    if (int_is_range(i, 0, UINT16_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = UI16_VAL(int_to_u32(&i->bigInt));
+                        *promotedRhs = UI16_VAL(int_to_u32(i));
                         return true;
                     }
                     break;
                 case TypeInt32:
-                    if (int_is_range(&i->bigInt, INT32_MIN, INT32_MAX) == INT_WITHIN)
+                    if (int_is_range(i, INT32_MIN, INT32_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = I32_VAL(int_to_i32(&i->bigInt));
+                        *promotedRhs = I32_VAL(int_to_i32(i));
                         return true;
                     }
                     break;
                 case TypeUint32:
-                    if (int_is_range(&i->bigInt, 0, UINT32_MAX) == INT_WITHIN)
+                    if (int_is_range(i, 0, UINT32_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = UI32_VAL(int_to_u32(&i->bigInt));
+                        *promotedRhs = UI32_VAL(int_to_u32(i));
                         return true;
                     }
                     break;
                 case TypeInt64:
-                    if (int_is_range(&i->bigInt, INT64_MIN, INT64_MAX) == INT_WITHIN)
+                    if (int_is_range(i, INT64_MIN, INT64_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = I64_VAL(int_to_i64(&i->bigInt));
+                        *promotedRhs = I64_VAL(int_to_i64(i));
                         return true;
                     }
                     break;
                 case TypeUint64:
-                    if (int_is_range(&i->bigInt, 0, UINT64_MAX) == INT_WITHIN)
+                    if (int_is_range(i, 0, UINT64_MAX) == INT_WITHIN)
                     {
-                        *promotedRhs = UI64_VAL(int_to_u64(&i->bigInt));
+                        *promotedRhs = UI64_VAL(int_to_u64(i));
                         return true;
                     }
                     break;

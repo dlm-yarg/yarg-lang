@@ -20,8 +20,20 @@
 #include "builtin.h"
 #include "value_cell.h"
 #include "packed_containers.h"
+#include "scanner.h"
+#include "parser.h"
 
+
+#if defined CYARG_NATIVE_HEAP
+#define O1HEAP_ALIGNMENT 8
+#define o1heapInit(a,b) (void *)1
+#define o1heapFree(a,b) free(b)
+#define o1heapReallocate(a,b,c) realloc(b, c)
+#define o1heapAllocate(a,b) malloc(b)
+#define o1heapDoInvariantsHold(a) true
+#else
 #include "../external/o1heap/o1heap/o1heap.h"
+#endif
 
 #ifdef DEBUG_LOG_GC
 #include "debug.h"
@@ -33,7 +45,7 @@ void init_heap_instance(O1HeapInstance** instance) {
 
 #if defined(CYARG_SELF_HOSTED)
     static alignas(O1HEAP_ALIGNMENT)uint8_t heapArena[190 * 1024];
-#else
+#elif !defined CYARG_NATIVE_HEAP
     static alignas(O1HEAP_ALIGNMENT)uint8_t heapArena[10000 * 1024];
 #endif
 
@@ -44,31 +56,43 @@ void init_heap_instance(O1HeapInstance** instance) {
     }
 }
 
-// can only be called during gc, so the heap critical section is already held.
-void* gc_free(void* pointer, size_t oldSize, size_t newSize) {
-    if (newSize != 0) {
-        PRINTERR("help! bad free.\n");
-        exit(1);
-    }
-    vm.bytesAllocated += newSize - oldSize;
-
-    o1heapFree(vm.heap_instance, pointer);
-    return NULL;
+size_t vm_bytesAllocated() {
+    O1HeapDiagnostics diagnostics = o1heapGetDiagnostics(vm.heap_instance);
+    return diagnostics.allocated;
 }
 
-void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
-    vm_mutex_enter_blocking(&vm.heap);
-
-    vm.bytesAllocated += newSize - oldSize;
-    if (newSize > oldSize) {
+static void gc_if_needed(size_t newSize) {
+    size_t before = vm_bytesAllocated();
 #ifdef DEBUG_STRESS_GC
-        collectGarbage();
+    collectGarbage();
 #endif
 
-        if (vm.bytesAllocated > vm.nextGC) {
-            collectGarbage();
-        }
+    before += newSize;
+    if (before > vm.nextGC) {
+        collectGarbage();
     }
+}
+
+void* vm_allocate(size_t newSize) {
+    if (newSize == 0) return NULL;
+
+    vm_mutex_enter_blocking(&vm.heap);
+
+    gc_if_needed(newSize);
+
+    void* result = o1heapAllocate(vm.heap_instance, newSize);
+    if (result == NULL) {
+        PRINTERR("help! no memory.");
+        exit(1);
+    }
+    vm_mutex_exit(&vm.heap);
+    return result;
+}
+
+void* vm_reallocate(void* pointer, size_t newSize) {
+    vm_mutex_enter_blocking(&vm.heap);
+
+    gc_if_needed(newSize);
 
     if (newSize == 0) {
         o1heapFree(vm.heap_instance, pointer);
@@ -84,6 +108,20 @@ void* reallocate(void* pointer, size_t oldSize, size_t newSize) {
     vm_mutex_exit(&vm.heap);
     return result;
 }
+
+void vm_free(void* pointer) {
+    vm_mutex_enter_blocking(&vm.heap);
+    o1heapFree(vm.heap_instance, pointer);
+    vm_mutex_exit(&vm.heap);
+    return;
+}
+
+// can only be called during gc, so the heap critical section is already held.
+void gc_free(void* pointer) {
+    o1heapFree(vm.heap_instance, pointer);
+    return;
+}
+
 
 void tempRootPush(Value value) {
 
@@ -138,6 +176,9 @@ void markValue(Value value) {
     if (isObjValue(value)) {
         markObject(value.as.obj);
     }
+    else if (IS_BIG_INT(value)) {
+        markObject((Obj *)AS_OBJINT(value));
+    }
     markObject((Obj*)value.type);
 }
 
@@ -147,10 +188,11 @@ void markValueCell(ValueCell* cell) {
     markObject((Obj*)cell->cellType);
 }
 
-static void markArray(DynamicValueArray* array) {
+static void markDynamicValueArray(DynamicValueArray* array) {
     for (int i = 0; i < array->count; i++) {
         markValue(array->values[i]);
     }
+    markValue(array->stash);
 }
 
 static void markExpr(Obj* expr) {
@@ -170,7 +212,7 @@ void markDynamicObjArray(DynamicObjArray* array) {
 
 void markFunction(ObjFunction* function) {
     markObject((Obj*)function->fName);
-    markArray(&function->chunk.constants);
+    markDynamicValueArray(&function->chunk.constants);
 }
 
 static void blackenObject(Obj* object) {
@@ -204,7 +246,7 @@ static void blackenObject(Obj* object) {
         case OBJ_FUNCTION: {
             ObjFunction* function = (ObjFunction*)object;
             markObject((Obj*)function->fName);
-            markArray(&function->chunk.constants);
+            markDynamicValueArray(&function->chunk.constants);
             break;
         }
         case OBJ_INSTANCE: {
@@ -460,7 +502,7 @@ static void blackenObject(Obj* object) {
         case OBJ_EXPR_TYPE_STRUCT: {
             markExpr(object);
             ObjExprTypeStruct* expr = (ObjExprTypeStruct*)object;
-            markArray(&expr->fieldsByIndex);
+            markDynamicValueArray(&expr->fieldsByIndex);
             break;
         }
         case OBJ_EXPR_TYPE_INDEXED_COLLECTION: {
@@ -476,141 +518,139 @@ static void blackenObject(Obj* object) {
             markObject((Obj*)pair->b);
             break;
         }
+        case OBJ_SCANNER: markScanner((ObjScanner*)object); break;
+        case OBJ_PARSER: markParser((ObjParser*)object); break;
     }
+}
+
+static void gc_freeDynamicValueArray(DynamicValueArray* array) {
+    gc_free(array->values);
+}
+
+static void gc_freeTable(ValueTable* table) {
+    gc_free(table->entries);
+}
+
+void gc_freeChunk(Chunk* chunk) {
+    if (!chunk->xip) {
+        gc_free(chunk->code);
+    }
+    gc_free(chunk->lines);
+    gc_freeDynamicValueArray(&chunk->constants);
 }
 
 static void freeObject(Obj* object) {
 #ifdef DEBUG_LOG_GC
-    PRINTERR("%p free type %d\n", (void*)object, object->type);
+    PRINTERR("%p freeObject type %d\n", (void*)object, object->type);
 #endif
 
     switch (object->type) {
-        case OBJ_BOUND_METHOD: FREE(ObjBoundMethod, object); break;
+        case OBJ_BOUND_METHOD: break;
         case OBJ_CLASS: {
             ObjClass* klass = (ObjClass*)object;
-            freeTable(&klass->methods);
-            FREE(ObjClass, object);
+            gc_freeTable(&klass->methods);
             break;
         }
-        case OBJ_CLOSURE: {
-            ObjClosure* closure = (ObjClosure*)object;
-            FREE_ARRAY(ObjUpvalue*, closure->upvalues, closure->cUpvalueCount);
-            FREE(ObjClosure, object);
-            break;
-        }
+        case OBJ_CLOSURE: gc_free(((ObjClosure*)object)->upvalues); break;
         case OBJ_FUNCTION: {
             ObjFunction* function = (ObjFunction*)object;
-            freeChunk(&function->chunk);
-            FREE(ObjFunction, object);
+            gc_freeChunk(&function->chunk);
             break;
         }
         case OBJ_INSTANCE: {
             ObjInstance* instance = (ObjInstance*)object;
-            freeTable(&instance->fields);
-            FREE(ObjInstance, object);
+            gc_freeTable(&instance->fields);
             break;
         }
-        case OBJ_NATIVE: FREE(ObjNative, object); break;
-        case OBJ_BUILTIN: FREE(ObjBuiltin, object); break;
-        case OBJ_ROUTINE:
-            FREE(ObjRoutine, object);
-            break;
-        case OBJ_STRING: {
-            ObjString* string = (ObjString*)object;
-            FREE_ARRAY(char, string->chars, string->length + 1);
-            FREE(ObjString, object);
-            break;
-        }
-        case OBJ_UPVALUE: FREE(ObjUpvalue, object); break;
-        case OBJ_CHANNELCONTAINER: freeChannelObject((ObjChannelContainer*)object); break;
-        case OBJ_PACKEDSTORAGE: freePackedStorage((ObjPackedStorage*)object); break;
-        case OBJ_UNOWNED_PACKEDCONTAINER: FREE(ObjPackedContainer, object); break;
-        case OBJ_PACKEDCONTAINER: FREE(ObjOwningPackedContainer, object); break;
+        case OBJ_NATIVE: break;
+        case OBJ_BUILTIN: break;
+        case OBJ_ROUTINE: break;
+        case OBJ_STRING: gc_free(((ObjString*)object)->chars); break;
+        case OBJ_UPVALUE: break;
+        case OBJ_CHANNELCONTAINER: gc_freeChannelObject((ObjChannelContainer*)object); break;
+        case OBJ_PACKEDSTORAGE: gc_freePackedStorage((ObjPackedStorage*)object); break;
+        case OBJ_UNOWNED_PACKEDCONTAINER: break;
+        case OBJ_PACKEDCONTAINER: break;
         case OBJ_MAP: {
             ObjMap* map = (ObjMap*)object;
-            freeTable(&map->entries);
-            FREE(ObjMap, object);
+            gc_freeTable(&map->entries);
             break;
         }
-        case OBJ_YARGTYPE: FREE(ObjConcreteYargType, object); break;
-        case OBJ_YARGTYPE_ARRAY: FREE(ObjConcreteYargTypeArray, object); break;
+        case OBJ_YARGTYPE: break;
+        case OBJ_YARGTYPE_ARRAY: break;
         case OBJ_YARGTYPE_STRUCT: {
             ObjConcreteYargTypeStruct* t = (ObjConcreteYargTypeStruct*)object;
-            FREE_ARRAY(ObjConcreteYargType*, t->field_types, t->field_count);
-            FREE_ARRAY(size_t, t->field_indexes, t->field_count);
-            freeTable(&t->field_names);
-            FREE(ObjConcreteYargTypeStruct, object);
+            gc_free(t->field_types);
+            gc_free(t->field_indexes);
+            gc_freeTable(&t->field_names);
             break;
         }
-        case OBJ_YARGTYPE_MAP: FREE(ObjConcreteYargTypeMap, object); break;
-        case OBJ_YARGTYPE_POINTER: FREE(ObjConcreteYargTypePointer, object); break;
-        case OBJ_SYNCGROUP: freeSyncGroup(object); break;
-        case OBJ_STACKSLICE: FREE(ObjStackSlice, object); break;
-        case OBJ_AST: FREE(ObjAst, object); break;
-        case OBJ_PLACEALIAS: FREE(ObjPlaceAlias, object); break;
-        case OBJ_STMT_RETURN: // fall through
-        case OBJ_STMT_YIELD:
-        case OBJ_STMT_PRINT:
-        case OBJ_STMT_EXPRESSION: FREE(ObjStmtExpression, object); break;
-        case OBJ_STMT_POKE: FREE(ObjStmtPoke, object); break;
-        case OBJ_STMT_VARDECLARATION: FREE(ObjStmtVarDeclaration, object); break;
-        case OBJ_STMT_FIELDDECLARATION: FREE(ObjStmtFieldDeclaration, object); break;
+        case OBJ_YARGTYPE_MAP: break;
+        case OBJ_YARGTYPE_POINTER: break;
+        case OBJ_SYNCGROUP: gc_freeSyncGroup((ObjSyncGroup*)object); break;
+        case OBJ_STACKSLICE: break;
+        case OBJ_AST: break;
+        case OBJ_PLACEALIAS: break;
+        case OBJ_STMT_RETURN: break;
+        case OBJ_STMT_YIELD: break;
+        case OBJ_STMT_PRINT: break;
+        case OBJ_STMT_EXPRESSION: break;
+        case OBJ_STMT_POKE: break;
+        case OBJ_STMT_VARDECLARATION: break;
+        case OBJ_STMT_FIELDDECLARATION: break;
         case OBJ_STMT_PLACEDECLARATION: {
             ObjStmtPlaceDeclaration* stmt = (ObjStmtPlaceDeclaration*)object;
-            freeDynamicObjArray(&stmt->aliases);
-            FREE(ObjStmtPlaceDeclaration, object);
+            gc_freeDynamicObjArray(&stmt->aliases);
             break;
         }
-        case OBJ_STMT_BLOCK: FREE(ObjStmtBlock, object); break;
-        case OBJ_STMT_IF: FREE(ObjStmtIf, object); break;
+        case OBJ_STMT_BLOCK: break;
+        case OBJ_STMT_IF: break;
         case OBJ_STMT_FUNDECLARATION: {
             ObjStmtFunDeclaration* fun = (ObjStmtFunDeclaration*)object;
-            freeDynamicObjArray(&fun->parameters);
-            FREE(ObjStmtFunDeclaration, object); 
+            gc_freeDynamicObjArray(&fun->parameters);
             break;
         }
-        case OBJ_STMT_WHILE: FREE(ObjStmtWhile, object); break;
-        case OBJ_STMT_FOR: FREE(ObjStmtFor, object); break;
+        case OBJ_STMT_WHILE: break;
+        case OBJ_STMT_FOR: break;
         case OBJ_STMT_CLASSDECLARATION: {
             ObjStmtClassDeclaration* decl = (ObjStmtClassDeclaration*)object;
-            freeDynamicObjArray(&decl->methods);
-            FREE(ObjStmtClassDeclaration, object);
+            gc_freeDynamicObjArray(&decl->methods);
             break;
         }
-        case OBJ_EXPR_NUMBER: FREE(ObjExprNumber, object); break;
-        case OBJ_EXPR_ADDRESS: FREE(ObjExprAddress, object); break;
-        case OBJ_EXPR_OPERATION: FREE(ObjExprOperation, object); break;
-        case OBJ_EXPR_GROUPING: FREE(ObjExprGrouping, object); break;
-        case OBJ_EXPR_NAMEDVARIABLE: FREE(ObjExprNamedVariable, object); break;
-        case OBJ_EXPR_LITERAL: FREE(ObjExprLiteral, object); break;
-        case OBJ_EXPR_STRING: FREE(ObjExprString, object); break;
+        case OBJ_EXPR_NUMBER: break;
+        case OBJ_EXPR_ADDRESS: break;
+        case OBJ_EXPR_OPERATION: break;
+        case OBJ_EXPR_GROUPING: break;
+        case OBJ_EXPR_NAMEDVARIABLE: break;
+        case OBJ_EXPR_LITERAL: break;
+        case OBJ_EXPR_STRING: break;
         case OBJ_EXPR_CALL: {
             ObjExprCall* call = (ObjExprCall*)object;
-            freeDynamicObjArray(&call->arguments);
-            FREE(ObjExprCall, object); 
+            gc_freeDynamicObjArray(&call->arguments);
             break;
         }
         case OBJ_EXPR_COLLECTION_INITIALIZER: {
             ObjExprCollectionInitializer* init = (ObjExprCollectionInitializer*)object;
-            freeDynamicObjArray(&init->initializers);
-            FREE(ObjExprCollectionInitializer, object); 
+            gc_freeDynamicObjArray(&init->initializers);
             break;
         }
-        case OBJ_EXPR_COLLECTION_ELEMENT: FREE(ObjExprCollectionElement, object); break;
-        case OBJ_EXPR_PAIR: FREE(ObjExprPair, object); break;
-        case OBJ_EXPR_BUILTIN: FREE(ObjExprBuiltin, object); break;
-        case OBJ_EXPR_DOT: FREE(ObjExprDot, object); break;
-        case OBJ_EXPR_SUPER: FREE(ObjExprSuper, object); break;
-        case OBJ_EXPR_TYPE: FREE(ObjExprTypeLiteral, object); break;
+        case OBJ_EXPR_COLLECTION_ELEMENT: break;
+        case OBJ_EXPR_PAIR: break;
+        case OBJ_EXPR_BUILTIN: break;
+        case OBJ_EXPR_DOT: break;
+        case OBJ_EXPR_SUPER: break;
+        case OBJ_EXPR_TYPE: break;
         case OBJ_EXPR_TYPE_STRUCT: {
             ObjExprTypeStruct* expr = (ObjExprTypeStruct*)object;
-            freeDynamicValueArray(&expr->fieldsByIndex);
-            FREE(ObjExprTypeStruct, object);
+            gc_freeDynamicValueArray(&expr->fieldsByIndex);
             break;
         }
-        case OBJ_EXPR_TYPE_INDEXED_COLLECTION: FREE(ObjExprTypeIndexedCollection, object); break;
-        case OBJ_INT: FREE(ObjInt, object); break;
+        case OBJ_EXPR_TYPE_INDEXED_COLLECTION: break;
+        case OBJ_INT: break;
+        case OBJ_SCANNER: break;
+        case OBJ_PARSER: gc_freeParser((ObjParser*)object); break;
     }
+    gc_free(object);
 }
 
 static void markRoots() {
@@ -647,27 +687,43 @@ static void sweep() {
     }
 }
 
+void fprintHeapDiagnostics(FILE* out) {
+    O1HeapDiagnostics diagnostics = o1heapGetDiagnostics(vm.heap_instance);
+    fprintf(out, "Heap Diagnostics:\n");
+    fprintf(out, "  Bytes Allocated: %zu\n", diagnostics.allocated);
+    fprintf(out, "  Capacity: %zu\n", diagnostics.capacity);
+    fprintf(out, "  Peak Allocation: %zu\n", diagnostics.peak_allocated);
+    fprintf(out, "  Peak Requested: %zu\n", diagnostics.peak_request_size);
+    fprintf(out, "  Failed Allocations: %llu\n", diagnostics.oom_count);
+}
+
 void collectGarbage() {
 
 #ifdef DEBUG_LOG_GC
-    PRINTERR("-- gc begin\n");
-    size_t before = vm.bytesAllocated;
+    FPRINTMSG(stderr, "-- gc begin\n");
+    fprintHeapDiagnostics(stderr);
+    O1HeapDiagnostics diagnostics = o1heapGetDiagnostics(vm.heap_instance);
+    size_t before = diagnostics.allocated;
 #endif
 
-    assert(o1heapDoInvariantsHold(vm.heap_instance));
+    if (!o1heapDoInvariantsHold(vm.heap_instance)) {
+        fatalVMError("heap invariants do not hold as gc starts");
+    }
 
     markRoots();
     traceReferences();
     tableRemoveWhite(&vm.strings);
     sweep();
 
-    size_t candidateGC = vm.bytesAllocated * GC_HEAP_GROW_FACTOR;
+    size_t after = vm_bytesAllocated();
+
+    size_t candidateGC = after * GC_HEAP_GROW_FACTOR;
     vm.nextGC = candidateGC > ALWAYS_GC_ABOVE ? ALWAYS_GC_ABOVE : candidateGC;
 
 #ifdef DEBUG_LOG_GC
-    PRINTERR("-- gc end\n");
-    PRINTERR("   collected %zu bytes (from %zu to %zu) next at %zu\n",
-             before - vm.bytesAllocated, before, vm.bytesAllocated,
+    FPRINTMSG(stderr, "-- gc end\n");
+    FPRINTMSG(stderr, "   collected %zu bytes (from %zu to %zu) next at %zu\n",
+             before - after, before, after,
              vm.nextGC);
 #endif
 

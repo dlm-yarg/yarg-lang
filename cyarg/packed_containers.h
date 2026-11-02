@@ -79,7 +79,7 @@ bool isUint32Pointer(Value val);
 #define IS_STRUCT(value)       is_struct(value)
 
 void markPackedStorage(ObjPackedStorage* storage);
-void freePackedStorage(ObjPackedStorage* storage);
+void gc_freePackedStorage(ObjPackedStorage* storage);
 
 Value newPackedValueContainer(const ObjConcreteYargType* type);
 Value createPackedValueContainerAt(void* location, const ObjConcreteYargType* type);
@@ -95,14 +95,19 @@ Value duplicateStruct(Value structVal);
 Value duplicateArray(Value arrayVal);
 Value duplicatePointer(Value pointer);
 
-// Two useful conveniences - a byte array and a value array.
+// Three useful conveniences: a byte array, a value array, and a struct pair.
 // byte arrays can create a buffer, or be placed over an existing memory location.
 Value allocByteArray(size_t length);
 Value createByteArrayAt(uint8_t* location, size_t length);
 bool  isByteArray(Value value);
 // value arrays can contain any value.
 Value allocValueArray(size_t length);
+Value allocValueStructPair(const char* leftFieldName, const char* rightFieldName);
 
+// convert internal DynamicObjArray to Value array
+Value duplicateAsValueArray(DynamicObjArray* array);
+
+size_t arrayCardinality(Value array);
 Value arrayElement(Value array, size_t index);
 Value pointerDestination(Value pointer);
 Value structField(Value structVal, size_t fieldIndex);

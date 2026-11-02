@@ -9,6 +9,7 @@
 #include "yargtype.h"
 #include "yargstructtype.h"
 #include "value_cell.h"
+#include "yargobject.h"
 
 typedef struct ObjPackedStorage {
     Obj obj;
@@ -104,7 +105,7 @@ ObjPackedStorage* newPackedStorage(const ObjConcreteYargType* type) {
         }
     }
 
-    FREE_ARRAY(FlattenedElements, elements, packed_elements);
+    vm_free(elements);
     tempRootPop();
     return storage;
 }
@@ -117,9 +118,8 @@ void markPackedStorage(ObjPackedStorage* storage) {
     }
 }
 
-void freePackedStorage(ObjPackedStorage* storage) {
-    FREE_ARRAY(Value*, storage->values, storage->value_elements);
-    gc_free(storage, storage->storage_size, 0);
+void gc_freePackedStorage(ObjPackedStorage* storage) {
+    gc_free(storage->values);
 }
 
 bool is_uniformarray(Value value) {
@@ -343,12 +343,55 @@ Value allocValueArray(size_t length) {
     return result;
 }
 
+Value allocValueStructPair(const char* leftFieldName, const char* rightFieldName) {
+    
+    ObjConcreteYargTypeStruct* result_struct_type = (ObjConcreteYargTypeStruct*) newYargStructType(2);
+    tempRootPush(IMPL_OBJ_VAL((Obj*)result_struct_type));
+    ObjString* leftField = copyString(leftFieldName, strlen(leftFieldName));
+    tempRootPush(STRING_VAL(leftField));
+    ObjString* rightField = copyString(rightFieldName, strlen(rightFieldName));
+    tempRootPush(STRING_VAL(rightField));
+
+    appendFieldType(result_struct_type, NULL, leftField);
+    appendFieldType(result_struct_type, NULL, rightField);
+
+    Value result_container = newPackedValueContainer((ObjConcreteYargType*) result_struct_type);
+
+    tempRootPop(); // rightField
+    tempRootPop(); // leftField
+    tempRootPop(); // result_struct_type
+
+    return result_container;
+}
+
+Value duplicateAsValueArray(DynamicObjArray* array) {
+    if (array->objectCount == 0) {
+        return NIL_VAL;
+    }
+    Value result = allocValueArray(array->objectCount);
+    tempRootPush(result);
+    for (size_t cursor = 0; cursor < array->objectCount; cursor++) {
+        Obj* obj = array->objects[cursor];
+        assert(is_promotable_to_val(obj));
+        setArrayElement(result, cursor, as_val(array->objects[cursor]));
+    }
+    tempRootPop();
+    return result;
+}
+
+
+
 void offsetPointerDestination(Value pointerVal, Value offsetVal) {
     size_t offset = as_positive_integer(offsetVal);
     ObjPackedContainer* pointer = AS_PACKEDCONTAINER(pointerVal);
     uintptr_t addr = (uintptr_t) pointer->loc;
     addr += offset;
     pointer->loc = (void*) addr;
+}
+
+size_t arrayCardinality(Value array) {
+    const ObjConcreteYargTypeArray* arrayType = (const ObjConcreteYargTypeArray*) array.type;
+    return arrayType->cardinality;
 }
 
 Value containerElement(ObjPackedContainer* container, const ObjConcreteYargType* element_type, size_t element_offset) {

@@ -13,11 +13,9 @@
 #include "sync_group.h"
 
 Obj* allocateObject(size_t size, ObjType type) {
-    Obj* object = (Obj*)reallocate(NULL, 0, size);
+    Obj* object = (Obj*)vm_allocate(size);
     memset(object, 0, size);
-
     object->type = type;
-    object->isMarked = false;
 
     vm_mutex_enter_blocking(&vm.heap);
 
@@ -33,6 +31,8 @@ Obj* allocateObject(size_t size, ObjType type) {
     return object;
 }
 
+// note that this call can be omitted for objects where
+// the DynamicObjArray is a member, and Zero filled
 void initDynamicObjArray(DynamicObjArray* array) {
     array->objects = NULL;
     array->stash = NULL;
@@ -41,8 +41,12 @@ void initDynamicObjArray(DynamicObjArray* array) {
 }
 
 void freeDynamicObjArray(DynamicObjArray* array) {
-    FREE_ARRAY(Obj*, array->objects, array->objectCapacity);
+    vm_free(array->objects);
     initDynamicObjArray(array);
+}
+
+void gc_freeDynamicObjArray(DynamicObjArray* array) {
+    gc_free(array->objects);
 }
 
 void appendToDynamicObjArray(DynamicObjArray* array, Obj* obj) {
@@ -55,15 +59,6 @@ void appendToDynamicObjArray(DynamicObjArray* array, Obj* obj) {
     array->objects[array->objectCount] = obj;
     array->objectCount++;
     array->stash = NULL;
-}
-
-Obj* removeLastFromDynamicObjArray(DynamicObjArray* array) {
-    Obj* end = NULL;
-    if (array->objectCount > 0) {
-        end = array->objects[array->objectCount - 1];
-        array->objectCount--;
-    }
-    return end;
 }
 
 ObjString* objectToString(const Obj* value) {
@@ -123,9 +118,8 @@ ObjString* objectToString(const Obj* value) {
         }
         case OBJ_INT: {
             const ObjInt* intObj = (const ObjInt*)value;
-            const Int *i = &intObj->bigInt;
             char sb[INT_STRLEN_FOR_INT254];
-            char const* s = int_to_s(i, sb, INT_STRLEN_FOR_INT254);
+            char const* s = int_to_s(&intObj->bigInt, sb, INT_STRLEN_FOR_INT254);
             return copyString(s, (int)strlen(s));
         }
         case OBJ_MAP: {

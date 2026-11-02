@@ -35,10 +35,8 @@ ObjSyncGroup* newSyncGroup(ObjRoutine* routine, Value itemArray) {
     return group;
 }
 
-void freeSyncGroup(Obj* obj) {
-    ObjSyncGroup* group = (ObjSyncGroup*)obj;
+void gc_freeSyncGroup(ObjSyncGroup* group) {
     vm_mutex_deinit(&group->group_lock);
-    FREE(ObjSyncGroup, obj);
 }
 
 void markSyncGroup(ObjSyncGroup* group) {

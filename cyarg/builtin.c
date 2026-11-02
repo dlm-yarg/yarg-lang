@@ -52,14 +52,14 @@ bool readYargSourceBuiltin(ObjRoutine* routineContext, int argCount, Value* resu
         size_t file_size = fileSize(filename);
 
         Value byteBuffer = allocByteArray(file_size);
-        tempRootPush(byteBuffer);
+        push(routineContext, byteBuffer);
 
         
         readFileIntoBuffer(filename, AS_PACKEDCONTAINER(byteBuffer)->loc, file_size);
 
         *result = byteBuffer;
 
-        tempRootPop(); // byteBuffer
+        pop(routineContext); // byteBuffer
     }
     else {
         // assume a text file
@@ -70,7 +70,7 @@ bool readYargSourceBuiltin(ObjRoutine* routineContext, int argCount, Value* resu
         }
 
         ObjString* sourceString = copyString(source, (int)strlen(source));
-        free(source);
+        vm_free(source);
 
         *result = STRING_VAL(sourceString);
     }
@@ -140,16 +140,16 @@ bool compileBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         return false;
     }
 
-    const char* source = AS_CSTRING(peek(routineContext, 0));
-    ObjFunction* function = compile(source);
-    if (function == NULL) {
-        *result = NIL_VAL;
-    } else {
-        push(routineContext, FUNCTION_VAL(function));
-        ObjClosure* closure = newClosure(function);
-        pop(routineContext);
-        *result = CLOSURE_VAL(closure);
+    Value compileResult = compile(routineContext);
+    Value compileError = structField(compileResult, 0);
+    Value compileFunction = structField(compileResult, 1);
+
+    if (IS_NIL(compileError)) {
+        ObjClosure* closure = newClosure(AS_FUNCTION(compileFunction));
+        setStructField(compileResult, 1, CLOSURE_VAL(closure));
     }
+
+    *result = compileResult;
     return true;
 }
 
@@ -159,29 +159,54 @@ bool loadBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         return false;
     }
     Value arg = peek(routineContext, 0);
-    ObjFunction* function = NULL;
     
     if (isByteArray(arg)) {
         ObjPackedContainer* container = AS_PACKEDCONTAINER(arg);
         const ObjConcreteYargTypeArray* arrayType = (const ObjConcreteYargTypeArray*) arg.type;
         uint8_t* buffer = (uint8_t*)container->loc;
-        function = loadPackageFromBuffer(routineContext, buffer, arrayType->cardinality);
+        ObjFunction* function = loadPackageFromBuffer(routineContext, buffer, arrayType->cardinality);
+        Value functionVal = function ? FUNCTION_VAL(function) : NIL_VAL;
+        push(routineContext, functionVal);
+        Value loadResult = allocValueStructPair("compileError", "result");
+        pop(routineContext);
+        push(routineContext, loadResult);
+
+        setStructField(loadResult, 1, functionVal);
     } else if (IS_STRING(arg)) {
-        const char* source = AS_CSTRING(arg);
-        function = compile(source);
+        Value compileResult = compile(routineContext);
+        push(routineContext, compileResult);
+        Value compileError = structField(compileResult, 0);
+        Value compileFunction = structField(compileResult, 1);
+
+        Value loadResult = allocValueStructPair("compileError", "result");
+        push(routineContext, loadResult);
+
+
+        if (!IS_NIL(compileError)) {
+            setStructField(loadResult, 0, compileError);
+        } else {
+            setStructField(loadResult, 1, compileFunction);
+        }
+        pop(routineContext);
+        pop(routineContext);
+        push(routineContext, loadResult);
     } else {
         runtimeError(routineContext, "Argument to load must be a byte array or a string.");
         return false;
     }
 
-    if (function == NULL) {
-        *result = NIL_VAL;
-    } else {
-        push(routineContext, FUNCTION_VAL(function));
-        ObjClosure* closure = newClosure(function);
-        *result = CLOSURE_VAL(closure);
+    Value loadResult = peek(routineContext, 0);
+    Value functionVal = structField(loadResult, 1);
+
+    if (!IS_NIL(functionVal)) {
+        push(routineContext, functionVal);
+        ObjClosure* closure = newClosure(AS_FUNCTION(functionVal));
+        setStructField(loadResult, 1, CLOSURE_VAL(closure));
         pop(routineContext);
     }
+
+    pop(routineContext);
+    *result = loadResult;
     return true;
 }
 
@@ -445,16 +470,19 @@ bool lenBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     if (IS_STRING(arg)) {
         ObjString* string = AS_STRING(arg);
         size_t length = string->length;
-        *result = INTOBJ_VAL(newIntU(length));
+        allocateIntValue(result, sizeof (size_t) / sizeof (uint16_t));
+        int_set_u(length, AS_INT(*result));
         return true;
     } else if (IS_UNIFORMARRAY(arg)) {
         ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*) arg.type;
-        *result = INTOBJ_VAL(newIntU(arrayType->cardinality));
+        allocateIntValue(result, sizeof (size_t) / sizeof (uint16_t));
+        int_set_u(arrayType->cardinality, AS_INT(*result));
         return true;
     } else if (IS_MAP(arg)) {
         ObjMap* map = AS_MAP(arg);
         size_t count = map->entries.count;
-        *result = INTOBJ_VAL(newIntU(count));
+        allocateIntValue(result, sizeof (size_t) / sizeof (uint16_t));
+        int_set_u(count, AS_INT(*result));
         return true;
     } else {
         runtimeError(routineContext, "Expected a string, array or map.");
@@ -493,16 +521,16 @@ bool pinBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     }
 }
 
-Value createPointerAndTarget(const ObjConcreteYargType* targetType) {
+Value createPointerAndTarget(ObjRoutine* routineContext, const ObjConcreteYargType* targetType) {
 
     const ObjConcreteYargType* pointerType = newYargPointerType(targetType);
-    tempRootPush(YARGTYPE_VAL(pointerType));
+    push(routineContext, YARGTYPE_VAL(pointerType));
 
     Value targetVal = newPackedValueContainer(targetType);
     ObjPackedContainer* targetContainer = AS_PACKEDCONTAINER(targetVal);
 
     Value pointerVal = createPackedContainerFor(targetContainer, 0, pointerType);
-    tempRootPop();
+    pop(routineContext);
     return pointerVal;
 }
 
@@ -522,7 +550,7 @@ bool new_Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
 
     if (IS_NIL(typeToCreate)) {
         // make an 'any' cell, ie a heap allocated Value.
-        *result = createPointerAndTarget(NULL);
+        *result = createPointerAndTarget(routineContext, NULL);
         return true;
     }
 
@@ -539,7 +567,7 @@ bool new_Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
         case TypeInt64:
         case TypeUint64:
         case TypeStruct: {
-            *result = createPointerAndTarget(AS_YARGTYPE(typeToCreate));
+            *result = createPointerAndTarget(routineContext, AS_YARGTYPE(typeToCreate));
             return true;
         }
         case TypeArray:
@@ -938,43 +966,51 @@ bool int8Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
 bool intBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     Value arg = peek(routineContext, 0);
     int64_t i;
-    if (IS_I8(arg)) {
+    size_t s;
+    if (IS_I8(arg)) { // todo: optimise with switch
         i = AS_I8(arg);
+        s = 1;
     } else if (IS_I16(arg)) {
         i = AS_I16(arg);
+        s = 1;
     } else if (IS_I32(arg)) {
         i = AS_I32(arg);
+        s = 2;
     } else if (IS_I64(arg)) {
         i = AS_I64(arg);
+        s = 4;
     } else if (IS_UI8(arg)) {
         i = AS_UI8(arg);
+        s = 1;
     } else if (IS_UI16(arg)) {
         i = AS_UI16(arg);
+        s = 1;
     } else if (IS_UI32(arg)) {
         i = AS_UI32(arg);
+        s = 2;
     } else if (IS_UI64(arg)) {
         uint64_t u = AS_UI64(arg);
-        *result = INTOBJ_VAL(newIntU(u));
+        allocateIntValue(result, 4);
+        int_set_u(u, AS_INT(*result));
         return true;
     } else if (IS_STRING(arg)) {
         char *s = AS_CSTRING(arg);
         int il = INT_DIGITS_FOR_S(strlen(s));
-        ObjInt *newObj = allocateIntObject(il);
-        *result = INTOBJ_VAL(newObj);
-        int_set_s(s, &newObj->bigInt);
+        allocateIntValue(result, il);
+        int_set_s(s, AS_INT(*result));
         return true;
     } else if (IS_INT(arg)) {
         Int *from = AS_INT(arg);
         int il = from->d_;
-        ObjInt *newObj = allocateIntObject(il);
-        *result = INTOBJ_VAL(newObj);
-        int_set_t(from, &newObj->bigInt);
+        allocateIntValue(result, il);
+        int_set_t(from, AS_INT(*result));
         return true;
     } else {
         return false;
     }
 
-    *result = INTOBJ_VAL(newInt(i));
+    allocateIntValue(result, s);
+    int_set_i(i, AS_INT(*result)); // todo: optimise as only IS_I64 has obj_
     return true;
 }
 

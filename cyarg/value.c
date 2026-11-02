@@ -23,6 +23,40 @@ bool isObjType(Value value, ObjType type) {
     return isObjValue(value) && AS_OBJ(value)->type == type;
 }
 
+bool is_promotable_to_val(Obj* object) {
+    if (object == NULL) return true;
+
+    switch (object->type) {
+        case OBJ_STRING:
+        case OBJ_INT:
+        case OBJ_CLASS:
+        case OBJ_YARGTYPE:
+            return true;
+        default:
+            return false;
+    }
+}
+
+Value as_val(Obj* object) {
+    if (!is_promotable_to_val(object)) {
+        fatalVMError("Object is not promotable to a value.");
+    }
+    if (object == NULL) {
+        return NIL_VAL;
+    } else if (object->type == OBJ_STRING) {
+        return TYPED_VAL(object, &yargTypes.string);
+    } else if (object->type == OBJ_INT) {
+        return TYPED_VAL(object, &yargTypes.integer);
+    } else if (object->type == OBJ_CLASS) {
+        return TYPED_VAL(object, &yargTypes.class_);
+    } else if (object->type == OBJ_YARGTYPE) {
+        return TYPED_VAL(object, &yargTypes.type);
+    } else {
+        fatalVMError("Unsupported object type for as_val: %d", object->type);
+        return IMPL_OBJ_VAL(object);
+    }
+}
+
 bool is_nil(Value value) {
     if (value.type == NULL && value.as.obj == NULL) return true;
     if (value.type == &yargTypes.implementation_obj && value.as.obj != NULL) return false;
@@ -117,18 +151,11 @@ Value concrete_typeof(Value a) {
 }
 
 Value duplicateValue(Value src) {
-    if (IS_INT(src)) {
-        ObjInt* rhs = AS_INTOBJ(src);
-        ObjInt* lhs = allocateIntObject(rhs->bigInt.m_);
-        tempRootPush(INTOBJ_VAL(lhs));
-        uint16_t* lhs_w = (uint16_t*) &lhs->bigInt.w_[0];
-        uint16_t* rhs_w = (uint16_t*) &rhs->bigInt.w_[0];
-        memcpy(lhs_w, rhs_w, rhs->bigInt.m_ * sizeof(uint16_t));
-        lhs->bigInt.neg_ = rhs->bigInt.neg_;
-        lhs->bigInt.d_ = rhs->bigInt.d_;
-        lhs->isLiteral = rhs->isLiteral;
-        tempRootPop();
-        return INTOBJ_VAL(lhs);
+    if (IS_BIG_INT(src)) {
+        Value lhs;
+        allocateIntValue(&lhs, AS_BIG_SMALL_INT(src).objInt_->bigInt.d_);
+        int_set_t(&AS_BIG_SMALL_INT(src).objInt_->bigInt, AS_INT(lhs));
+        return lhs;
     } else if (IS_STRUCT(src)) {
         return duplicateStruct(src);
     } else if (IS_UNIFORMARRAY(src)) {
@@ -179,9 +206,12 @@ void initDynamicValueArray(DynamicValueArray* array) {
     array->values = NULL;
     array->capacity = 0;
     array->count = 0;
+    array->stash = NIL_VAL;
 }
 
 void appendToDynamicValueArray(DynamicValueArray* array, Value value) {
+    array->stash = value;
+
     if (array->capacity < array->count + 1) {
         int oldCapacity = array->capacity;
         array->capacity = GROW_CAPACITY(oldCapacity);
@@ -190,10 +220,11 @@ void appendToDynamicValueArray(DynamicValueArray* array, Value value) {
 
     array->values[array->count] = value;
     array->count++;
+    array->stash = NIL_VAL;
 }
 
 void freeDynamicValueArray(DynamicValueArray* array) {
-    FREE_ARRAY(Value, array->values, array->capacity);
+    vm_free(array->values);
     initDynamicValueArray(array);
 }
 
@@ -216,59 +247,58 @@ ObjString* doubleToString(double value) {
 }
 
 ObjString* i8ToString(int8_t value) {
-    char buffer[5];
-    snprintf(buffer, sizeof(buffer), "%d", value);
-    return copyString(buffer, (int)strlen(buffer));
+    char* buffer = ALLOCATE(char, DECIMAL_DIGITS_BOUND(int8_t) + 2); // +1 for possible '-' sign, +1 for null terminator
+    snprintf(buffer, DECIMAL_DIGITS_BOUND(int8_t) + 2, "%d", value);
+    return takeString(buffer, (int)strlen(buffer));
 }
 
 ObjString* ui8ToString(uint8_t value) {
-    char buffer[4];
-    snprintf(buffer, sizeof(buffer), "%u", value);
-    return copyString(buffer, (int)strlen(buffer));
+    char* buffer = ALLOCATE(char, DECIMAL_DIGITS_BOUND(uint8_t) + 1);
+    snprintf(buffer, DECIMAL_DIGITS_BOUND(uint8_t) + 1, "%u", value);
+    return takeString(buffer, (int)strlen(buffer));
 }
 
 ObjString* i16ToString(int16_t value) {
-    char buffer[7];
-    snprintf(buffer, sizeof(buffer), "%d", value);
-    return copyString(buffer, (int)strlen(buffer));
+    char* buffer = ALLOCATE(char, DECIMAL_DIGITS_BOUND(int16_t) + 2);  // +1 for possible '-' sign, +1 for null terminator
+    snprintf(buffer, DECIMAL_DIGITS_BOUND(int16_t) + 2, "%d", value);
+    return takeString(buffer, (int)strlen(buffer));
 }
 
 ObjString* ui16ToString(uint16_t value) {
-    char buffer[6];
-    snprintf(buffer, sizeof(buffer), "%u", value);
-    return copyString(buffer, (int)strlen(buffer));
+    char* buffer = ALLOCATE(char, DECIMAL_DIGITS_BOUND(uint16_t) + 1);
+    snprintf(buffer, DECIMAL_DIGITS_BOUND(uint16_t) + 1, "%u", value);
+    return takeString(buffer, (int)strlen(buffer));
 }
 
 ObjString* i32ToString(int32_t value) {
-    char buffer[12];
-    snprintf(buffer, sizeof(buffer), "%d", value);
-    return copyString(buffer, (int)strlen(buffer));
+    char* buffer = ALLOCATE(char, DECIMAL_DIGITS_BOUND(int32_t) + 2); // +1 for possible '-' sign, +1 for null terminator
+    snprintf(buffer, DECIMAL_DIGITS_BOUND(int32_t) + 2, "%d", value);
+    return takeString(buffer, (int)strlen(buffer));
 }
 
 ObjString* ui32ToString(uint32_t value) {
-    char buffer[11];
-    snprintf(buffer, sizeof(buffer), "%u", value);
-    return copyString(buffer, (int)strlen(buffer));
+    char* buffer = ALLOCATE(char, DECIMAL_DIGITS_BOUND(uint32_t) + 1);
+    snprintf(buffer, DECIMAL_DIGITS_BOUND(uint32_t) + 1, "%u", value);
+    return takeString(buffer, (int)strlen(buffer));
 }
 
 ObjString* i64ToString(int64_t value) {
-    char buffer[21];
-    snprintf(buffer, sizeof(buffer), "%" PRId64, value);
-    return copyString(buffer, (int)strlen(buffer));
+    char* buffer = ALLOCATE(char, DECIMAL_DIGITS_BOUND(int64_t) + 2); // +1 for possible '-' sign, +1 for null terminator
+    snprintf(buffer, DECIMAL_DIGITS_BOUND(int64_t) + 2, "%" PRId64, value);
+    return takeString(buffer, (int)strlen(buffer));
 }
 
 ObjString* ui64ToString(uint64_t value) {
-    char buffer[21];
-    snprintf(buffer, sizeof(buffer), "%" PRIu64, value);
-    return copyString(buffer, (int)strlen(buffer));
+    char* buffer = ALLOCATE(char, DECIMAL_DIGITS_BOUND(uint64_t) + 1);
+    snprintf(buffer, DECIMAL_DIGITS_BOUND(uint64_t) + 1, "%" PRIu64, value);
+    return takeString(buffer, (int)strlen(buffer));
 }
 
 ObjString* addressToString(uintptr_t value) {
-    char buffer[19];
-    snprintf(buffer, sizeof(buffer), "%p", (void*)value);
-    return copyString(buffer, (int)strlen(buffer));
+    char* buffer = ALLOCATE(char, 18 + 1);
+    snprintf(buffer, 18 + 1, "%p", (void*)value);
+    return takeString(buffer, (int)strlen(buffer));
 }
-
 
 static ObjString* arrayToString(Value arrayVal) {
     const ObjConcreteYargTypeArray* arrayType = (const ObjConcreteYargTypeArray*)arrayVal.type;
@@ -301,19 +331,13 @@ static ObjString* pointerToString(Value ptrVal) {
     ObjString* targetTypeStr = valueToString(targetType);
     tempRootPush(STRING_VAL(targetTypeStr));
 
-    ObjString* prefix = copyString("<*", 2);
-    tempRootPush(STRING_VAL(prefix));
-    ObjString* working = concatenateStrings(prefix, targetTypeStr);
-    tempRootPush(STRING_VAL(working));
+    size_t string_length = targetTypeStr->length;
+    string_length += DECIMAL_DIGITS_BOUND(uintptr_t) + 4; // "<*%s:%p>"
 
-    int length = working->length + 12;
-    char* chars = ALLOCATE(char, length + 1);
-    memcpy(chars, working->chars, working->length);
-    snprintf(chars + working->length, 12 + 1, ":%p>", ptr->loc);
+    char* chars = ALLOCATE(char, string_length + 1);
+    snprintf(chars, string_length + 1, "<*%s:%p>", targetTypeStr->chars, ptr->loc);
 
-    ObjString* result = takeString(chars, length);
-    tempRootPop();
-    tempRootPop();
+    ObjString* result = takeString(chars, strlen(chars));
     tempRootPop();
     return result;
 }
@@ -362,7 +386,15 @@ ObjString* valueToString(Value value) {
             case TypeStruct:   return structToString(value);
             case TypeYargType: return objectToString(value.as.obj);
             case TypePointer:  return pointerToString(value);
-            case TypeInt:      return objectToString(value.as.obj);
+            case TypeInt:
+            if (IS_BIG_INT(value)) {
+                return objectToString((Obj *)AS_BIG_SMALL_INT(value).objInt_);
+            } else {
+                char sb[INT_STRLEN_FOR_INT254];
+                Int * int_ = BIG_SMALL_INT_AS_INT(AS_BIG_SMALL_INT(value));
+                char const* s = int_to_s(int_, sb, INT_STRLEN_FOR_INT254);
+                return copyString(s, (int)strlen(s));
+            }
             case TypeMap:      return objectToString(value.as.obj);
             case TypeString:   return objectToString(value.as.obj);
             case TypeRoutine:  return objectToString(value.as.obj);
@@ -396,8 +428,7 @@ bool valuesEqual(Value a, Value b) {
         case TypeStruct:   return structsEqual(a, b);
         case TypeYargType: return typesEqual(AS_YARGTYPE(a), AS_YARGTYPE(b));
         case TypePointer:  return pointersEqual(a, b);
-        case TypeInt:      return intsEqual(AS_INTOBJ(a), AS_INTOBJ(b));
-
+        case TypeInt:      return int_is(AS_INT(a), AS_INT(b)) == INT_EQ;
         case TypeMap:
         case TypeString:
         case TypeRoutine:
@@ -479,4 +510,15 @@ size_t as_positive_integer(Value a) {
     }
 #endif
     return 0;
+}
+
+void allocateIntValue(Value *newBigSmallInt, size_t numDigits) {
+    newBigSmallInt->type = &yargTypes.integer;
+    BigSmallInt *bsi = &newBigSmallInt->as.bigSmallInt;
+    if (numDigits > 2) {
+        bsi->objInt_ = allocateIntObject(numDigits);
+        bsi->obj_ = true;
+    } else {
+        (void) int_init_concrete2(&bsi->i_);
+    }
 }
