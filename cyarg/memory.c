@@ -23,15 +23,7 @@
 #include "scanner.h"
 #include "parser.h"
 
-
-#if defined CYARG_NATIVE_HEAP
-#define O1HEAP_ALIGNMENT 8
-#define o1heapInit(a,b) (void *)1
-#define o1heapFree(a,b) free(b)
-#define o1heapReallocate(a,b,c) realloc(b, c)
-#define o1heapAllocate(a,b) malloc(b)
-#define o1heapDoInvariantsHold(a) true
-#else
+#if !defined CYARG_NATIVE_HEAP
 #include "../external/o1heap/o1heap/o1heap.h"
 #endif
 
@@ -40,6 +32,20 @@
 #endif
 
 #define GC_HEAP_GROW_FACTOR 2
+
+#if defined CYARG_NATIVE_HEAP
+#define O1HEAP_ALIGNMENT 8
+struct O1HeapInstance {uint8_t x;};
+typedef struct { size_t capacity; size_t allocated; size_t peak_allocated; size_t peak_request_size; uint64_t oom_count; } O1HeapDiagnostics;
+O1HeapInstance *o1heapInit(void *, size_t);
+O1HeapDiagnostics o1heapGetDiagnostics(const O1HeapInstance *);
+void o1heapFree(O1HeapInstance *, void *);
+void *o1heapReallocate(O1HeapInstance *, void *, size_t);
+void *o1heapAllocate(O1HeapInstance *, size_t);
+bool o1heapDoInvariantsHold(const O1HeapInstance *);
+static uint8_t heapArena[0];
+static O1HeapDiagnostics heapDiagnostics;
+#endif
 
 void init_heap_instance(O1HeapInstance** instance) {
 
@@ -757,3 +763,48 @@ void printObjects() {
 void pinObj(Obj* object) {
     ; // currently a nop.
 }
+
+#if defined CYARG_NATIVE_HEAP
+O1HeapInstance *o1heapInit(void *i, size_t sz) { heapDiagnostics.capacity = sz; return i; }
+O1HeapDiagnostics o1heapGetDiagnostics(const O1HeapInstance *) { return heapDiagnostics; }
+void o1heapFree(O1HeapInstance *, void *p) {
+    if (p != 0) {
+        char *oldP = p - 8;
+        size_t oldSize = *(size_t *)p;
+        free(oldP);
+        heapDiagnostics.allocated -= oldSize;
+    }
+}
+
+void *o1heapReallocate(O1HeapInstance *i, void *p, size_t sz) {
+    if (sz == 0) {
+        o1heapFree(i, p);
+        return 0;
+    } else {
+        char *oldP = p ? ((char *)p) - 8 : 0;
+        size_t oldSize = p ? *(size_t *)(oldP - 8) : 0;
+        char *newP = realloc(oldP, sz + 8);
+        if (newP != 0) {
+            *(size_t *)newP = sz;
+            heapDiagnostics.allocated -= oldSize - sz;
+            return newP + 8;
+        } else {
+            heapDiagnostics.allocated -= oldSize;
+            return 0;
+        }
+    }
+}
+
+void *o1heapAllocate(O1HeapInstance *, size_t sz) {
+    char *newP = malloc(sz + 8);
+    if (newP != 0) {
+        *(size_t *)newP = sz;
+        heapDiagnostics.allocated += sz;
+        return newP + 8;
+    } else {
+        return 0;
+    }
+}
+
+bool o1heapDoInvariantsHold(const O1HeapInstance *) { return true; }
+#endif
