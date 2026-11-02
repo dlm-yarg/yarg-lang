@@ -1,17 +1,17 @@
 #include "pack.h"
+#include "pack_format.h"
+
+#include "memory.h"
+#include "object.h"
+#include "memory.h"
+#include "yargobject.h"
+#include "big-int/big-int.h"
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <sysexits.h>
 #include <assert.h>
 #include <string.h>
-
-#include "pack_format.h"
-
-#include "object.h"
-#include "memory.h"
-#include "yargobject.h"
-#include "big-int/big-int.h"
 
 static void fileSet(void *, int, size_t i);
 static void fileExtend(void *, int, size_t);

@@ -1,3 +1,11 @@
+#include "common.h"
+#include "vm_mutex.h"
+#include "vm.h"
+#include "debug.h"
+#ifdef CYARG_FEATURE_HOSTED_REPL
+#include "hosted.h"
+#endif
+
 #include <stdlib.h>
 #ifdef CYARG_PICO_STDLIB
 #include <pico/stdlib.h>
@@ -7,14 +15,6 @@
 #include <string.h>
 #include <stdio.h>
 #include <sysexits.h>
-#endif
-
-#include "common.h"
-#include "vm_mutex.h"
-#include "vm.h"
-#include "debug.h"
-#ifdef CYARG_FEATURE_HOSTED_REPL
-#include "hosted.h"
 #endif
 
 #ifdef CYARG_FEATURE_HOSTED_REPL
