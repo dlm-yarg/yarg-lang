@@ -4,6 +4,7 @@
 #include "object.h"
 #include "yargobject.h"
 #include "table.h"
+#include "stringstore.h"
 #include "value.h"
 #include "vm-result.h"
 
@@ -26,7 +27,7 @@ typedef struct {
     vm_mutex env;
     
     ValueCellTable globals;
-    ValueTable strings;
+    StringStore stringStore;
     ObjString* initString;
     ObjString* libraryPath;
 

@@ -47,9 +47,16 @@ Value cstring_val(const char*);
 
 struct ObjString {
     Obj obj;
-    int length;
-    char* chars;
-    uint32_t hash;
+    char *chars; // vm_alloc’d
+    uint32_t length;
+    uint32_t hash; // for use in maps
+    struct {
+        struct ObjString *l; // prior
+        struct ObjString *r; // subsequent
+        struct ObjString *t; // toward root or zero if root
+        int16_t n; // distance to leaf: 0 if leaf, max(l->n, r->n) + 1 otherwise
+        uint16_t p : 1; // 0 if parsing/ed left, 1 if parsing/ed right
+    } sss;
 };
 
 typedef struct ObjInt {

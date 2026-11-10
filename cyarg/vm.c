@@ -180,8 +180,8 @@ void initVMRuntime() {
     initFunction(&vm.bootFunction);
 
     initCellTable(&vm.globals);
-    initTable(&vm.strings);
-    
+    stringStoreInit(&vm.stringStore);
+
     vm.initString = copyString("init", 4);
 
     defineNative(&vm.core0, "clock", clockNative);
@@ -214,7 +214,7 @@ void initVMRuntime() {
 
 void freeVM() {
     freeCellTable(&vm.globals);
-    freeTable(&vm.strings);
+    stringStoreFree(&vm.stringStore);
     vm.initString = NULL;
     vm.libraryPath = NULL;
     freeObjects();
@@ -1300,7 +1300,10 @@ InterpretResult run(ObjRoutine* routine) {
             }
             case OP_CALL: {
                 int argCount = READ_BYTE();
-                InterpretResult result = callValue(routine, peek(routine, argCount), argCount);
+                Value xxx = peek(routine, argCount);
+                ObjClosure *xxy = AS_CLOSURE(xxx);
+                ObjFunction *xxz=xxy->function;
+                InterpretResult result = callValue(routine, xxx, argCount);
                 if (result != INTERPRET_OK) {
                     return result;
                 }

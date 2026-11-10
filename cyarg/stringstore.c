@@ -1,0 +1,234 @@
+//
+//  stringstore.c
+//  gh.yarg-lang
+//
+//  Created by dlm on 03/11/2026.
+//
+
+#include "stringstore.h"
+
+#include "yargobject.h"
+#include "memory.h"
+
+#include <assert.h>
+#include <string.h>
+
+void stringStoreInit(StringStore *ss) {
+    ss->root = 0;
+}
+
+void stringStoreFree(StringStore *ss) {
+    ss->root = 0;
+}
+
+ObjString *stringStoreStore(StringStore *ss, ObjString *newS) {
+    assert(newS->sss.l == 0 && newS->sss.l == 0 && newS->sss.t == 0);
+    printf("Add:%s\n", newS->chars);
+    ObjString *s = ss->root;
+    int cmp;
+    ObjString *towardsRoot = 0;
+    while (s != 0) {
+        towardsRoot = s;
+        cmp = strcmp(newS->chars, s->chars);
+        if (cmp < 0) {
+            s = s->sss.l;
+        } else if (cmp > 0) {
+            s = s->sss.r;
+        } else {
+            s = 0;
+        }
+    }
+    if (towardsRoot == 0) {
+        // empty store attach as root
+        ss->root = newS;
+        assert(newS->sss.t == 0);
+    } else {
+        if (cmp < 0 && towardsRoot->sss.l == 0) {
+            newS->sss.n = 0;
+            newS->sss.t = towardsRoot;
+            towardsRoot->sss.l = newS;
+        } else if (cmp > 0 && towardsRoot->sss.r == 0) {
+            newS->sss.n = 0;
+            newS->sss.t = towardsRoot;
+            towardsRoot->sss.r = newS;
+        } else if (cmp < 0) {
+            assert(strcmp(newS->chars, towardsRoot->chars) < 0);
+            assert(strcmp(towardsRoot->sss.l->chars, newS->chars) < 0);
+            newS->sss.t = towardsRoot;
+            newS->sss.l = towardsRoot->sss.l;
+            towardsRoot->sss.l = newS;
+            assert(newS->sss.r == 0);
+            // todo - relabel then balance
+        } else if (cmp > 0) {
+            assert(strcmp(newS->chars, towardsRoot->chars) > 0);
+            assert(strcmp(towardsRoot->sss.r->chars, newS->chars) > 0);
+            newS->sss.t = towardsRoot;
+            newS->sss.r = towardsRoot->sss.r;
+            towardsRoot->sss.r = newS;
+            assert(newS->sss.l == 0);
+            // todo - relabel then balance
+        } else {
+            // one exists
+            assert(strcmp(towardsRoot->chars, newS->chars) == 0);
+            newS = towardsRoot;
+        }
+    }
+    return newS;
+}
+
+ObjString *stringStoreGet(StringStore *ss, char const *chars) {
+    ObjString *s = ss->root;
+    while (s != 0) {
+        int cmp = strcmp(chars, s->chars);
+        if (cmp < 0) {
+            s = s->sss.l;
+        } else if (cmp > 0) {
+            s = s->sss.r;
+        } else {
+            break;
+       }
+    }
+    return s;
+}
+
+//void stringStoreDeleteUnmarked(StringStore *ss) {
+//    ObjString *s = ss->r;
+//    while (s != 0) {
+//        if (s->sss.l != 0) {
+//            s = s->sss.l;
+//        } else if (s->sss.r != 0) {
+//            s = s->sss.r;
+//        } else {                // niot just leaves! need to remove internal nodes too
+//            // got to a leaf
+//            ObjString *leaf = s;
+//            s = leaf->sss.t;
+//            if (!leaf->obj.isMarked) {
+//                if (s != 0) {
+//                    if (s->sss.l == leaf) {
+//                        s->sss.l = 0;
+//                        s = s->sss.r;
+//                        while (s != 0 && s->sss.r == leaf) s = s->sss.t; // todo not leaf
+//                    }
+//                    else if (s->sss.r == leaf) s->sss.r = 0;
+//                    else assert(!"Corrupt string store - stringStoreDeleteUnmarked");
+//                }
+//                gc_free(leaf->chars);
+//                gc_free(leaf);
+//                // todo update s->sss.n all the way to the root and balance
+//                // todo optimise - do relabel and balance in one go after while loop as likely that many unmarked will be deleted each call to stringStoreDeleteUnmarked
+//            } else {
+//                s = leaf->sss.t;
+//                if (s != 0) {
+//                    if (s->sss.l == leaf) s = s->sss.r;
+//                    while (s != 0 && s->sss.r == leaf) s = s->sss.t; // todo not leaf
+//                }
+//            }
+//        }
+//    }
+//}
+
+static void deleteLeafIfUnmarked(ObjString *);
+static void deleteRootOrInnerIfUnmarked(StringStore *ss, ObjString *); //
+
+// Note this doesn’t visit nodes in sort order.
+// Nodes are investigated:
+// On the way in if they are leaf nodes
+// On the way back after both branches have been visited
+void stringStoreDeleteUnmarked(StringStore *ss) {
+    printf("parse\n");
+    ObjString *s = ss->root;
+    while (s != 0) { // going in to leaves
+        if (s->sss.l != 0) {
+            s->sss.p = 0;
+            s = s->sss.l;
+        } else if (s->sss.r != 0) {
+            s->sss.p = 1;
+            s = s->sss.r;
+        } else {
+            ObjString *t = s->sss.t;
+            deleteLeafIfUnmarked(s);
+            while (t != 0) { // going back to root
+                if (t->sss.p == 0 && t->sss.r != 0) {
+                    t->sss.p = 1;
+                    t = t->sss.r;
+                    break;
+                } else {
+                    s = t;
+                    t = t->sss.t;
+                    deleteRootOrInnerIfUnmarked(ss, s);
+                }
+            }
+            s = t;
+        }
+    }
+}
+
+void deleteLeafIfUnmarked(ObjString *s) {
+    printf("Leaf:%d:%s\n", s->obj.isMarked, s->chars);
+    if (!s->obj.isMarked) {
+        if (s == s->sss.t->sss.l) {
+            s->sss.t->sss.l = 0;
+        } else {
+            assert(s == s->sss.t->sss.r);
+            s->sss.t->sss.r = 0;
+        }
+    }
+}
+
+// Node to be deleted (s) three cases
+//      Left             Right           Root
+//        t               t                s
+//       s                 s             l   r
+//     l   r             l   r
+
+// in Left case
+//      if l == 0 => t.l = r
+//      elif r == 0 => t.l = l
+//      else t.l = longest(l, r); longest.m.m.m = shortest -- m is the same child as shortest
+// in Right case
+//      if l == 0 => t.r = r
+//      elif r == 0 => t.r = l
+//      else t.r = longest(l, r); longest.m.m.m = shortest -- m is the same child as shortest
+// in Root case
+//      if l == 0 => ss.root = r
+//      elif r == 0 => ss.root = l
+//      else ss.root = longest(l, r); longest.m.m.m = shortest -- m is the same child as shortest
+
+void deleteRootOrInnerIfUnmarked(StringStore *ss, ObjString *s) {
+    printf("Inner Node:%d:%s\n", s->obj.isMarked, s->chars);
+    if (!s->obj.isMarked) {
+        if (s->sss.t == 0) {
+            // delete root - move longest to root and insert other branch at leaf of same e.g. l becomes root r attached at end of l.r.r.r.0
+            ss->root = s->sss.l;
+            ss->root->sss.t = 0;
+            ObjString *r = ss->root;
+            while (r->sss.r != 0) {
+                r = r->sss.r;
+            }
+            s->sss.r->sss.t = r;
+            r->sss.r = s->sss.r;
+        } else if (s == s->sss.t->sss.l) {
+            // s is replaced by s.r, attach s.l at leaf of s.r.l.l.l.0
+            s->sss.r->sss.t = s->sss.t;
+            s->sss.t->sss.l = s->sss.r;
+            ObjString *l = s->sss.r;
+            while (l->sss.l != 0) {
+                l = l->sss.l;
+            }
+            s->sss.l->sss.t = l;
+            l->sss.l = s->sss.l;
+
+        } else {
+            assert(s == s->sss.t->sss.r);
+            // s is replaced by s.l attach s.r at leaf s.l.r.r.r.0
+            s->sss.l->sss.t = s->sss.t;
+            s->sss.t->sss.r = s->sss.l;
+            ObjString *r = s->sss.l;
+            while (r->sss.r != 0) {
+                r = r->sss.r;
+            }
+            s->sss.r->sss.t = r;
+            r->sss.r = s->sss.r;
+        }
+    }
+}

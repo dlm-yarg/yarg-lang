@@ -94,14 +94,14 @@ bool isAddressValue(Value val) {
 }
 
 static ObjString* allocateString(char* chars, int length, uint32_t hash) {
-    ObjString* string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
-    string->length = length;
-    string->chars = chars;
-    string->hash = hash;
-    tempRootPush(STRING_VAL(string));
-    tableSet(&vm.strings, string, NIL_VAL);
+    ObjString *s = ALLOCATE_OBJ(ObjString, OBJ_STRING);
+    s->length = length;
+    s->chars = chars;
+    s->hash = hash;
+    tempRootPush(STRING_VAL(s));
+    s = stringStoreStore(&vm.stringStore, s);
     tempRootPop();
-    return string;
+    return s;
 }
 
 static uint32_t hashString(const char* key, int length) {
@@ -114,25 +114,26 @@ static uint32_t hashString(const char* key, int length) {
 }
 
 ObjString* takeString(char* chars, int length) {
-    uint32_t hash = hashString(chars, length);
-    ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
-    if (interned != NULL) {
+    ObjString *s = stringStoreGet(&vm.stringStore, chars);
+    if (s == NULL) {
+        uint32_t hash = hashString(chars, length);
+        s = allocateString(chars, length, hash);
+    } else {
         vm_free(chars);
-        return interned;
     }
-
-    return allocateString(chars, length, hash);
+    return s;
 }
 
 ObjString* copyString(const char* chars, int length) {
-    uint32_t hash = hashString(chars, length);
-    ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
-    if (interned != NULL) return interned;
-
-    char* heapChars = ALLOCATE(char, length + 1);
-    memcpy(heapChars, chars, length);
-    heapChars[length] = '\0';
-    return allocateString(heapChars, length, hash);
+    ObjString *s = stringStoreGet(&vm.stringStore, chars);
+    if (s == NULL) {
+        uint32_t hash = hashString(chars, length);
+        char *heapChars = ALLOCATE(char, length + 1);
+        memcpy(heapChars, chars, length);
+        heapChars[length] = '\0';
+        s = allocateString(heapChars, length, hash);
+    }
+    return s;
 }
 
 ObjString* copyStringWithEscapes(const char* chars, int length)
@@ -152,16 +153,10 @@ ObjString* copyStringWithEscapes(const char* chars, int length)
         *out++ = *in++;
         lengthOut++;
     }
-    uint32_t hash = hashString(heapChars, lengthOut);
-    ObjString* interned = tableFindString(&vm.strings, heapChars, lengthOut, hash);
-    if (interned != NULL)
-    {
-        vm_free(heapChars);
-        return interned;
-    }
-
     *out = '\0';
-    return allocateString(heapChars, lengthOut, hash);
+
+
+    return takeString(heapChars, lengthOut);
 }
 
 Value cstring_val(const char *cstring) {

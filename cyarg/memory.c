@@ -719,7 +719,7 @@ void collectGarbage() {
 
     markRoots();
     traceReferences();
-    tableRemoveWhite(&vm.strings);
+    stringStoreDeleteUnmarked(&vm.stringStore);
     sweep();
 
     size_t after = vm_bytesAllocated();
@@ -771,7 +771,7 @@ O1HeapDiagnostics o1heapGetDiagnostics(const O1HeapInstance *) { return heapDiag
 void o1heapFree(O1HeapInstance *, void *p) {
     if (p != 0) {
         char *oldP = p - 8;
-        size_t oldSize = *(size_t *)p;
+        size_t oldSize = *(size_t *)oldP;
         free(oldP);
         heapDiagnostics.allocated -= oldSize;
     }
@@ -783,7 +783,7 @@ void *o1heapReallocate(O1HeapInstance *i, void *p, size_t sz) {
         return 0;
     } else {
         char *oldP = p ? ((char *)p) - 8 : 0;
-        size_t oldSize = p ? *(size_t *)(oldP - 8) : 0;
+        size_t oldSize = p ? *(size_t *)oldP : 0;
         char *newP = realloc(oldP, sz + 8);
         if (newP != 0) {
             *(size_t *)newP = sz;
