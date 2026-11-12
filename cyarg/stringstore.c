@@ -127,8 +127,7 @@ ObjString *stringStoreGet(StringStore *ss, char const *chars) {
 //    }
 //}
 
-static void deleteLeafIfUnmarked(ObjString *);
-static void deleteRootOrInnerIfUnmarked(StringStore *ss, ObjString *); //
+static void removeNodeIfUnmarked(StringStore *ss, ObjString *);
 
 // Note this doesn’t visit nodes in sort order.
 // Nodes are investigated:
@@ -146,31 +145,19 @@ void stringStoreDeleteUnmarked(StringStore *ss) {
             s = s->sss.r;
         } else {
             ObjString *t = s->sss.t;
-            deleteLeafIfUnmarked(s);
+            removeNodeIfUnmarked(ss, s);
             while (t != 0) { // going back to root
-                if (t->sss.p == 0 && t->sss.r != 0) {
+                if (t->sss.p == 0 && t->sss.r != 0) { // go right in to right branch
                     t->sss.p = 1;
                     t = t->sss.r;
                     break;
                 } else {
                     s = t;
                     t = t->sss.t;
-                    deleteRootOrInnerIfUnmarked(ss, s);
+                    removeNodeIfUnmarked(ss, s);
                 }
             }
             s = t;
-        }
-    }
-}
-
-void deleteLeafIfUnmarked(ObjString *s) {
-    printf("Leaf:%d:%s\n", s->obj.isMarked, s->chars);
-    if (!s->obj.isMarked) {
-        if (s == s->sss.t->sss.l) {
-            s->sss.t->sss.l = 0;
-        } else {
-            assert(s == s->sss.t->sss.r);
-            s->sss.t->sss.r = 0;
         }
     }
 }
@@ -194,41 +181,29 @@ void deleteLeafIfUnmarked(ObjString *s) {
 //      elif r == 0 => ss.root = l
 //      else ss.root = longest(l, r); longest.m.m.m = shortest -- m is the same child as shortest
 
-void deleteRootOrInnerIfUnmarked(StringStore *ss, ObjString *s) {
-    printf("Inner Node:%d:%s\n", s->obj.isMarked, s->chars);
+void removeNodeIfUnmarked(StringStore *ss, ObjString *s) {
+    printf("Node:%d:%s\n", s->obj.isMarked, s->chars);
     if (!s->obj.isMarked) {
+        ObjString **up;
         if (s->sss.t == 0) {
-            // delete root - move longest to root and insert other branch at leaf of same e.g. l becomes root r attached at end of l.r.r.r.0
-            ss->root = s->sss.l;
-            ss->root->sss.t = 0;
-            ObjString *r = ss->root;
-            while (r->sss.r != 0) {
-                r = r->sss.r;
-            }
-            s->sss.r->sss.t = r;
-            r->sss.r = s->sss.r;
+            up = &ss->root;
         } else if (s == s->sss.t->sss.l) {
-            // s is replaced by s.r, attach s.l at leaf of s.r.l.l.l.0
-            s->sss.r->sss.t = s->sss.t;
-            s->sss.t->sss.l = s->sss.r;
-            ObjString *l = s->sss.r;
-            while (l->sss.l != 0) {
-                l = l->sss.l;
-            }
-            s->sss.l->sss.t = l;
-            l->sss.l = s->sss.l;
-
+            up = &s->sss.t->sss.l;
         } else {
             assert(s == s->sss.t->sss.r);
-            // s is replaced by s.l attach s.r at leaf s.l.r.r.r.0
-            s->sss.l->sss.t = s->sss.t;
-            s->sss.t->sss.r = s->sss.l;
-            ObjString *r = s->sss.l;
-            while (r->sss.r != 0) {
-                r = r->sss.r;
+            up = &s->sss.t->sss.r;
+        }
+        if (s->sss.l == 0) {
+            *up = s->sss.r;
+        } else if (s->sss.r == 0) {
+            *up = s->sss.l;
+        } else {
+            *up = s->sss.l; // really branch with max(n)
+            ObjString *sh = s->sss.l;
+            while (sh->sss.r != 0) { // really follow branch with !max(n)
+                sh = sh->sss.r;
             }
-            s->sss.r->sss.t = r;
-            r->sss.r = s->sss.r;
+            sh->sss.r = s->sss.r;
         }
     }
 }
