@@ -184,7 +184,7 @@ int ssss=0;
 void removeNodeIfUnmarked(StringStore *ss, ObjString *s) {
     printf("Node:%d:%s\n", s->obj.isMarked, s->chars);
     if (!s->obj.isMarked) {
-        if (strcmp("teacher", s->chars) == 0) {
+        if (strcmp("seek", s->chars) == 0) {
             ssss++;
         }
         if (s->sss.t == 0) {
@@ -198,7 +198,9 @@ void removeNodeIfUnmarked(StringStore *ss, ObjString *s) {
                     attachToRightEndOf = attachToRightEndOf->sss.r;
                 }
                 attachToRightEndOf->sss.r = s->sss.r;
-                s->sss.r->sss.t = attachToRightEndOf;
+                if (s->sss.r != 0) {
+                    s->sss.r->sss.t = attachToRightEndOf;
+                }
             }
         } else if (s == s->sss.t->sss.l) {
             s->sss.t->sss.l = s->sss.l;
@@ -214,7 +216,9 @@ void removeNodeIfUnmarked(StringStore *ss, ObjString *s) {
                     attachToRightEndOf = attachToRightEndOf->sss.r;
                 }
                 attachToRightEndOf->sss.r = s->sss.r;
-                s->sss.r->sss.t = attachToRightEndOf;
+                if (s->sss.r != 0) {
+                    s->sss.r->sss.t = attachToRightEndOf;
+                }
             }
         } else {
             assert(s == s->sss.t->sss.r);
@@ -231,7 +235,9 @@ void removeNodeIfUnmarked(StringStore *ss, ObjString *s) {
                     attachToLeftEndOf = attachToLeftEndOf->sss.l;
                 }
                 attachToLeftEndOf->sss.l = s->sss.l;
-                s->sss.l->sss.t = attachToLeftEndOf;
+                if (s->sss.l != 0) {
+                    s->sss.l->sss.t = attachToLeftEndOf;
+                }
             }
         }
     }

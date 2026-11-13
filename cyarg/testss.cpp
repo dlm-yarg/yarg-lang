@@ -15,7 +15,7 @@ extern "C" {
 #include <random>
 #include <cassert>
 
-const int subsetSize{6};
+const int subsetSize{14};
 
 void randomWords();
 
