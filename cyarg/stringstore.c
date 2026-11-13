@@ -136,7 +136,7 @@ static void removeNodeIfUnmarked(StringStore *ss, ObjString *);
 void stringStoreDeleteUnmarked(StringStore *ss) {
     printf("parse\n");
     ObjString *s = ss->root;
-    while (s != 0) { // going in to leaves
+    while (s != 0) { // going in to the leaves
         if (s->sss.l != 0) {
             s->sss.p = 0;
             s = s->sss.l;
@@ -145,8 +145,8 @@ void stringStoreDeleteUnmarked(StringStore *ss) {
             s = s->sss.r;
         } else {
             ObjString *t = s->sss.t;
-            removeNodeIfUnmarked(ss, s);
-            while (t != 0) { // going back to root
+            removeNodeIfUnmarked(ss, s); // leaf
+            while (t != 0) { // going back toward root
                 if (t->sss.p == 0 && t->sss.r != 0) { // go right in to right branch
                     t->sss.p = 1;
                     t = t->sss.r;
@@ -180,30 +180,59 @@ void stringStoreDeleteUnmarked(StringStore *ss) {
 //      if l == 0 => ss.root = r
 //      elif r == 0 => ss.root = l
 //      else ss.root = longest(l, r); longest.m.m.m = shortest -- m is the same child as shortest
-
+int ssss=0;
 void removeNodeIfUnmarked(StringStore *ss, ObjString *s) {
     printf("Node:%d:%s\n", s->obj.isMarked, s->chars);
     if (!s->obj.isMarked) {
-        ObjString **up;
+        if (strcmp("teacher", s->chars) == 0) {
+            ssss++;
+        }
         if (s->sss.t == 0) {
-            up = &ss->root;
+            ss->root = s->sss.l != 0 ? s->sss.l : s->sss.r; // todo if both choose max(n)
+            if (ss->root != 0) {
+                ss->root->sss.t = 0;
+            }
+            if (s->sss.l != 0 && s->sss.r != 0) { // todo if both choose max(n)
+                ObjString *attachToRightEndOf = s->sss.l;
+                while (attachToRightEndOf->sss.r != 0) {
+                    attachToRightEndOf = attachToRightEndOf->sss.r;
+                }
+                attachToRightEndOf->sss.r = s->sss.r;
+                s->sss.r->sss.t = attachToRightEndOf;
+            }
         } else if (s == s->sss.t->sss.l) {
-            up = &s->sss.t->sss.l;
+            s->sss.t->sss.l = s->sss.l;
+            if (s->sss.l == 0) {
+                s->sss.t->sss.l = s->sss.r;
+                if (s->sss.r != 0 ) {
+                    s->sss.r->sss.t = s->sss.t;
+                }
+            } else {
+                s->sss.l->sss.t = s->sss.t;
+                ObjString *attachToRightEndOf = s->sss.l;
+                while (attachToRightEndOf->sss.r != 0) {
+                    attachToRightEndOf = attachToRightEndOf->sss.r;
+                }
+                attachToRightEndOf->sss.r = s->sss.r;
+                s->sss.r->sss.t = attachToRightEndOf;
+            }
         } else {
             assert(s == s->sss.t->sss.r);
-            up = &s->sss.t->sss.r;
-        }
-        if (s->sss.l == 0) {
-            *up = s->sss.r;
-        } else if (s->sss.r == 0) {
-            *up = s->sss.l;
-        } else {
-            *up = s->sss.l; // really branch with max(n)
-            ObjString *sh = s->sss.l;
-            while (sh->sss.r != 0) { // really follow branch with !max(n)
-                sh = sh->sss.r;
+            s->sss.t->sss.r = s->sss.r;
+            if (s->sss.r == 0) {
+                s->sss.t->sss.r = s->sss.l;
+                if (s->sss.l != 0 ) {
+                    s->sss.l->sss.t = s->sss.t;
+                }
+            } else {
+                s->sss.r->sss.t = s->sss.t;
+                ObjString *attachToLeftEndOf = s->sss.r;
+                while (attachToLeftEndOf->sss.l != 0) {
+                    attachToLeftEndOf = attachToLeftEndOf->sss.l;
+                }
+                attachToLeftEndOf->sss.l = s->sss.l;
+                s->sss.l->sss.t = attachToLeftEndOf;
             }
-            sh->sss.r = s->sss.r;
         }
     }
 }
