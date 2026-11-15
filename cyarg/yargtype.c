@@ -105,7 +105,11 @@ ObjConcreteYargType* newYargStructType(size_t fieldCount) {
     ObjConcreteYargTypeStruct* t = ALLOCATE_OBJ(ObjConcreteYargTypeStruct, OBJ_YARGTYPE_STRUCT);
     t->core.yt = TypeStruct;
     t->alignment = 1;
+#if defined CYARG_ORDERED_STRING_TREE
+    keyValueStoreInit(&t->field_names);
+#else
     initTable(&t->field_names);
+#endif
     tempObjRootPush((Obj*)t);
 
     ObjConcreteYargType** fieldTypes = ALLOCATE(ObjConcreteYargType*, fieldCount);
@@ -135,12 +139,20 @@ ObjConcreteYargType* newYargPointerType(const ObjConcreteYargType* targetType) {
 }
 
 void appendFieldType(ObjConcreteYargTypeStruct* st, ObjConcreteYargType* type, ObjString* name) {
+#if defined CYARG_ORDERED_STRING_TREE
+    size_t index = keyValueStoreCount(&st->field_names);
+#else
     size_t index = st->field_names.count;
+#endif
 
     assert(st->field_types[index] == NULL);
 
     st->field_types[index] = type;
+#if defined CYARG_ORDERED_STRING_TREE
+    keyValueStoreSetValue(&st->field_names, name, &SIZE_T_UI_VAL(index));
+#else
     tableSet(&st->field_names, name, SIZE_T_UI_VAL(index));
+#endif
 
     size_t fieldAlignment = yt_alignmentfor_type_storage(type);
     size_t fieldOffset = st->storage_size;
@@ -155,12 +167,20 @@ void appendFieldType(ObjConcreteYargTypeStruct* st, ObjConcreteYargType* type, O
 }
 
 void appendFieldTypeAtOffset(ObjConcreteYargTypeStruct* st, ObjConcreteYargType* type, size_t offset, ObjString* name) {
+#if defined CYARG_ORDERED_STRING_TREE
+    size_t index = keyValueStoreCount(&st->field_names);
+#else
     size_t index = st->field_names.count;
+#endif
 
     assert(st->field_types[index] == NULL);
 
     st->field_types[index] = type;
+#if defined CYARG_ORDERED_STRING_TREE
+    keyValueStoreSetValue(&st->field_names, name, &SIZE_T_UI_VAL(index));
+#else
     tableSet(&st->field_names, name, SIZE_T_UI_VAL(index));
+#endif
     st->field_indexes[index] = offset;
     st->storage_size = offset + yt_sizeof_type_storage(type);
 }
@@ -567,7 +587,11 @@ ObjString* typeToString(const ObjConcreteYargType* type) {
 
 bool structFieldIndex(const ObjConcreteYargTypeStruct* type, ObjString* name, size_t* index) {
     Value indexVal;
+#if defined CYARG_ORDERED_STRING_TREE
+    if (keyValueStoreGetValue(&type->field_names, name, &indexVal)) {
+#else
     if (tableGet(&type->field_names, name, &indexVal)) {
+#endif
         *index = AS_SIZE_T(indexVal);
         return true;
     }

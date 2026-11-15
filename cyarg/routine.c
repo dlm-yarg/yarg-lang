@@ -57,7 +57,6 @@ bool addSlice(ObjRoutine* routine) {
     tempObjRootPush((Obj*)sliceObj);
 
     if (routine->stackSliceCapacity < routine->sliceCount + 1) {
-        size_t oldCapacity = routine->stackSliceCapacity;
         routine->stackSliceCapacity = GROW_CAPACITY(routine->stackSliceCapacity);
         routine->stackSlices = GROW_ARRAY(StackSlice*, routine->stackSlices, oldCapacity, routine->stackSliceCapacity);
     }
@@ -387,10 +386,10 @@ static void snprintValueDescription(char* buffer, size_t bufferSize, Value value
         size_t displayLength = strlen(display);
 
         if (displayLength > bufferSize - 1) {
-            int width = bufferSize - 1 - 3; // account for null terminator, and "..." 
+            int width = (int)bufferSize - 1 - 3; // account for null terminator, and "..."
             snprintf(buffer, bufferSize, "%*.*s...", width, width, display);
         } else {
-            int width = bufferSize - 1; // account for quotes and null terminator
+            int width = (int)bufferSize - 1; // account for quotes and null terminator
             snprintf(buffer, bufferSize, "%*.*s", width, width, display);
         }
     } else {

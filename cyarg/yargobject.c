@@ -36,14 +36,22 @@ ObjString* functionToString(const ObjFunction* function) {
 ObjClass* newClass(ObjString* name) {
     ObjClass* klass = ALLOCATE_OBJ(ObjClass, OBJ_CLASS);
     klass->name = name;
+#if defined CYARG_ORDERED_STRING_TREE
+    keyValueStoreInit(&klass->methods);
+#else
     initTable(&klass->methods);
+#endif
     return klass;
 }
 
 ObjInstance* newInstance(ObjClass* klass) {
     ObjInstance* instance = ALLOCATE_OBJ(ObjInstance, OBJ_INSTANCE);
     instance->klass = klass;
+#if defined CYARG_ORDERED_STRING_TREE
+    keyValueStoreInit(&instance->fields);
+#else
     initTable(&instance->fields);
+#endif
     return instance;
 }
 
@@ -72,14 +80,22 @@ void noLongerLiteralInt(Value *value) {
 ObjMap* newMap(ObjConcreteYargTypeMap* type) {
     ObjMap* map = ALLOCATE_OBJ(ObjMap, OBJ_MAP);
     map->type = type;
+#if defined CYARG_ORDERED_STRING_TREE
+    keyValueStoreInit(&map->entries);
+#else
     initTable(&map->entries);
+#endif
     return map;
 }
 
 ObjString* mapToString(const ObjMap* map) {
     ObjString* typeStr = valueToString(YARGTYPE_VAL(map->type));
     char buffer[64];
+#if defined CYARG_ORDERED_STRING_TREE
+    snprintf(buffer, sizeof(buffer), "<map (%d) %s >", keyValueStoreCount(&map->entries), typeStr->chars);
+#else
     snprintf(buffer, sizeof(buffer), "<map (%d) %s >", map->entries.count, typeStr->chars);
+#endif
     return copyString(buffer, (int)strlen(buffer));
 }
 
@@ -94,16 +110,21 @@ bool isAddressValue(Value val) {
 }
 
 static ObjString* allocateString(char* chars, int length, uint32_t hash) {
-    ObjString *s = ALLOCATE_OBJ(ObjString, OBJ_STRING);
-    s->length = length;
-    s->chars = chars;
-    s->hash = hash;
-    tempRootPush(STRING_VAL(s));
-    s = stringStoreStore(&vm.stringStore, s);
+    ObjString *string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
+    string->length = length;
+    string->chars = chars;
+#if defined CYARG_ORDERED_STRING_TREE
+    string = stringStoreStore(&vm.stringStore, string);
+#else
+    string->hash = hash;
+    tempRootPush(STRING_VAL(string));
+    tableSet(&vm.strings, string, NIL_VAL);
     tempRootPop();
-    return s;
+#endif
+    return string;
 }
 
+#if !defined CYARG_ORDERED_STRING_TREE
 static uint32_t hashString(const char* key, int length) {
     uint32_t hash = 2166136261u;
     for (int i = 0; i < length; i++) {
@@ -112,28 +133,49 @@ static uint32_t hashString(const char* key, int length) {
     }
     return hash;
 }
+#endif // !defined CYARG_ORDERED_STRING_TREE
 
 ObjString* takeString(char* chars, int length) {
+#if defined CYARG_ORDERED_STRING_TREE
     ObjString *s = stringStoreGet(&vm.stringStore, chars);
     if (s == NULL) {
-        uint32_t hash = hashString(chars, length);
-        s = allocateString(chars, length, hash);
+        s = allocateString(chars, length, 0u);
     } else {
         vm_free(chars);
     }
     return s;
+#else
+    uint32_t hash = hashString(chars, length);
+    ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
+    if (interned != NULL) {
+        vm_free(chars);
+        return interned;
+    }
+
+    return allocateString(chars, length, hash);
+#endif
 }
 
 ObjString* copyString(const char* chars, int length) {
+#if defined CYARG_ORDERED_STRING_TREE
     ObjString *s = stringStoreGet(&vm.stringStore, chars);
     if (s == NULL) {
-        uint32_t hash = hashString(chars, length);
         char *heapChars = ALLOCATE(char, length + 1);
         memcpy(heapChars, chars, length);
         heapChars[length] = '\0';
-        s = allocateString(heapChars, length, hash);
+        s = allocateString(heapChars, length, 0u);
     }
     return s;
+#else
+    uint32_t hash = hashString(chars, length);
+    ObjString* interned = tableFindString(&vm.strings, chars, length, hash);
+    if (interned != NULL) return interned;
+
+    char* heapChars = ALLOCATE(char, length + 1);
+    memcpy(heapChars, chars, length);
+    heapChars[length] = '\0';
+    return allocateString(heapChars, length, hash);
+#endif
 }
 
 ObjString* copyStringWithEscapes(const char* chars, int length)
@@ -153,10 +195,22 @@ ObjString* copyStringWithEscapes(const char* chars, int length)
         *out++ = *in++;
         lengthOut++;
     }
+#if defined CYARG_ORDERED_STRING_TREE
     *out = '\0';
 
-
     return takeString(heapChars, lengthOut);
+#else
+    uint32_t hash = hashString(heapChars, lengthOut);
+    ObjString* interned = tableFindString(&vm.strings, heapChars, lengthOut, hash);
+    if (interned != NULL)
+    {
+        vm_free(heapChars);
+        return interned;
+    }
+
+    *out = '\0';
+    return allocateString(heapChars, lengthOut, hash);
+#endif
 }
 
 Value cstring_val(const char *cstring) {

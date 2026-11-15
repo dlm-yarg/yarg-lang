@@ -117,7 +117,7 @@ static void errorAt(const char* location, const char* message) {
         strcat(buffer, message);
     }
 
-    ObjString* errorString = copyString(buffer, bufferLength - 1);
+    ObjString* errorString = copyString(buffer, (int)bufferLength - 1);
     appendToDynamicObjArray(&current->errors, (Obj*)errorString);
     vm_free(buffer);
 }

@@ -15,7 +15,7 @@ extern "C" {
 #include <random>
 #include <cassert>
 
-const int subsetSize{14};
+const int subsetSize{1000};
 
 void randomWords();
 
@@ -79,9 +79,6 @@ int main(void)
         delete toDel->chars;
         delete toDel;
     }
-
-
-    stringStoreFree(&testSs);
 
     return 0;
 }
@@ -1101,4 +1098,75 @@ void randomWords()
         words.push_back(a[r]);
     }
 
+}
+
+extern "C" {
+void gc_free(void *pointer) {
+    free(pointer);
+}
+void vm_free(void *pointer) {
+    free(pointer);
+}
+void markObject(Obj *object) {
+    if (object == NULL) return;
+    object->isMarked = true;
+}
+const SimpleYargTypes yargTypes = {
+    .boolean = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeBool },
+    .address = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeAddress },
+    .dbl = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeDouble },
+    .int8 = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeInt8 },
+    .uint8 = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeUint8 },
+    .int16 = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeInt16 },
+    .uint16 = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeUint16 },
+    .int32 = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeInt32 },
+    .uint32 = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeUint32 },
+    .int64 = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeInt64 },
+    .uint64 = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeUint64 },
+    .type = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeYargType },
+    .class_ = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeClass },
+    .string = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeString },
+    .integer = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeInt },
+    .implementation_obj = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeBool },
+    .function = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeFunction },
+    .routine = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeRoutine },
+    .channel = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeChannel },
+    .syncGroup = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeSyncGroup }
+};
+bool is_obj_yargtype(const ObjConcreteYargType* type) {
+    if (type == NULL) return false;
+    else if (type == &yargTypes.implementation_obj) return true;
+    else if (type == &yargTypes.class_) return true;
+    else if (type == &yargTypes.string) return true;
+    else if (type == &yargTypes.type) return true;
+    else if (type == &yargTypes.function) return true;
+    else if (type->yt == TypeStruct) return true;
+    else if (type->yt == TypeArray) return true;
+    else if (type->yt == TypePointer) return true;
+    else if (type->yt == TypeChannel) return true;
+    else if (type->yt == TypeSyncGroup) return true;
+    else if (type->yt == TypeRoutine) return true;
+    else if (type->yt == TypeMap) return true;
+    return false;
+}
+bool isObjValue(Value value) {
+    if (value.type == &yargTypes.implementation_obj && value.as.obj != NULL) return true;
+    else if (is_obj_yargtype(value.type) && value.as.obj != NULL) return true;
+    return false;
+}
+void markValue(Value value) {
+    if (isObjValue(value)) {
+        markObject(value.as.obj);
+    }
+    else if (IS_BIG_INT(value)) {
+        markObject((Obj *)AS_OBJINT(value));
+    }
+    markObject((Obj*)value.type);
+}
+
+void markValueCell(ValueCell* cell) {
+    if (cell == NULL) return;
+    markValue(cell->value);
+    markObject((Obj*)cell->cellType);
+}
 }

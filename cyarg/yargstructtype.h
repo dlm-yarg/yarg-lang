@@ -4,12 +4,17 @@
 #include "yargtype.h"
 #include "value.h"
 #include "table.h"
+#include "keyvaluestore.h"
 
 #include <stddef.h>
 
 typedef struct ObjConcreteYargTypeStruct {
     ObjConcreteYargType core;
+#if defined CYARG_ORDERED_STRING_TREE
+    KeyValueStore field_names;
+#else
     ValueTable field_names;
+#endif
     size_t* field_indexes;
     ObjConcreteYargType** field_types;
     size_t field_count;

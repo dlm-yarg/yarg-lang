@@ -5,6 +5,8 @@
 #include "value.h"
 #include "value_cell.h"
 
+#if !defined CYARG_ORDERED_STRING_TREE
+
 typedef struct ObjString ObjString;
 
 typedef struct {
@@ -51,4 +53,5 @@ void tableCellRemoveWhite(ValueCellTable* table);
 void markCellTable(ValueCellTable* table);
 void printCellTable(ValueCellTable* table);
 
-#endif
+#endif // !defined CYARG_ORDERED_STRING_TREE
+#endif // !cyarg_table_h

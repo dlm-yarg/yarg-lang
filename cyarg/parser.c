@@ -117,7 +117,7 @@ void errorAt(ObjParser* parser, Token* token, const char* report) {
     }
     strcat(message, ": ");
     strcat(message, report);
-    ObjString* errorString = takeString(message, messageLength);
+    ObjString* errorString = takeString(message, (int)messageLength);
 
     appendToDynamicObjArray(&parser->errors, (Obj*)errorString);
 }

@@ -13,17 +13,15 @@
 #include <assert.h>
 #include <string.h>
 
-void stringStoreInit(StringStore *ss) {
-    ss->root = 0;
-}
+#if defined CYARG_ORDERED_STRING_TREE
 
-void stringStoreFree(StringStore *ss) {
+void stringStoreInit(StringStore *ss) {
     ss->root = 0;
 }
 
 ObjString *stringStoreStore(StringStore *ss, ObjString *newS) {
     assert(newS->sss.l == 0 && newS->sss.l == 0 && newS->sss.t == 0);
-    printf("Add:%s\n", newS->chars);
+//    printf("Add:%s\n", newS->chars);
     ObjString *s = ss->root;
     int cmp;
     ObjString *towardsRoot = 0;
@@ -41,7 +39,6 @@ ObjString *stringStoreStore(StringStore *ss, ObjString *newS) {
     if (towardsRoot == 0) {
         // empty store attach as root
         ss->root = newS;
-        assert(newS->sss.t == 0);
     } else {
         if (cmp < 0 && towardsRoot->sss.l == 0) {
             newS->sss.n = 0;
@@ -91,42 +88,6 @@ ObjString *stringStoreGet(StringStore *ss, char const *chars) {
     return s;
 }
 
-//void stringStoreDeleteUnmarked(StringStore *ss) {
-//    ObjString *s = ss->r;
-//    while (s != 0) {
-//        if (s->sss.l != 0) {
-//            s = s->sss.l;
-//        } else if (s->sss.r != 0) {
-//            s = s->sss.r;
-//        } else {                // niot just leaves! need to remove internal nodes too
-//            // got to a leaf
-//            ObjString *leaf = s;
-//            s = leaf->sss.t;
-//            if (!leaf->obj.isMarked) {
-//                if (s != 0) {
-//                    if (s->sss.l == leaf) {
-//                        s->sss.l = 0;
-//                        s = s->sss.r;
-//                        while (s != 0 && s->sss.r == leaf) s = s->sss.t; // todo not leaf
-//                    }
-//                    else if (s->sss.r == leaf) s->sss.r = 0;
-//                    else assert(!"Corrupt string store - stringStoreDeleteUnmarked");
-//                }
-//                gc_free(leaf->chars);
-//                gc_free(leaf);
-//                // todo update s->sss.n all the way to the root and balance
-//                // todo optimise - do relabel and balance in one go after while loop as likely that many unmarked will be deleted each call to stringStoreDeleteUnmarked
-//            } else {
-//                s = leaf->sss.t;
-//                if (s != 0) {
-//                    if (s->sss.l == leaf) s = s->sss.r;
-//                    while (s != 0 && s->sss.r == leaf) s = s->sss.t; // todo not leaf
-//                }
-//            }
-//        }
-//    }
-//}
-
 static void removeNodeIfUnmarked(StringStore *ss, ObjString *);
 
 // Note this doesn’t visit nodes in sort order.
@@ -134,7 +95,7 @@ static void removeNodeIfUnmarked(StringStore *ss, ObjString *);
 // On the way in if they are leaf nodes
 // On the way back after both branches have been visited
 void stringStoreDeleteUnmarked(StringStore *ss) {
-    printf("parse\n");
+//    printf("parse\n");
     ObjString *s = ss->root;
     while (s != 0) { // going in to the leaves
         if (s->sss.l != 0) {
@@ -182,11 +143,11 @@ void stringStoreDeleteUnmarked(StringStore *ss) {
 //      else ss.root = longest(l, r); longest.m.m.m = shortest -- m is the same child as shortest
 int ssss=0;
 void removeNodeIfUnmarked(StringStore *ss, ObjString *s) {
-    printf("Node:%d:%s\n", s->obj.isMarked, s->chars);
+//    printf("Node:%d:%s\n", s->obj.isMarked, s->chars);
     if (!s->obj.isMarked) {
-        if (strcmp("seek", s->chars) == 0) {
-            ssss++;
-        }
+//        if (strcmp("seek", s->chars) == 0) {
+//            ssss++;
+//        }
         if (s->sss.t == 0) {
             ss->root = s->sss.l != 0 ? s->sss.l : s->sss.r; // todo if both choose max(n)
             if (ss->root != 0) {
@@ -242,3 +203,5 @@ void removeNodeIfUnmarked(StringStore *ss, ObjString *s) {
         }
     }
 }
+
+#endif // defined CYARG_ORDERED_STRING_TREE

@@ -239,7 +239,11 @@ static void blackenObject(Obj* object) {
         case OBJ_CLASS: {
             ObjClass* klass = (ObjClass*)object;
             markObject((Obj*)klass->name);
+#if defined CYARG_ORDERED_STRING_TREE
+            keyValueStoreMark(&klass->methods);
+#else
             markTable(&klass->methods);
+#endif
             break;
         }
         case OBJ_CLOSURE: {
@@ -259,7 +263,11 @@ static void blackenObject(Obj* object) {
         case OBJ_INSTANCE: {
             ObjInstance* instance = (ObjInstance*)object;
             markObject((Obj*)instance->klass);
+#if defined CYARG_ORDERED_STRING_TREE
+            keyValueStoreMark(&instance->fields);
+#else
             markTable(&instance->fields);
+#endif
             break;
         }
         case OBJ_UPVALUE:
@@ -294,7 +302,11 @@ static void blackenObject(Obj* object) {
         case OBJ_MAP: {
             ObjMap* map = (ObjMap*)object;
             markObject((Obj*)map->type);
+#if defined CYARG_ORDERED_STRING_TREE
+            keyValueStoreMark(&map->entries);
+#else
             markTable(&map->entries);
+#endif
             break;
         }
         case OBJ_YARGTYPE: break;
@@ -305,7 +317,11 @@ static void blackenObject(Obj* object) {
         }
         case OBJ_YARGTYPE_STRUCT: {
             ObjConcreteYargTypeStruct* type = (ObjConcreteYargTypeStruct*)object;
+#if defined CYARG_ORDERED_STRING_TREE
+            keyValueStoreMark(&type->field_names);
+#else
             markTable(&type->field_names);
+#endif
             for (int i = 0; i < type->field_count; i++) {
                 ObjConcreteYargType* field_type = type->field_types[i];
                 markObject((Obj*)field_type);
@@ -534,9 +550,15 @@ static void gc_freeDynamicValueArray(DynamicValueArray* array) {
     gc_free(array->values);
 }
 
+#if defined CYARG_ORDERED_STRING_TREE
+static void gc_freeKeyValueStore(KeyValueStore *kvs) {
+    keyValueStoreFree(kvs);
+}
+#else
 static void gc_freeTable(ValueTable* table) {
     gc_free(table->entries);
 }
+#endif
 
 void gc_freeChunk(Chunk* chunk) {
     if (!chunk->xip) {
@@ -555,7 +577,11 @@ static void freeObject(Obj* object) {
         case OBJ_BOUND_METHOD: break;
         case OBJ_CLASS: {
             ObjClass* klass = (ObjClass*)object;
+#if defined CYARG_ORDERED_STRING_TREE
+            gc_freeKeyValueStore(&klass->methods);
+#else
             gc_freeTable(&klass->methods);
+#endif
             break;
         }
         case OBJ_CLOSURE: gc_free(((ObjClosure*)object)->upvalues); break;
@@ -566,7 +592,11 @@ static void freeObject(Obj* object) {
         }
         case OBJ_INSTANCE: {
             ObjInstance* instance = (ObjInstance*)object;
+#if defined CYARG_ORDERED_STRING_TREE
+            gc_freeKeyValueStore(&instance->fields);
+#else
             gc_freeTable(&instance->fields);
+#endif
             break;
         }
         case OBJ_NATIVE: break;
@@ -580,7 +610,11 @@ static void freeObject(Obj* object) {
         case OBJ_PACKEDCONTAINER: break;
         case OBJ_MAP: {
             ObjMap* map = (ObjMap*)object;
+#if defined CYARG_ORDERED_STRING_TREE
+            gc_freeKeyValueStore(&map->entries);
+#else
             gc_freeTable(&map->entries);
+#endif
             break;
         }
         case OBJ_YARGTYPE: break;
@@ -589,7 +623,11 @@ static void freeObject(Obj* object) {
             ObjConcreteYargTypeStruct* t = (ObjConcreteYargTypeStruct*)object;
             gc_free(t->field_types);
             gc_free(t->field_indexes);
+#if defined CYARG_ORDERED_STRING_TREE
+            gc_freeKeyValueStore(&t->field_names);
+#else
             gc_freeTable(&t->field_names);
+#endif
             break;
         }
         case OBJ_YARGTYPE_MAP: break;
@@ -719,7 +757,11 @@ void collectGarbage() {
 
     markRoots();
     traceReferences();
+#if defined CYARG_ORDERED_STRING_TREE
     stringStoreDeleteUnmarked(&vm.stringStore);
+#else
+    tableRemoveWhite(&vm.strings);
+#endif
     sweep();
 
     size_t after = vm_bytesAllocated();

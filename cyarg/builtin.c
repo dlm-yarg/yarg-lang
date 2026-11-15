@@ -480,7 +480,11 @@ bool lenBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         return true;
     } else if (IS_MAP(arg)) {
         ObjMap* map = AS_MAP(arg);
+#if defined CYARG_ORDERED_STRING_TREE
+        size_t count = keyValueStoreCount(&map->entries);
+#else
         size_t count = map->entries.count;
+#endif
         allocateIntValue(result, sizeof (size_t) / sizeof (uint16_t));
         int_set_u(count, AS_INT(*result));
         return true;
@@ -578,7 +582,8 @@ bool new_Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
         case TypeMap: {
             // TODO: revisit if maps become value types.
             if (isSupportedMapKeyType(AS_YARGTYPE(typeToCreate))) {
-                *result = MAP_VAL(newMap((ObjConcreteYargTypeMap*)AS_YARGTYPE(typeToCreate)));
+                ObjMap *map = newMap((ObjConcreteYargTypeMap*)AS_YARGTYPE(typeToCreate));
+                *result = MAP_VAL(map); // don’t call functionss in macros
                 return true;
             } else {
                 runtimeError(routineContext, "Unsupported map key type.");
