@@ -38,6 +38,7 @@ set(CYARG_FEATURE_FILESYSTEM "LITTLEFS" CACHE STRING "Filesystem feature to incl
 elseif(CYARG_HOSTING STREQUAL "HOSTED")
 add_compile_definitions(CYARG_OS_HOSTED)
 add_compile_definitions(CYARG_FEATURE_HOSTED_REPL)
+#add_compile_definitions(CYARG_ORDERED_STRING_TREE)
 set(CYARG_FEATURE_FILESYSTEM "CSTDLIB" CACHE STRING "Filesystem feature to include")
 set(CYARG_FEATURE_TEST_SYSTEM "TRUE" CACHE STRING "Include the test system")
 endif()
@@ -140,6 +141,8 @@ add_executable(cyarg
     pack.h
     ../external/o1heap/o1heap/o1heap.c
     ../external/o1heap/o1heap/o1heap.h
+    stringstore.c
+    keyvaluestore.c
     )
 
 if (CYARG_HOSTING STREQUAL "HOSTED")
