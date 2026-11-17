@@ -165,7 +165,9 @@ bool loadBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         const ObjConcreteYargTypeArray* arrayType = (const ObjConcreteYargTypeArray*) arg.type;
         uint8_t* buffer = (uint8_t*)container->loc;
         ObjFunction* function = loadPackageFromBuffer(routineContext, buffer, arrayType->cardinality);
+        tempObjRootPush(&function->obj);
         Value loadResult = allocValueStructPair("compileError", "result");
+        tempRootPop();
         Value functionVal = function ? FUNCTION_VAL(function) : NIL_VAL;
         push(routineContext, functionVal);
         pop(routineContext);
