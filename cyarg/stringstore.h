@@ -12,7 +12,7 @@ typedef struct ObjString ObjString;
 
 void stringStoreInit(StringStore *);
 ObjString *stringStoreStore(StringStore *, ObjString *); // return will be the stored string or an identical one
-ObjString *stringStoreGet(StringStore *, char const *);
+ObjString *stringStoreGet(StringStore *, char const *, int);
 void stringStoreDeleteUnmarked(StringStore *);
 
 #endif // !cyarg_stringstore_h

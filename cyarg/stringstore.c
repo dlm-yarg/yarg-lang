@@ -74,10 +74,10 @@ ObjString *stringStoreStore(StringStore *ss, ObjString *newS) {
     return newS;
 }
 
-ObjString *stringStoreGet(StringStore *ss, char const *chars) {
+ObjString *stringStoreGet(StringStore *ss, char const *chars, int length) {
     ObjString *s = ss->root;
     while (s != 0) {
-        int cmp = strcmp(chars, s->chars);
+        int cmp = strncmp(chars, s->chars, (size_t) length);
         if (cmp < 0) {
             s = s->sss.l;
         } else if (cmp > 0) {

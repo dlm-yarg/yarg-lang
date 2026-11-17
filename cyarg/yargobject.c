@@ -102,7 +102,7 @@ static ObjString* allocateString(char* chars, int length) {
 }
 
 ObjString* takeString(char* chars, int length) {
-    ObjString *s = stringStoreGet(&vm.stringStore, chars);
+    ObjString *s = stringStoreGet(&vm.stringStore, chars, length);
     if (s == NULL) {
         s = allocateString(chars, length);
     } else {
@@ -114,7 +114,7 @@ ObjString* takeString(char* chars, int length) {
 
 #if defined CYARG_ORDERED_STRING_TREE
 ObjString* copyString(const char* chars, int length) {
-    ObjString *s = stringStoreGet(&vm.stringStore, chars);
+    ObjString *s = stringStoreGet(&vm.stringStore, chars, length);
     if (s == NULL) {
         char *heapChars = ALLOCATE(char, length + 1);
         memcpy(heapChars, chars, length);

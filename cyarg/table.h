@@ -47,14 +47,12 @@ inline static ObjString *stringStoreStore(StringStore *ss, ObjString *s) {
 inline static void stringStoreDeleteUnmarked(StringStore *ss) {
     return tableRemoveWhite(ss);
 }
-inline static ObjString *stringStoreGet(StringStore *ss, char const *cs) {
+inline static ObjString *stringStoreGet(StringStore *ss, char const *cs, int length) {
     char const *key = cs;
-    int length = 0;
     uint32_t hash = 2166136261u;
     while (*key != 0) {
         hash ^= (uint8_t)*key++;
         hash += 16777619;
-        length++;
     }
     ObjString* s = tableFindString(ss, cs, length, hash);
     return s;
