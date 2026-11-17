@@ -5,19 +5,20 @@
 //  Created by dlm on 03/11/2026.
 //
 
+#if defined CYARG_ORDERED_STRING_TREE
+
 #include "keyvaluestore.h"
 
 #include "yargobject.h"
+#include "value_cell.h"
 #include "memory.h"
 
 #include <assert.h>
 #include <string.h>
 
-#if defined CYARG_ORDERED_STRING_TREE
-
 typedef struct ValueCellStoreNode { // todo move into valuecellstore.c
     ValueCell cell;
-    ObjString *key;
+    ObjString const *key;
 
     struct ValueCellStoreNode *t; // toward root or zero if root
     struct ValueCellStoreNode *l; // prior
@@ -26,7 +27,7 @@ typedef struct ValueCellStoreNode { // todo move into valuecellstore.c
     uint16_t p : 1; // 0 if parsing/ed left, 1 if parsing/ed right
 } ValueCellStoreNode;
 
-static ValueCellStoreNode *kvsGet(const KeyValueStore *, const char *);
+static ValueCellStoreNode *kvsGet(KeyValueStore const *, char const *);
 static void markNode(ValueCellStoreNode *);
 
 void keyValueStoreInit(KeyValueStore *kvs) {
@@ -37,7 +38,7 @@ void keyValueStoreInit(KeyValueStore *kvs) {
 // Nodes are investigated:
 // On the way in if they are leaf nodes
 // On the way back after both branches have been visited
-int keyValueStoreCount(const KeyValueStore *kvs) {
+int keyValueStoreCount(KeyValueStore const *kvs) {
     int r = 0;
     ValueCellStoreNode *s = kvs->root;
     while (s != 0) { // going in to the leaves
@@ -103,7 +104,7 @@ void keyValueStoreFree(KeyValueStore *kvs) {
     assert(n == 0);
 }
 
-bool keyValueStoreGet(const KeyValueStore *kvs, ObjString *key, ValueCell *c) {
+bool keyValueStoreGet(KeyValueStore const *kvs, ObjString const *key, ValueCell *c) {
     ValueCellStoreNode *n = kvsGet(kvs, key->chars);
     if (n != 0) {
         *c = n->cell;
@@ -111,7 +112,7 @@ bool keyValueStoreGet(const KeyValueStore *kvs, ObjString *key, ValueCell *c) {
     return (n != 0);
 }
 
-bool keyValueStoreGetValue(const KeyValueStore *kvs, ObjString *key, Value *v) {
+bool keyValueStoreGetValue(KeyValueStore const *kvs, ObjString const *key, Value *v) {
     ValueCellStoreNode *n = kvsGet(kvs, key->chars);
     if (n != 0) {
         *v = n->cell.value;
@@ -119,7 +120,7 @@ bool keyValueStoreGetValue(const KeyValueStore *kvs, ObjString *key, Value *v) {
     return (n != 0);
 }
 
-bool keyValueStorePlace(const KeyValueStore *kvs, ObjString *key, ValueCell **c) {
+bool keyValueStorePlace(KeyValueStore const *kvs, ObjString const *key, ValueCell **c) {
     ValueCellStoreNode *n = kvsGet(kvs, key->chars);
     if (n != 0) {
         *c = &n->cell;
@@ -127,7 +128,7 @@ bool keyValueStorePlace(const KeyValueStore *kvs, ObjString *key, ValueCell **c)
     return (n != 0);
 }
 
-bool keyValueStoreSet(KeyValueStore *kvs, ObjString *key, const ValueCell *v) {
+bool keyValueStoreSet(KeyValueStore *kvs, ObjString const *key, ValueCell const *v) {
     if (strcmp(key->chars, "reps") == 0) {
         v = v;
     }
@@ -190,7 +191,7 @@ bool keyValueStoreSet(KeyValueStore *kvs, ObjString *key, const ValueCell *v) {
     return !exists;
 }
 
-bool keyValueStoreSetValue(KeyValueStore *kvs, ObjString *key, const Value *v) {
+bool keyValueStoreSetValue(KeyValueStore *kvs, ObjString const *key, Value const *v) {
     return keyValueStoreSet(kvs, key, &(ValueCell){ .value = *v });
 }
 
@@ -198,7 +199,7 @@ bool keyValueStoreSetValue(KeyValueStore *kvs, ObjString *key, const Value *v) {
 // Nodes are investigated:
 // On the way in if they are leaf nodes
 // On the way back after both branches have been visited
-void keyValueStoreAddAll(const KeyValueStore *from, KeyValueStore *to) {
+void keyValueStoreAddAll(KeyValueStore const *from, KeyValueStore *to) {
     ValueCellStoreNode *s = from->root;
     while (s != 0) { // going in to the leaves
         if (s->l != 0) {
@@ -258,7 +259,7 @@ void keyValueStoreMark(KeyValueStore *kvs) {
     }
 }
 
-ValueCellStoreNode *kvsGet(const KeyValueStore *kvs, const char *s) {
+ValueCellStoreNode *kvsGet(KeyValueStore const *kvs, char const *s) {
     if (strcmp(s, "reps") == 0) {
         s = s;
     }

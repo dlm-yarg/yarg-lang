@@ -215,7 +215,7 @@ void initCellTable(ValueCellTable* table) {
 }
 
 void freeCellTable(ValueCellTable* table) {
-    vm_free(table->entries);
+    gc_free(table->entries);
     initCellTable(table);
 }
 

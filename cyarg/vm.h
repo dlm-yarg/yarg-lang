@@ -27,13 +27,8 @@ typedef struct {
     
     vm_mutex env;
     
-#if defined CYARG_ORDERED_STRING_TREE
     KeyValueStore globals;
     StringStore stringStore;
-#else
-    ValueCellTable globals;
-    ValueTable strings;
-#endif
     ObjString* initString;
     ObjString* libraryPath;
 

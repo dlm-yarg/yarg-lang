@@ -78,7 +78,7 @@ bool removePinnedRoutine(uintptr_t address) {
 // cyarg: use ascii 'y' 'a' 'r' 'g'
 #define FLAG_VALUE 0x79617267
 
-void vmCore1Entry() {
+void vmCore1Entry(void) {
 #ifdef CYARG_PICO_SDK_TARGET
     multicore_fifo_push_blocking(FLAG_VALUE);
     uint32_t g = multicore_fifo_pop_blocking();
@@ -128,14 +128,7 @@ static void defineNative(ObjRoutine* context, const char* name, NativeFn functio
     ObjNative* native = newNative(function);
     push(context, IMPL_OBJ_VAL(native));
 
-#if defined CYARG_ORDERED_STRING_TREE
     keyValueStoreSetValue(&vm.globals, nameString, &NATIVE_VAL(native));
-#else
-    ValueCell cell;
-    cell.value = NATIVE_VAL(native);
-    cell.cellType = NULL;
-    tableCellSet(&vm.globals, nameString, cell);
-#endif
     pop(context);
     pop(context);
 }
@@ -144,18 +137,11 @@ static void defineGlobal(ObjRoutine* context, const char* name, Value value) {
     ObjString* nameString = copyString(name, (int)strlen(name));
     push(context, STRING_VAL(nameString));
 
-#if defined CYARG_ORDERED_STRING_TREE
     keyValueStoreSetValue(&vm.globals, nameString, &value);
-#else
-    ValueCell cell;
-    cell.value = value;
-    cell.cellType = NULL;
-    tableCellSet(&vm.globals, nameString, cell);
-#endif
     pop(context);
 }
 
-void initVMMemory() {
+void initVMMemory(void) {
 
     memset(&vm, 0, sizeof(VM));
 
@@ -169,7 +155,7 @@ void initVMMemory() {
     init_heap_instance(&vm.heap_instance);
 }
 
-void initVMRuntime() {
+void initVMRuntime(void) {
     vm.pinnedRoutineHandlers[0] = pinnedRoutine0;
     vm.pinnedRoutineHandlers[1] = pinnedRoutine1;
     vm.pinnedRoutineHandlers[2] = pinnedRoutine2;
@@ -181,11 +167,9 @@ void initVMRuntime() {
     vm.pinnedRoutineHandlers[8] = pinnedRoutine8;
     vm.pinnedRoutineHandlers[9] = pinnedRoutine9;
 
-#if defined CYARG_ORDERED_STRING_TREE
-    // must be done before initRoutine() - again!
+    // must be done before initRoutine()
     keyValueStoreInit(&vm.globals);
     stringStoreInit(&vm.stringStore);
-#endif
 
     // We have two Obj here not on the heap. hack up their init.
     vm.core0.obj.type = OBJ_ROUTINE;
@@ -193,11 +177,6 @@ void initVMRuntime() {
 
     vm.bootFunction.obj.type = OBJ_FUNCTION;
     initFunction(&vm.bootFunction);
-
-#if !defined CYARG_ORDERED_STRING_TREE
-    initCellTable(&vm.globals);
-    initTable(&vm.strings);
-#endif
 
     vm.initString = copyString("init", 4);
 
@@ -229,21 +208,20 @@ void initVMRuntime() {
     defineNative(&vm.core0, "vm_xip_string_node", vm_xip_string_nodeNative);
 }
 
-void freeVM() {
-#if defined CYARG_ORDERED_STRING_TREE
+void freeVM(void) {
     keyValueStoreFree(&vm.globals);
+#if defined CYARG_ORDERED_STRING_TREE
     stringStoreInit(&vm.stringStore); // nothing allocated in the string store
 #else
-    freeCellTable(&vm.globals);
-    freeTable(&vm.strings);
+    freeTable(&vm.stringStore);
 #endif
     vm.initString = NULL;
     vm.libraryPath = NULL;
     freeObjects();
 }
 
-void markVMRoots() {
-    
+void markVMRoots(void) {
+
     // Don't use markObject, as these are not on the heap.
     markRoutine(&vm.core0);
     markFunction(&vm.bootFunction);
@@ -259,11 +237,7 @@ void markVMRoots() {
     }
 
     markObject((Obj*)vm.libraryPath);
-#if defined CYARG_ORDERED_STRING_TREE
     keyValueStoreMark(&vm.globals);
-#else
-    markCellTable(&vm.globals);
-#endif
     markObject((Obj*)vm.initString);
 }
 
@@ -299,11 +273,7 @@ static InterpretResult callValue(ObjRoutine* routine, Value callee, int argCount
         target->value = INSTANCE_VAL(newInstance(klass));
         target->cellType = NULL;
         Value initializer;
-#if defined CYARG_ORDERED_STRING_TREE
         if (keyValueStoreGetValue(&klass->methods, vm.initString, &initializer)) {
-#else
-        if (tableGet(&klass->methods, vm.initString, &initializer)) {
-#endif
             return callfn(routine, AS_CLOSURE(initializer), argCount) ? INTERPRET_OK : INTERPRET_RUNTIME_ERROR;
         } else if (argCount != 0) {
             runtimeError(routine, "Expected 0 arguments but got %d.", argCount);
@@ -340,11 +310,7 @@ static InterpretResult callValue(ObjRoutine* routine, Value callee, int argCount
 static InterpretResult invokeFromClass(ObjRoutine* routine, ObjClass* klass, ObjString* name,
                             int argCount) {
     Value method;
-#if defined CYARG_ORDERED_STRING_TREE
     if (!keyValueStoreGetValue(&klass->methods, name, &method)) {
-#else
-    if (!tableGet(&klass->methods, name, &method)) {
-#endif
         runtimeError(routine, "Undefined property '%s'.", name->chars);
         return INTERPRET_RUNTIME_ERROR;
     }
@@ -363,11 +329,7 @@ static InterpretResult invoke(ObjRoutine* routine, ObjString* name, int argCount
         ObjInstance* instance = AS_INSTANCE(receiver);
 
         Value value;
-#if defined CYARG_ORDERED_STRING_TREE
         if (keyValueStoreGetValue(&instance->fields, name, &value)) {
-#else
-        if (tableGet(&instance->fields, name, &value)) {
-#endif
             ValueCell* target = peekCell(routine, argCount);
 
             target->value = value;
@@ -397,11 +359,7 @@ static InterpretResult invoke(ObjRoutine* routine, ObjString* name, int argCount
 
 static bool bindMethod(ObjRoutine* routine, ObjClass* klass, ObjString* name) {
     Value method;
-#if defined CYARG_ORDERED_STRING_TREE
     if (!keyValueStoreGetValue(&klass->methods, name, &method)) {
-#else
-    if (!tableGet(&klass->methods, name, &method)) {
-#endif
         runtimeError(routine, "Undefined property '%s'.", name->chars);
         return false;
     }
@@ -448,11 +406,7 @@ static void closeUpvalues(ObjRoutine* routine, size_t last) {
 static void defineMethod(ObjRoutine* routine, ObjString* name) {
     Value method = peek(routine, 0);
     ObjClass* klass = AS_CLASS(peek(routine, 1));
-#if defined CYARG_ORDERED_STRING_TREE
     keyValueStoreSetValue(&klass->methods, name, &method);
-#else
-    tableSet(&klass->methods, name, method);
-#endif
     pop(routine);
 }
 
@@ -499,11 +453,7 @@ static bool derefMapElement(ObjRoutine* routine) {
     }
     ObjMap* map = AS_MAP(mapVal);
     Value result;
-#if defined CYARG_ORDERED_STRING_TREE
     if (!keyValueStoreGetValue(&map->entries, AS_STRING(key), &result)) {
-#else
-    if (!tableGet(&map->entries, AS_STRING(key), &result)) {
-#endif
         result = NIL_VAL;
     }
     pop(routine);
@@ -576,11 +526,7 @@ static bool setMapElement(ObjRoutine* routine, ObjMap* map, Value key, Value rhs
         runtimeError(routine, "Expected a string key for map assignment.");
         return false;
     }
-#if defined CYARG_ORDERED_STRING_TREE
     keyValueStoreSetValue(&map->entries, AS_STRING(key), &rhs);
-#else
-    tableSet(&map->entries, AS_STRING(key), rhs);
-#endif
     return true;
 }
 
@@ -923,11 +869,7 @@ InterpretResult run(ObjRoutine* routine) {
                 vm_mutex_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
                 ValueCell cell;
-#if defined CYARG_ORDERED_STRING_TREE
                 if (!keyValueStoreGet(&vm.globals, name, &cell)) {
-#else
-                if (!tableCellGet(&vm.globals, name, &cell)) {
-#endif
                     runtimeError(routine, "Undefined variable (OP_GET_GLOBAL) '%s'.", name->chars);
                     vm_mutex_exit(&vm.env);
                     return INTERPRET_RUNTIME_ERROR;
@@ -939,11 +881,7 @@ InterpretResult run(ObjRoutine* routine) {
             case OP_DEFINE_GLOBAL: {
                 vm_mutex_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
-#if defined CYARG_ORDERED_STRING_TREE
                 keyValueStoreSet(&vm.globals, name, peekCell(routine, 0));
-#else
-                tableCellSet(&vm.globals, name, *peekCell(routine, 0));
-#endif
                 pop(routine);
                 vm_mutex_exit(&vm.env);
                 break;
@@ -952,11 +890,7 @@ InterpretResult run(ObjRoutine* routine) {
                 vm_mutex_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
                 ValueCell* lhs = NULL;
-#if defined CYARG_ORDERED_STRING_TREE
                 if (keyValueStorePlace(&vm.globals, name, &lhs)) {
-#else
-                if (tableCellGetPlace(&vm.globals, name, &lhs)) {
-#endif
                     ValueCell* rhs = peekCell(routine, 0);
                     ValueCellTarget lhsTrg = { .cellType = lhs->cellType, .value = &lhs->value };
 
@@ -1020,11 +954,7 @@ InterpretResult run(ObjRoutine* routine) {
                     ObjString* name = READ_STRING();
 
                     Value value;
-#if defined CYARG_ORDERED_STRING_TREE
                     if (keyValueStoreGetValue(&instance->fields, name, &value)) {
-#else
-                    if (tableGet(&instance->fields, name, &value)) {
-#endif
                         pop(routine); // Instance
                         push(routine, value);
                         break;
@@ -1086,11 +1016,7 @@ InterpretResult run(ObjRoutine* routine) {
                 if (IS_INSTANCE(peek(routine, 1))) {
                     ObjInstance* instance = AS_INSTANCE(peek(routine, 1));
                     Value v = peek(routine, 0);
-#if defined CYARG_ORDERED_STRING_TREE
                     keyValueStoreSetValue(&instance->fields, READ_STRING(), &v);
-#else
-                    tableSet(&instance->fields, READ_STRING(), v);
-#endif
                     Value value = pop(routine);
                     pop(routine);
                     push(routine, value);
@@ -1457,11 +1383,7 @@ InterpretResult run(ObjRoutine* routine) {
                 }
 
                 ObjClass* subclass = AS_CLASS(peek(routine, 0));
-#if defined CYARG_ORDERED_STRING_TREE
                 keyValueStoreAddAll(&AS_CLASS(superclass)->methods, &subclass->methods);
-#else
-                tableAddAll(&AS_CLASS(superclass)->methods, &subclass->methods);
-#endif
                 pop(routine); // Subclass.
                 break;
             }
@@ -1718,7 +1640,7 @@ InterpretResult compileScript(ObjString* filename, Value* result) {
     return runResult;
 }
 
-InterpretResult bootXIP() {
+InterpretResult bootXIP(void) {
     bindBootstrapCode("boot", 4, xip_bootstrap, sizeof(xip_bootstrap));
     Value discardedResult;
     InterpretResult runResult = bootstrapVM(&discardedResult, NULL);

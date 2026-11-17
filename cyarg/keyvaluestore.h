@@ -9,26 +9,20 @@
 
 #include <stdbool.h>
 
+typedef struct KeyValueStore KeyValueStore;
+typedef struct ObjString ObjString;
 typedef struct ValueCell ValueCell;
 typedef struct Value Value;
-typedef struct ObjString ObjString;
-typedef struct ValueCellStoreNode ValueCellStoreNode;
-
-typedef struct KeyValueStore {
-    ValueCellStoreNode *root;
-} KeyValueStore;
-
-typedef struct ObjString ObjString;
 
 void keyValueStoreInit(KeyValueStore *);
-int keyValueStoreCount(const KeyValueStore *);
+int keyValueStoreCount(KeyValueStore const *);
 void keyValueStoreFree(KeyValueStore *); // vm_mutex_enter_blocking()/vm_mutex_exit() must be called around this function
-bool keyValueStoreGet(const KeyValueStore *, ObjString *key, ValueCell *);
-bool keyValueStoreGetValue(const KeyValueStore *, ObjString *key, Value *);
-bool keyValueStorePlace(const KeyValueStore *, ObjString *key, ValueCell **);
-bool keyValueStoreSet(KeyValueStore *, ObjString *key, const ValueCell *);
-bool keyValueStoreSetValue(KeyValueStore *, ObjString *key, const Value *);
-void keyValueStoreAddAll(const KeyValueStore *from, KeyValueStore *to);
+bool keyValueStoreGet(KeyValueStore const *, ObjString const *key, ValueCell *);
+bool keyValueStoreGetValue(KeyValueStore const *, ObjString const *key, Value *);
+bool keyValueStorePlace(const KeyValueStore *, ObjString const *key, ValueCell **);
+bool keyValueStoreSet(KeyValueStore *, ObjString const *key, const ValueCell *);
+bool keyValueStoreSetValue(KeyValueStore *, ObjString const *key, Value const *);
+void keyValueStoreAddAll(KeyValueStore const *from, KeyValueStore *to);
 void keyValueStoreMark(KeyValueStore *);
 
 #endif // !cyarg_keyvaluestore_h

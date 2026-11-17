@@ -3,10 +3,8 @@
 
 #include "object.h"
 #include "big-int/big-int.h"
-#include "value.h"
 #include "chunk.h"
-#include "table.h"
-#include "keyvaluestore.h"
+#include "orderedtreetypes.h"
 
 typedef struct ObjConcreteYargType ObjConcreteYargType;
 
@@ -46,23 +44,6 @@ typedef struct ObjConcreteYargType ObjConcreteYargType;
 
 Value cstring_val(const char*);
 
-struct ObjString {
-    Obj obj;
-    char *chars; // vm_alloc’d
-    uint32_t length;
-#if defined CYARG_ORDERED_STRING_TREE
-    struct {
-        struct ObjString *t; // toward root or zero if root
-        struct ObjString *l; // prior
-        struct ObjString *r; // subsequent
-        int16_t n; // distance to leaf: 0 if leaf, max(l->n, r->n) + 1 otherwise
-        uint16_t p : 1; // 0 if parsing/ed left, 1 if parsing/ed right
-    } sss;
-#else
-    uint32_t hash; // for use in maps
-#endif
-};
-
 typedef struct ObjInt {
     Obj obj;
     Int bigInt;
@@ -79,34 +60,22 @@ typedef struct ObjFunction {
 typedef struct {
     Obj obj;
     ObjString* name;
-#if defined CYARG_ORDERED_STRING_TREE
     KeyValueStore methods;
-#else
-    ValueTable methods;
-#endif
 } ObjClass;
 
 typedef struct {
     Obj obj;
     ObjClass* klass;
-#if defined CYARG_ORDERED_STRING_TREE
     KeyValueStore fields;
-#else
-    ValueTable fields;
-#endif
 } ObjInstance;
 
 typedef struct {
     Obj obj;
     ObjConcreteYargTypeMap* type;
-#if defined CYARG_ORDERED_STRING_TREE
     KeyValueStore entries;
-#else
-    ValueTable entries;
-#endif
 } ObjMap;
 
-ObjFunction* newFunction();
+ObjFunction* newFunction(void);
 void initFunction(ObjFunction* function);
 ObjString* functionToString(const ObjFunction* function);
 
@@ -122,7 +91,7 @@ ObjString* copyStringWithEscapes(const char* chars, int length);
 ObjString* concatenateStrings(ObjString* a, ObjString* b);
 
 ObjInt* allocateIntObject(size_t numDigits);
-Value defaultIntValue();
+Value defaultIntValue(void);
 void noLongerLiteralInt(Value *value);
 
 #endif

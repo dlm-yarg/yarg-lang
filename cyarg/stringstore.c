@@ -5,6 +5,8 @@
 //  Created by dlm on 03/11/2026.
 //
 
+#if defined CYARG_ORDERED_STRING_TREE
+
 #include "stringstore.h"
 
 #include "yargobject.h"
@@ -13,7 +15,6 @@
 #include <assert.h>
 #include <string.h>
 
-#if defined CYARG_ORDERED_STRING_TREE
 
 void stringStoreInit(StringStore *ss) {
     ss->root = 0;
