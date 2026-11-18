@@ -1,5 +1,13 @@
 #include "channel.h"
 
+#include <stdio.h>
+#ifdef CYARG_PTHREADS_SYNC
+#include <semaphore.h>
+#include <fcntl.h>   // for O_CREAT
+#include <sys/stat.h> // for S_IRUSR and S_IWUSR
+#endif
+#include <string.h>
+
 #include "common.h"
 #include "object.h"
 #include "object_gc_impl.h"
@@ -8,14 +16,6 @@
 #include "yargtype.h"
 #include "sync_group.h"
 #include "vm_mutex.h"
-
-#include <stdio.h>
-#ifdef CYARG_PTHREADS_SYNC
-#include <semaphore.h>
-#include <fcntl.h>   // for O_CREAT
-#include <sys/stat.h> // for S_IRUSR and S_IWUSR
-#endif
-#include <string.h>
 
 typedef struct ObjChannelContainer {
     Obj obj;
