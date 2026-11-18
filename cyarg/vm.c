@@ -14,13 +14,13 @@
 #endif
 
 #include "common.h"
+#include "object_gc_impl.h"
 #include "compiler.h"
 #include "debug.h"
 #include "object.h"
 #include "yargtype.h"
 #include "yargobject.h"
 #include "vmobject.h"
-#include "memory.h"
 #include "native.h"
 #include "builtin.h"
 #include "routine.h"
@@ -29,6 +29,7 @@
 #include "xip_library.h"
 #include "yargstructtype.h"
 #include "packed_containers.h"
+#include "keyvaluestore.h"
 
 VM vm;
 
@@ -77,7 +78,7 @@ bool removePinnedRoutine(uintptr_t address) {
 // cyarg: use ascii 'y' 'a' 'r' 'g'
 #define FLAG_VALUE 0x79617267
 
-void vmCore1Entry() {
+void vmCore1Entry(void) {
 #ifdef CYARG_PICO_SDK_TARGET
     multicore_fifo_push_blocking(FLAG_VALUE);
     uint32_t g = multicore_fifo_pop_blocking();
@@ -127,10 +128,7 @@ static void defineNative(ObjRoutine* context, const char* name, NativeFn functio
     ObjNative* native = newNative(function);
     push(context, IMPL_OBJ_VAL(native));
 
-    ValueCell cell;
-    cell.value = NATIVE_VAL(native);
-    cell.cellType = NULL;
-    tableCellSet(&vm.globals, nameString, cell);
+    keyValueStoreSetValue(&vm.globals, nameString, &NATIVE_VAL(native));
     pop(context);
     pop(context);
 }
@@ -139,28 +137,20 @@ static void defineGlobal(ObjRoutine* context, const char* name, Value value) {
     ObjString* nameString = copyString(name, (int)strlen(name));
     push(context, STRING_VAL(nameString));
 
-    ValueCell cell;
-    cell.value = value;
-    cell.cellType = NULL;
-    tableCellSet(&vm.globals, nameString, cell);
+    keyValueStoreSetValue(&vm.globals, nameString, &value);
     pop(context);
 }
 
-void initVMMemory() {
+void initVMMemory(void) {
 
     memset(&vm, 0, sizeof(VM));
 
-    vm.tempRootsTop = vm.tempRoots;
-
-    vm.nextGC = FIRST_GC_AT;
-
-    vm_mutex_init(&vm.heap);
-    vm_mutex_init(&vm.env);
-
-    init_heap_instance(&vm.heap_instance);
+    vm_mutex_init(&vm.mem);
+    vm_heap_init(&vm.mem);
+    vm_objects_init(&vm.mem);
 }
 
-void initVMRuntime() {
+void initVMRuntime(void) {
     vm.pinnedRoutineHandlers[0] = pinnedRoutine0;
     vm.pinnedRoutineHandlers[1] = pinnedRoutine1;
     vm.pinnedRoutineHandlers[2] = pinnedRoutine2;
@@ -172,6 +162,10 @@ void initVMRuntime() {
     vm.pinnedRoutineHandlers[8] = pinnedRoutine8;
     vm.pinnedRoutineHandlers[9] = pinnedRoutine9;
 
+    // must be done before initRoutine()
+    keyValueStoreInit(&vm.globals);
+    stringStoreInit(&vm.stringStore);
+
     // We have two Obj here not on the heap. hack up their init.
     vm.core0.obj.type = OBJ_ROUTINE;
     initRoutine(&vm.core0);
@@ -179,9 +173,6 @@ void initVMRuntime() {
     vm.bootFunction.obj.type = OBJ_FUNCTION;
     initFunction(&vm.bootFunction);
 
-    initCellTable(&vm.globals);
-    initTable(&vm.strings);
-    
     vm.initString = copyString("init", 4);
 
     defineNative(&vm.core0, "clock", clockNative);
@@ -212,16 +203,30 @@ void initVMRuntime() {
     defineNative(&vm.core0, "vm_xip_string_node", vm_xip_string_nodeNative);
 }
 
-void freeVM() {
-    freeCellTable(&vm.globals);
-    freeTable(&vm.strings);
+void freeVM(void) {
+    keyValueStoreFree(&vm.globals);
+#if defined CYARG_ORDERED_STRING_TREE
+    stringStoreInit(&vm.stringStore); // nothing allocated in the string store
+#else
+    freeTable(&vm.stringStore);
+#endif
+    freeRoutine(&vm.core0);
+    freeFunction(&vm.bootFunction);
+    vm.core1 = NULL;
     vm.initString = NULL;
     vm.libraryPath = NULL;
-    freeObjects();
+#ifdef CYARG_FEATURE_TEST_SYSTEM
+    ts_end_session();
+#endif
+    vm_objects_free();
 }
 
-void markVMRoots() {
-    
+void vmRemoveUnmarkedRoots() {
+    stringStoreDeleteUnmarked(&vm.stringStore);
+}
+
+void markVMRoots(void) {
+
     // Don't use markObject, as these are not on the heap.
     markRoutine(&vm.core0);
     markFunction(&vm.bootFunction);
@@ -232,12 +237,8 @@ void markVMRoots() {
         markObject((Obj*)vm.pinnedRoutines[i]);
     }
 
-    for (Value* slot = vm.tempRoots; slot < vm.tempRootsTop; slot++) {
-        markValue(*slot);
-    }
-
     markObject((Obj*)vm.libraryPath);
-    markCellTable(&vm.globals);
+    keyValueStoreMark(&vm.globals);
     markObject((Obj*)vm.initString);
 }
 
@@ -273,7 +274,7 @@ static InterpretResult callValue(ObjRoutine* routine, Value callee, int argCount
         target->value = INSTANCE_VAL(newInstance(klass));
         target->cellType = NULL;
         Value initializer;
-        if (tableGet(&klass->methods, vm.initString, &initializer)) {
+        if (keyValueStoreGetValue(&klass->methods, vm.initString, &initializer)) {
             return callfn(routine, AS_CLOSURE(initializer), argCount) ? INTERPRET_OK : INTERPRET_RUNTIME_ERROR;
         } else if (argCount != 0) {
             runtimeError(routine, "Expected 0 arguments but got %d.", argCount);
@@ -310,7 +311,7 @@ static InterpretResult callValue(ObjRoutine* routine, Value callee, int argCount
 static InterpretResult invokeFromClass(ObjRoutine* routine, ObjClass* klass, ObjString* name,
                             int argCount) {
     Value method;
-    if (!tableGet(&klass->methods, name, &method)) {
+    if (!keyValueStoreGetValue(&klass->methods, name, &method)) {
         runtimeError(routine, "Undefined property '%s'.", name->chars);
         return INTERPRET_RUNTIME_ERROR;
     }
@@ -329,7 +330,7 @@ static InterpretResult invoke(ObjRoutine* routine, ObjString* name, int argCount
         ObjInstance* instance = AS_INSTANCE(receiver);
 
         Value value;
-        if (tableGet(&instance->fields, name, &value)) {
+        if (keyValueStoreGetValue(&instance->fields, name, &value)) {
             ValueCell* target = peekCell(routine, argCount);
 
             target->value = value;
@@ -357,17 +358,16 @@ static InterpretResult invoke(ObjRoutine* routine, ObjString* name, int argCount
     }
 }
 
-static bool bindMethod(ObjRoutine* routine, ObjClass* klass, ObjString* name) {
+static void bindMethod(ObjRoutine* routine, ObjClass* klass, ObjString* name) {
     Value method;
-    if (!tableGet(&klass->methods, name, &method)) {
+    if (!keyValueStoreGetValue(&klass->methods, name, &method)) {
         runtimeError(routine, "Undefined property '%s'.", name->chars);
-        return false;
+        return;
     }
 
     ObjBoundMethod* bound = newBoundMethod(peek(routine, 0), AS_CLOSURE(method));
     pop(routine);
     push(routine, BOUNDMETHOD_VAL(bound));
-    return true;
 }
 
 static ObjUpvalue* captureUpvalue(ObjRoutine* routine, ValueCell* local, size_t stackOffset) {
@@ -394,19 +394,10 @@ static ObjUpvalue* captureUpvalue(ObjRoutine* routine, ValueCell* local, size_t 
     return createdUpvalue;
 }
 
-static void closeUpvalues(ObjRoutine* routine, size_t last) {
-    while (routine->openUpvalues != NULL && routine->openUpvalues->stackOffset >= last) {
-        ObjUpvalue* upvalue = routine->openUpvalues;
-        upvalue->closed = *upvalue->contents;
-        upvalue->contents = &upvalue->closed;
-        routine->openUpvalues = upvalue->next;
-    }
-}
-
 static void defineMethod(ObjRoutine* routine, ObjString* name) {
     Value method = peek(routine, 0);
     ObjClass* klass = AS_CLASS(peek(routine, 1));
-    tableSet(&klass->methods, name, method);
+    keyValueStoreSetValue(&klass->methods, name, &method);
     pop(routine);
 }
 
@@ -453,7 +444,7 @@ static bool derefMapElement(ObjRoutine* routine) {
     }
     ObjMap* map = AS_MAP(mapVal);
     Value result;
-    if (!tableGet(&map->entries, AS_STRING(key), &result)) {
+    if (!keyValueStoreGetValue(&map->entries, AS_STRING(key), &result)) {
         result = NIL_VAL;
     }
     pop(routine);
@@ -480,22 +471,21 @@ static bool derefStructElement(ObjRoutine* routine) {
     return true;
 }
 
-static bool derefElement(ObjRoutine* routine) {
+static void op_deref_element(ObjRoutine* routine) {
 
     Value collection = peek(routine, 1);
 
     if (IS_UNIFORMARRAY(collection) || isArrayPointer(collection)) {
-        return derefArrayElement(routine);
+        derefArrayElement(routine);
     } else if (IS_MAP(collection)) {
-        return derefMapElement(routine);
+        derefMapElement(routine);
     } else if (IS_STRUCT(collection)) {
-        return derefStructElement(routine);
+        derefStructElement(routine);
     } else {
         runtimeError(routine, "Expected a map, struct, or array as target.");
-        return false;
     }
-    return false;
 }
+
 
 static bool setAnArrayElement(ObjRoutine* routine, Value arrayVal, Value indexVal, Value rhs) {
 
@@ -526,11 +516,11 @@ static bool setMapElement(ObjRoutine* routine, ObjMap* map, Value key, Value rhs
         runtimeError(routine, "Expected a string key for map assignment.");
         return false;
     }
-    tableSet(&map->entries, AS_STRING(key), rhs);
+    keyValueStoreSetValue(&map->entries, AS_STRING(key), &rhs);
     return true;
 }
 
-static bool setElement(ObjRoutine* routine) {
+static void op_set_element(ObjRoutine* routine) {
 
     Value collection = peek(routine, 2);
     Value index = peek(routine, 1);
@@ -544,17 +534,14 @@ static bool setElement(ObjRoutine* routine) {
         result = setAnArrayElement(routine, collection, index, rhs);
     } else if (IS_STRUCT(collection)) {
         runtimeError(routine, "Setting struct elements is not supported yet.");
-        return false;
     } else {
         runtimeError(routine, "Expected an array and a positive or unsigned integer.");
-        return false;
     }
 
     if (result) {
         pop(routine);
         pop(routine);
     }
-    return result;
 }
 
 static void derefPtr(ObjRoutine* routine) {
@@ -666,6 +653,40 @@ void runtimeBinaryOpTypeError(ObjRoutine* routine, const char* op, const char* m
     push(routine, STRING_VAL(rhsTypeName));
 
     runtimeError(routine, "%s Operands %s %s must both be %s", op, lhsTypeName->chars, rhsTypeName->chars, message);
+}
+
+Value op_len(ObjRoutine* context) {
+    Value arg = peek(context, 0);
+    size_t length = 0;
+
+    if (IS_STRING(arg)) {
+        ObjString* string = AS_STRING(arg);
+        length = string->length;
+    } else if (IS_UNIFORMARRAY(arg)) {
+        ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*) arg.type;
+        length = arrayType->cardinality;
+    } else if (IS_MAP(arg)) {
+        ObjMap* map = AS_MAP(arg);
+        length = keyValueStoreCount(&map->entries);
+    } else {
+        runtimeError(context, "Expected a string, array or map.");
+        return NIL_VAL;
+    }
+    
+    size_t numDigits;
+    if (length < UINT16_MAX) {
+        numDigits = 1;
+    } else if (length < UINT32_MAX) {
+        numDigits = 2;
+    } else {
+        numDigits = sizeof(size_t) / sizeof(uint16_t);
+    }
+    
+    Value result;
+    allocateIntValue(&result, numDigits);
+    int_set_u(length, AS_INT(result));
+
+    return result;
 }
 
 InterpretResult run(ObjRoutine* routine) {
@@ -804,7 +825,7 @@ InterpretResult run(ObjRoutine* routine) {
 
     for (;;) {
         if (routine->state == EXEC_ERROR) {
-            runtimeError(routine, "Error");
+            assert(!IS_NIL(routine->error));
             return INTERPRET_RUNTIME_ERROR;
         }
         if (routine->traceExecution) {
@@ -828,12 +849,15 @@ InterpretResult run(ObjRoutine* routine) {
                 {
                     num += 65536 * READ_BYTE();
                 }
-
                 Value i = { .type = &yargTypes.integer };
-                (void) int_init_concrete2(&i.as.bigSmallInt.i_);
+                if (instruction == OP_IMMEDIATE_P8) {
+                    (void) int_init_concrete2_u8(&i.as.bigSmallInt.i_, (uint8_t)num);
+                } else {
+                    (void) int_init_concrete2(&i.as.bigSmallInt.i_);
+                    int_set_u(num, (Int *)&i.as.bigSmallInt.i_);
+                    i.as.bigSmallInt.i_.neg_ = instruction == OP_IMMEDIATE_N8 || instruction == OP_IMMEDIATE_N16 || instruction == OP_IMMEDIATE_N24;
+                }
                 i.as.bigSmallInt.i_.literal_ = true;
-                int_set_u(num, (Int *)&i.as.bigSmallInt.i_);
-                i.as.bigSmallInt.i_.neg_ = instruction == OP_IMMEDIATE_N8 || instruction == OP_IMMEDIATE_N16 || instruction == OP_IMMEDIATE_N24;
                 int_invariant(AS_INT(i));
                 push(routine, i);
                 break;
@@ -844,8 +868,13 @@ InterpretResult run(ObjRoutine* routine) {
             case OP_POP: pop(routine); break;
             case OP_GET_BUILTIN: {
                 uint8_t builtin = READ_BYTE();
-                Value bFn = getBuiltin(builtin);
-                push(routine, bFn);
+                BuiltinFun builtinFn = getBuiltinFunction(builtin);
+                if (builtinFn == NULL) {
+                    runtimeError(routine, "Undefined builtin function (OP_GET_BUILTIN) '%d'.", builtin);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                ObjBuiltin* builtinObj = newBuiltin(builtinFn);
+                push(routine, BUILTIN_VAL(builtinObj));
                 break;
             }
             case OP_SET_LOCAL: {
@@ -869,7 +898,7 @@ InterpretResult run(ObjRoutine* routine) {
                 vm_mutex_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
                 ValueCell cell;
-                if (!tableCellGet(&vm.globals, name, &cell)) {
+                if (!keyValueStoreGet(&vm.globals, name, &cell)) {
                     runtimeError(routine, "Undefined variable (OP_GET_GLOBAL) '%s'.", name->chars);
                     vm_mutex_exit(&vm.env);
                     return INTERPRET_RUNTIME_ERROR;
@@ -881,7 +910,7 @@ InterpretResult run(ObjRoutine* routine) {
             case OP_DEFINE_GLOBAL: {
                 vm_mutex_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
-                tableCellSet(&vm.globals, name, *peekCell(routine, 0));
+                keyValueStoreSet(&vm.globals, name, peekCell(routine, 0));
                 pop(routine);
                 vm_mutex_exit(&vm.env);
                 break;
@@ -890,7 +919,7 @@ InterpretResult run(ObjRoutine* routine) {
                 vm_mutex_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
                 ValueCell* lhs = NULL;
-                if (tableCellGetPlace(&vm.globals, name, &lhs)) {
+                if (keyValueStorePlace(&vm.globals, name, &lhs)) {
                     ValueCell* rhs = peekCell(routine, 0);
                     ValueCellTarget lhsTrg = { .cellType = lhs->cellType, .value = &lhs->value };
 
@@ -908,13 +937,23 @@ InterpretResult run(ObjRoutine* routine) {
                 break;
             }
             case OP_INITIALISE: {
-                ValueCellTarget lhsTrg = peekCellTarget(routine, 1);
+                Value targetType = peek(routine, 1);
                 ValueCell* rhs = peekCell(routine, 0);
-                if (!assignToValueCellTarget(lhsTrg, rhs->value)) {
+                Value result;
+                if (!canInitialiseType(targetType, rhs->value, &result)) {
                     runtimeError(routine, "Cannot initialise variable with this value.");
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 pop(routine);
+                pop(routine);
+                pushTyped(routine, result, targetType);
+                break;
+            }
+            case OP_INITIALISE_DEFAULT: {
+                Value targetType = peek(routine, 0);
+                Value result = defaultValue(targetType);
+                pop(routine);
+                pushTyped(routine, result, targetType);
                 break;
             }
             case OP_DUPLICATE: {
@@ -954,16 +993,13 @@ InterpretResult run(ObjRoutine* routine) {
                     ObjString* name = READ_STRING();
 
                     Value value;
-                    if (tableGet(&instance->fields, name, &value)) {
+                    if (keyValueStoreGetValue(&instance->fields, name, &value)) {
                         pop(routine); // Instance
                         push(routine, value);
                         break;
                     }
 
-                    if (!bindMethod(routine, instance->klass, name)) {
-                        runtimeError(routine, "Error");
-                        return INTERPRET_RUNTIME_ERROR;
-                    }
+                    bindMethod(routine, instance->klass, name);
                 } else if (IS_STRUCT(peek(routine, 0))) {
                     Value structVal = peek(routine, 0);
                     ObjString* name = READ_STRING();
@@ -1015,7 +1051,8 @@ InterpretResult run(ObjRoutine* routine) {
                 }
                 if (IS_INSTANCE(peek(routine, 1))) {
                     ObjInstance* instance = AS_INSTANCE(peek(routine, 1));
-                    tableSet(&instance->fields, READ_STRING(), peek(routine, 0));
+                    Value v = peek(routine, 0);
+                    keyValueStoreSetValue(&instance->fields, READ_STRING(), &v);
                     Value value = pop(routine);
                     pop(routine);
                     push(routine, value);
@@ -1041,10 +1078,7 @@ InterpretResult run(ObjRoutine* routine) {
                 ObjString* name = READ_STRING();
                 ObjClass* superclass = AS_CLASS(pop(routine));
 
-                if (!bindMethod(routine, superclass, name)) {
-                    runtimeError(routine, "Error");
-                    return INTERPRET_RUNTIME_ERROR;
-                }
+                bindMethod(routine, superclass, name);
                 break;
             }
             case OP_EQUAL: case OP_GREATER: case OP_LESS: {
@@ -1231,6 +1265,21 @@ InterpretResult run(ObjRoutine* routine) {
                 }
                 break;
             }
+            case OP_ERROR: {
+                Value errorValue = pop(routine);
+                if (IS_NIL(errorValue)) {
+                    runtimeError(routine, "Error: a non-nil value is required for error.");
+                } else if (IS_UNIFORMARRAY(errorValue)) {
+                    // for now special case an array of errors
+                    routine->error = errorValue;
+                    routine->state = EXEC_ERROR;
+                    resetRoutine(routine);
+                    return INTERPRET_RUNTIME_ERROR;
+                } else {
+                    runtimeError(routine, "Error: %s", valueToString(errorValue)->chars);
+                }
+                return INTERPRET_RUNTIME_ERROR;
+            }
             case OP_PRINT: {
                 ObjString* string = valueToString(peek(routine, 0));
                 push(routine, STRING_VAL(string));
@@ -1246,8 +1295,8 @@ InterpretResult run(ObjRoutine* routine) {
                     runtimeError(routine, "Location must be a pointer to an uint32 or address.");
                     return INTERPRET_RUNTIME_ERROR;
                 }
-                if (!is_positive_integer(assignment)) {
-                    runtimeError(routine, "Value must be a positive integer.");
+                if (!(is_positive_integer(assignment) || isAddressValue(assignment))) {
+                    runtimeError(routine, "Value must be a positive integer or an address.");
                     return INTERPRET_RUNTIME_ERROR;
                 }
 
@@ -1268,7 +1317,12 @@ InterpretResult run(ObjRoutine* routine) {
                 volatile uint32_t* reg = (volatile uint32_t*) nominal_address;
 #endif
 
-                size_t val = as_positive_integer(assignment);
+                size_t val;
+                if (IS_ADDRESS(assignment)) {
+                    val = AS_ADDRESS(assignment);
+                } else {
+                    val = as_positive_integer(assignment);
+                }
 
 #if defined (CYARG_SELF_HOSTED)
                 *reg = val;
@@ -1298,9 +1352,36 @@ InterpretResult run(ObjRoutine* routine) {
                 frame->ip -= offset;
                 break;
             }
+            case OP_LEN: {
+                Value result = op_len(routine);
+                if (IS_NIL(result)) {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                popN(routine, 1);
+                push(routine, result);
+                break;
+            }
+            case OP_CALL_BUILTIN: {
+                int builtin = READ_BYTE();
+                int argCount = READ_BYTE();
+                BuiltinFun builtinFn = getBuiltinFunction(builtin);
+                if (builtinFn == NULL) {
+                    runtimeError(routine, "Undefined builtin function (OP_CALL_BUILTIN) '%d'.", builtin);
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                Value result = NIL_VAL;
+                if (builtinFn(routine, argCount, &result)) {
+                    popN(routine, argCount);
+                    push(routine, result);
+                } else {
+                    return INTERPRET_RUNTIME_ERROR;
+                }
+                break;
+            }
             case OP_CALL: {
                 int argCount = READ_BYTE();
-                InterpretResult result = callValue(routine, peek(routine, argCount), argCount);
+                Value closure = peek(routine, argCount);
+                InterpretResult result = callValue(routine, closure, argCount);
                 if (result != INTERPRET_OK) {
                     return result;
                 }
@@ -1343,10 +1424,7 @@ InterpretResult run(ObjRoutine* routine) {
                 }
                 break;
             }
-            case OP_CLOSE_UPVALUE:
-                closeUpvalues(routine, routine->stackTopIndex - 1);
-                pop(routine);
-                break;
+            case OP_CLOSE_UPVALUE: op_close_upvalues(routine); break;
             case OP_YIELD: {
                 if (routine == &vm.core0) {
                     runtimeError(routine, "Cannot yield from initial routine.");
@@ -1356,15 +1434,8 @@ InterpretResult run(ObjRoutine* routine) {
                 return INTERPRET_OK;
             }
             case OP_RETURN: {
-                Value result = pop(routine);
-                tempRootPush(result);
-                closeUpvalues(routine, frame->stackEntryIndex);
-                routine->frameCount--;
-                popFrame(routine, frame);
-                push(routine, result);
-                tempRootPop();
-                if (routine->frameCount == 0) {
-                    returnFromRoutine(routine, result);
+                int remainingFrames = op_return(routine, frame);
+                if (remainingFrames == 0) {
                     return INTERPRET_OK;
                 }
                 frame = &routine->frames[routine->frameCount - 1];
@@ -1381,27 +1452,15 @@ InterpretResult run(ObjRoutine* routine) {
                 }
 
                 ObjClass* subclass = AS_CLASS(peek(routine, 0));
-                tableAddAll(&AS_CLASS(superclass)->methods, &subclass->methods);
+                keyValueStoreAddAll(&AS_CLASS(superclass)->methods, &subclass->methods);
                 pop(routine); // Subclass.
                 break;
             }
             case OP_METHOD:
                 defineMethod(routine, READ_STRING());
                 break;
-            case OP_ELEMENT: {
-                if (!derefElement(routine)) {
-                    runtimeError(routine, "Error");
-                    return INTERPRET_RUNTIME_ERROR;
-                }
-                break;
-            }
-            case OP_SET_ELEMENT: {
-                if (!setElement(routine)) {
-                    runtimeError(routine, "Error");
-                    return INTERPRET_RUNTIME_ERROR;
-                }
-                break;
-            }
+            case OP_ELEMENT: op_deref_element(routine); break;
+            case OP_SET_ELEMENT: op_set_element(routine); break;
             case OP_TYPE_LITERAL: {
                 uint8_t typeCode = READ_BYTE();
                 const ObjConcreteYargType* typeObj = newYargTypeFromTypeCode(typeCode);
@@ -1485,13 +1544,6 @@ InterpretResult run(ObjRoutine* routine) {
                 push(routine, YARGTYPE_VAL(typeObject));
                 break;
             }
-            case OP_SET_CELL_TYPE: {
-                Value type = peek(routine, 0);
-                Value def = defaultValue(type);
-                pop(routine);
-                pushTyped(routine, def, type);
-                break;
-            }
             case OP_DEREF_PTR: {
                 derefPtr(routine);
                 break;
@@ -1567,37 +1619,31 @@ static void bindBootstrapScript(const char* name, size_t nameLength,
 // note that it is assumed that the initial script is well-formed and won't
 // produce a compile error. (use --compile to check this when editing the script)
 uint8_t bootstrap[] = {
-    OP_GET_BUILTIN, BUILTIN_LOAD,
-    OP_GET_BUILTIN, BUILTIN_READ_YARG_SOURCE,
     OP_CONSTANT, 0,
-    OP_CALL, 1,
-    OP_CALL, 1,
+    OP_CALL_BUILTIN, BUILTIN_READ_YARG_SOURCE, 1,
+    OP_CALL_BUILTIN, BUILTIN_LOAD, 1,
     OP_IMMEDIATE_P8, 1,
     OP_ELEMENT,
     OP_CALL, 0,
     OP_RETURN
 };
 
-size_t bootstrap_parameter_offset = 5;
+size_t bootstrap_parameter_offset = 1;
 
 uint8_t compile_bootstrap[] = {
-    OP_GET_BUILTIN, BUILTIN_COMPILE,
-    OP_GET_BUILTIN, BUILTIN_READ_YARG_SOURCE,
     OP_CONSTANT, 0,
-    OP_CALL, 1,
-    OP_CALL, 1,
+    OP_CALL_BUILTIN, BUILTIN_READ_YARG_SOURCE, 1,
+    OP_CALL_BUILTIN, BUILTIN_COMPILE, 1,
     OP_RETURN
 };
 
-size_t compile_bootstrap_parameter_offset = 5;
+size_t compile_bootstrap_parameter_offset = 1;
 
 uint8_t xip_bootstrap[] = {
-    OP_GET_BUILTIN, BUILTIN_LOAD,
-    OP_GET_BUILTIN, BUILTIN_READ_XIP_FILE,
     OP_IMMEDIATE_P8, 1,
     OP_IMMEDIATE_P8, 1,
-    OP_CALL, 2,
-    OP_CALL, 1,
+    OP_CALL_BUILTIN, BUILTIN_READ_XIP_FILE, 2,
+    OP_CALL_BUILTIN, BUILTIN_LOAD, 1,
     OP_IMMEDIATE_P8, 1,
     OP_ELEMENT,
     OP_CALL, 0,
@@ -1638,7 +1684,7 @@ InterpretResult compileScript(ObjString* filename, Value* result) {
     return runResult;
 }
 
-InterpretResult bootXIP() {
+InterpretResult bootXIP(void) {
     bindBootstrapCode("boot", 4, xip_bootstrap, sizeof(xip_bootstrap));
     Value discardedResult;
     InterpretResult runResult = bootstrapVM(&discardedResult, NULL);

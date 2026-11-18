@@ -4,7 +4,7 @@
 #include <assert.h>
 
 #include "common.h"
-#include "memory.h"
+#include "object_gc.h"
 #include "vm.h"
 #include "yargobject.h"
 #include "vmobject.h"
@@ -55,10 +55,10 @@ bool is_obj_yargtype(const ObjConcreteYargType* type) {
 
 bool is_packable_container_type(const ObjConcreteYargType* type) {
     if (type == NULL) return false;
-    if (type->yt == TypeArray) return true;
-    if (type->yt == TypeStruct) return true;
-    if (type->yt == TypePointer) return true;
-    return false;
+    else if (type->yt == TypeArray) return true;
+    else if (type->yt == TypeStruct) return true;
+    else if (type->yt == TypePointer) return true;
+    else return false;
 }
 
 const ObjConcreteYargType* newYargTypeFromTypeCode(uint8_t typeCode) {
@@ -105,7 +105,7 @@ ObjConcreteYargType* newYargStructType(size_t fieldCount) {
     ObjConcreteYargTypeStruct* t = ALLOCATE_OBJ(ObjConcreteYargTypeStruct, OBJ_YARGTYPE_STRUCT);
     t->core.yt = TypeStruct;
     t->alignment = 1;
-    initTable(&t->field_names);
+    keyValueStoreInit(&t->field_names);
     tempObjRootPush((Obj*)t);
 
     ObjConcreteYargType** fieldTypes = ALLOCATE(ObjConcreteYargType*, fieldCount);
@@ -135,12 +135,12 @@ ObjConcreteYargType* newYargPointerType(const ObjConcreteYargType* targetType) {
 }
 
 void appendFieldType(ObjConcreteYargTypeStruct* st, ObjConcreteYargType* type, ObjString* name) {
-    size_t index = st->field_names.count;
+    size_t index = keyValueStoreCount(&st->field_names);
 
     assert(st->field_types[index] == NULL);
 
     st->field_types[index] = type;
-    tableSet(&st->field_names, name, SIZE_T_UI_VAL(index));
+    keyValueStoreSetValue(&st->field_names, name, &SIZE_T_UI_VAL(index));
 
     size_t fieldAlignment = yt_alignmentfor_type_storage(type);
     size_t fieldOffset = st->storage_size;
@@ -155,12 +155,12 @@ void appendFieldType(ObjConcreteYargTypeStruct* st, ObjConcreteYargType* type, O
 }
 
 void appendFieldTypeAtOffset(ObjConcreteYargTypeStruct* st, ObjConcreteYargType* type, size_t offset, ObjString* name) {
-    size_t index = st->field_names.count;
+    size_t index = keyValueStoreCount(&st->field_names);
 
     assert(st->field_types[index] == NULL);
 
     st->field_types[index] = type;
-    tableSet(&st->field_names, name, SIZE_T_UI_VAL(index));
+    keyValueStoreSetValue(&st->field_names, name, &SIZE_T_UI_VAL(index));
     st->field_indexes[index] = offset;
     st->storage_size = offset + yt_sizeof_type_storage(type);
 }
@@ -567,7 +567,7 @@ ObjString* typeToString(const ObjConcreteYargType* type) {
 
 bool structFieldIndex(const ObjConcreteYargTypeStruct* type, ObjString* name, size_t* index) {
     Value indexVal;
-    if (tableGet(&type->field_names, name, &indexVal)) {
+    if (keyValueStoreGetValue(&type->field_names, name, &indexVal)) {
         *index = AS_SIZE_T(indexVal);
         return true;
     }
@@ -576,34 +576,32 @@ bool structFieldIndex(const ObjConcreteYargTypeStruct* type, ObjString* name, si
 
 bool typesEqual(const ObjConcreteYargType* a, const ObjConcreteYargType* b) {
     if (a == b) return true;
-    if (a != NULL) {
-        if (b == NULL) return false;
-        if (a->yt != b->yt) return false;
-        if (a->yt == TypePointer) {
-            assert(b->yt == TypePointer);
-            const ObjConcreteYargTypePointer* pointer_a = (const ObjConcreteYargTypePointer*)a;
-            const ObjConcreteYargTypePointer* pointer_b = (const ObjConcreteYargTypePointer*)b;
-            return typesEqual(pointer_a->target_type, pointer_b->target_type);
+    else if (a != NULL && b == NULL) return false;
+    else if (a == NULL && b != NULL) return false;
+    else if (a->yt != b->yt) return false;
+    else if (a->yt == TypePointer) {
+        assert(b->yt == TypePointer);
+        const ObjConcreteYargTypePointer* pointer_a = (const ObjConcreteYargTypePointer*)a;
+        const ObjConcreteYargTypePointer* pointer_b = (const ObjConcreteYargTypePointer*)b;
+        return typesEqual(pointer_a->target_type, pointer_b->target_type);
+    } else if (a->yt == TypeArray) {
+        assert(b->yt == TypeArray);
+        const ObjConcreteYargTypeArray* array_a = (const ObjConcreteYargTypeArray*)a;
+        const ObjConcreteYargTypeArray* array_b = (const ObjConcreteYargTypeArray*)b;
+        return array_a->cardinality == array_b->cardinality
+            && typesEqual(array_a->element_type, array_b->element_type);
+    } else if (a->yt == TypeStruct) {
+        assert(b->yt == TypeStruct);
+        const ObjConcreteYargTypeStruct* struct_a = (const ObjConcreteYargTypeStruct*)a;
+        const ObjConcreteYargTypeStruct* struct_b = (const ObjConcreteYargTypeStruct*)b;
+        if (struct_a->field_count != struct_b->field_count) return false;
+        for (size_t i = 0; i < struct_a->field_count; i++) {
+            if (!typesEqual(struct_a->field_types[i], struct_b->field_types[i])) return false;
         }
-        if (a->yt == TypeArray) {
-            assert(b->yt == TypeArray);
-            const ObjConcreteYargTypeArray* array_a = (const ObjConcreteYargTypeArray*)a;
-            const ObjConcreteYargTypeArray* array_b = (const ObjConcreteYargTypeArray*)b;
-            if (!typesEqual(array_a->element_type, array_b->element_type)) return false;
-            return array_a->cardinality == array_b->cardinality;
-        }
-        if (a->yt == TypeStruct) {
-            assert(b->yt == TypeStruct);
-            const ObjConcreteYargTypeStruct* struct_a = (const ObjConcreteYargTypeStruct*)a;
-            const ObjConcreteYargTypeStruct* struct_b = (const ObjConcreteYargTypeStruct*)b;
-            if (struct_a->field_count != struct_b->field_count) return false;
-            for (size_t i = 0; i < struct_a->field_count; i++) {
-                if (!typesEqual(struct_a->field_types[i], struct_b->field_types[i])) return false;
-            }
-            return true;
-        }
+        return true;
+    } else {
+        assert(b->yt == a->yt);
         // TODO: maps, other complex types
-        return a->yt == b->yt;
+        return true;
     }
-    return false;
 }

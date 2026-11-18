@@ -5,13 +5,15 @@
 #include <inttypes.h>
 #include <assert.h>
 
-#include "object.h"
 #include "memory.h"
+#include "object.h"
+#include "object_gc.h"
 #include "yargtype.h"
 #include "yargobject.h"
 #include "yargstructtype.h"
 #include "value_cell.h"
 #include "packed_containers.h"
+#include "routine.h"
 
 bool isObjValue(Value value) {
     if (value.type == &yargTypes.implementation_obj && value.as.obj != NULL) return true;
@@ -337,7 +339,7 @@ static ObjString* pointerToString(Value ptrVal) {
     char* chars = ALLOCATE(char, string_length + 1);
     snprintf(chars, string_length + 1, "<*%s:%p>", targetTypeStr->chars, ptr->loc);
 
-    ObjString* result = takeString(chars, strlen(chars));
+    ObjString* result = takeString(chars, (int) strlen(chars));
     tempRootPop();
     return result;
 }
@@ -397,7 +399,7 @@ ObjString* valueToString(Value value) {
             }
             case TypeMap:      return objectToString(value.as.obj);
             case TypeString:   return objectToString(value.as.obj);
-            case TypeRoutine:  return objectToString(value.as.obj);
+            case TypeRoutine:  return routineToString(value);
             case TypeClass:    return objectToString(value.as.obj);
             case TypeInstance: return objectToString(value.as.obj);
             case TypeFunction: return objectToString(value.as.obj);
@@ -457,6 +459,8 @@ bool is_positive_integer(Value a) {
         return true;
     } else if (IS_I64(a) && AS_I64(a) >= 0) {
         return true;
+    } else if (IS_SMALL_INT(a)) {
+        return AS_BIG_SMALL_INT(a).i_.neg_ == false;
     } else if (IS_INT(a)) {
         return int_is_range(AS_INT(a), 0, UINT64_MAX) == INT_WITHIN;
     }
@@ -465,6 +469,8 @@ bool is_positive_integer(Value a) {
         return true;
     } else if (IS_I64(a) && AS_I64(a) >= 0 && AS_I64(a) <= UINT32_MAX) {
         return true;
+    } else if (IS_SMALL_INT(a)) {
+        return AS_BIG_SMALL_INT(a).i_.neg_ == false;
     } else if (IS_INT(a)) {
         return int_is_range(AS_INT(a), 0, UINT32_MAX) == INT_WITHIN;
     }
@@ -495,6 +501,9 @@ size_t as_positive_integer(Value a) {
 #if IS_64BIT
     } else if (IS_UI64(a)) {
         return AS_UI64(a);
+    } else if (IS_SMALL_INT(a)) {
+        uint32_t* i = AS_BIG_SMALL_INT(a).i_.w_;
+        return (size_t) *i;
     } else if (IS_INT(a)) {
         if (int_is_range(AS_INT(a), 0, UINT64_MAX) == INT_WITHIN) {
             return int_to_u64(AS_INT(a));
@@ -503,12 +512,16 @@ size_t as_positive_integer(Value a) {
 #else
     } else if (IS_UI64(a) && AS_UI64(a) <= UINT32_MAX) {
         return (uint32_t) AS_UI64(a);
+    } else if (IS_SMALL_INT(a)) {
+        uint32_t* i = AS_BIG_SMALL_INT(a).i_.w_;
+        return (size_t) *i;
     } else if (IS_INT(a)) {
         if (int_is_range(AS_INT(a), 0, UINT32_MAX) == INT_WITHIN) {
             return int_to_u32(AS_INT(a));
         }
     }
 #endif
+    fatalVMError("Value is not a positive integer.");
     return 0;
 }
 

@@ -10,6 +10,7 @@
 
 #include "ast.h"
 #include "memory.h"
+#include "object_gc_impl.h"
 #include "yargobject.h"
 
 #include "scanner.h"
@@ -117,7 +118,7 @@ void errorAt(ObjParser* parser, Token* token, const char* report) {
     }
     strcat(message, ": ");
     strcat(message, report);
-    ObjString* errorString = takeString(message, messageLength);
+    ObjString* errorString = takeString(message, (int) messageLength);
 
     appendToDynamicObjArray(&parser->errors, (Obj*)errorString);
 }
@@ -365,11 +366,24 @@ static ObjExpr* collectioninit(ObjParser* parser, bool canAssign) {
 }
 
 static ObjExpr* call(ObjParser* parser, bool canAssign) {
-    ObjExprCall* call = newExprCall();
-    pushWorkingNode(parser, (Obj*)call);
-    expressionList(parser, &call->arguments);
-    popWorkingNode(parser);
-    return (ObjExpr*)call;
+    if (parser->prevExpr && parser->prevExpr->obj.type == OBJ_EXPR_BUILTIN) {
+        ObjExprCallBuiltin* call = newExprCallBuiltin((ObjExprBuiltin*)parser->prevExpr);
+        pushWorkingNode(parser, (Obj*)call);
+        expressionList(parser, &call->arguments);
+        popWorkingNode(parser);
+        if (call->callee->builtin == EXPR_BUILTIN_LEN && call->arguments.objectCount != 1) {
+            errorAt(parser, &parser->previous, "len expects exactly one argument.");
+            return NULL;
+        }
+        return (ObjExpr*)call;
+    } else {
+        ObjExprCall* call;
+        call = newExprCall();
+        pushWorkingNode(parser, (Obj*)call);
+        expressionList(parser, &call->arguments);
+        popWorkingNode(parser);
+        return (ObjExpr*)call;
+    }
 }
 
 static ObjExpr* string(ObjParser* parser, bool canAssign) {
@@ -809,7 +823,9 @@ static AstParseRule rules[] = {
     [TOKEN_CONST]                = {reserved,  reserved, PREC_NONE},
     [TOKEN_CONTINUE]             = {reserved,  reserved, PREC_NONE},
     [TOKEN_CPEEK]                = {builtin,   NULL,   PREC_NONE},
+    [TOKEN_DEFER]                = {reserved,  reserved, PREC_NONE},
     [TOKEN_ELSE]                 = {NULL,      NULL,   PREC_NONE},
+    [TOKEN_STMT_ERROR]           = {NULL,      NULL,   PREC_NONE},
     [TOKEN_FALSE]                = {literal,   NULL,   PREC_NONE},
     [TOKEN_FOR]                  = {NULL,      NULL,   PREC_NONE},
     [TOKEN_FUN]                  = {NULL,      NULL,   PREC_NONE},
@@ -1084,6 +1100,8 @@ ObjStmt* statement(ObjParser* parser) {
         return (ObjStmt*) expressionStatement(parser, OBJ_STMT_PRINT, true, "Expect ';' after value.");
     } else if (match(parser, TOKEN_POKE)) {
         return (ObjStmt*) pokeStatement(parser);
+    } else if (match(parser, TOKEN_STMT_ERROR)) {
+        return (ObjStmt*) expressionStatement(parser, OBJ_STMT_ERROR, true, "Expect ';' after error statement.");
     } else if (match(parser, TOKEN_FOR)) {
         return (ObjStmt*) forStatement(parser);
     } else if (match(parser, TOKEN_IF)) {

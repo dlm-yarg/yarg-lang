@@ -1,12 +1,13 @@
 #include "channel.h"
 
 #include "common.h"
-#include "vm_mutex.h"
-#include "memory.h"
+#include "object.h"
+#include "object_gc_impl.h"
 #include "vm.h"
 #include "debug.h"
 #include "yargtype.h"
 #include "sync_group.h"
+#include "vm_mutex.h"
 
 #include <stdio.h>
 #ifdef CYARG_PTHREADS_SYNC
@@ -49,6 +50,7 @@ ObjChannelContainer* newChannel(ObjRoutine* routine, size_t capacity) {
     if (channel->access == SEM_FAILED) {
         pop(routine);
         runtimeError(routine, "Semaphore open failed.");
+        return NULL;
     }
 #endif
     pop(routine);

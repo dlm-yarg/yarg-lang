@@ -11,6 +11,7 @@
 #include "chunk.h"
 #include "memory.h"
 #include "object.h"
+#include "object_gc_impl.h"
 #include "yargobject.h"
 #include "scanner.h"
 #include "routine.h"
@@ -117,9 +118,8 @@ static void errorAt(const char* location, const char* message) {
         strcat(buffer, message);
     }
 
-    ObjString* errorString = copyString(buffer, bufferLength - 1);
+    ObjString* errorString = takeString(buffer, (int) bufferLength - 1);
     appendToDynamicObjArray(&current->errors, (Obj*)errorString);
-    vm_free(buffer);
 }
 
 static void errorAtValue(Value location, const char* message) {
@@ -506,22 +506,104 @@ static void generateExprLiteral(ObjExprLiteral* lit) {
     }
 }
 
-static void generateCallExprs(DynamicObjArray* args) {
+static void generateCallExprs(DynamicObjArray* args, bool byValue) {
     for (int i = 0; i < args->objectCount; i++) {
         generateExpr((ObjExpr*)args->objects[i]);
-        emitByte(OP_DUPLICATE);
+        if (byValue) {
+            emitByte(OP_DUPLICATE);
+        }
     } 
 }
 
 static void generateExprCall(ObjExprCall* call) {
-    generateCallExprs(&call->arguments);
-
+    generateCallExprs(&call->arguments, true);
     emitBytes(OP_CALL, call->arguments.objectCount);
+}
+
+static BuiltinFn builtinExprToBuiltinFn(ExprBuiltin bfn) {
+    switch(bfn) {
+        case EXPR_BUILTIN_READ_YARG_SOURCE: return BUILTIN_READ_YARG_SOURCE;
+        case EXPR_BUILTIN_READ_XIP_FILE: return BUILTIN_READ_XIP_FILE;
+        case EXPR_BUILTIN_COMPILE: return BUILTIN_COMPILE;
+        case EXPR_BUILTIN_MAKE_ROUTINE: return BUILTIN_MAKE_ROUTINE;
+        case EXPR_BUILTIN_MAKE_CHANNEL: return BUILTIN_MAKE_CHANNEL;
+        case EXPR_BUILTIN_MAKE_SYNCGROUP: return BUILTIN_MAKE_SYNCGROUP;
+        case EXPR_BUILTIN_RESUME: return BUILTIN_RESUME;
+        case EXPR_BUILTIN_START: return BUILTIN_START;
+        case EXPR_BUILTIN_RECEIVE: return BUILTIN_RECEIVE;
+        case EXPR_BUILTIN_SEND: return BUILTIN_SEND;
+        case EXPR_BUILTIN_CPEEK: return BUILTIN_CPEEK;
+        case EXPR_BUILTIN_SHARE: return BUILTIN_SHARE;
+        case EXPR_BUILTIN_PEEK: return BUILTIN_PEEK;
+        case EXPR_BUILTIN_LEN: return BUILTIN_LEN;
+        case EXPR_BUILTIN_PIN: return BUILTIN_PIN;
+        case EXPR_BUILTIN_NEW: return BUILTIN_NEW;
+        case EXPR_BUILTIN_INT8: return BUILTIN_INT8;
+        case EXPR_BUILTIN_UINT8: return BUILTIN_UINT8;
+        case EXPR_BUILTIN_INT16: return BUILTIN_INT16;
+        case EXPR_BUILTIN_UINT16: return BUILTIN_UINT16;
+        case EXPR_BUILTIN_INT32: return BUILTIN_INT32;
+        case EXPR_BUILTIN_UINT32: return BUILTIN_UINT32;
+        case EXPR_BUILTIN_INT64: return BUILTIN_INT64;
+        case EXPR_BUILTIN_UINT64: return BUILTIN_UINT64;
+        case EXPR_BUILTIN_TS_SET: return BUILTIN_TS_SET;
+        case EXPR_BUILTIN_TS_READ: return BUILTIN_TS_READ;
+        case EXPR_BUILTIN_TS_WRITE: return BUILTIN_TS_WRITE;
+        case EXPR_BUILTIN_TS_INTERRUPT: return BUILTIN_TS_INTERRUPT;
+        case EXPR_BUILTIN_TS_SYNC: return BUILTIN_TS_SYNC;
+        case EXPR_BUILTIN_INT: return BUILTIN_INT;
+        case EXPR_BUILTIN_MFLOAT64: return BUILTIN_MFLOAT64;
+        case EXPR_BUILTIN_STRING: return BUILTIN_STRING;
+        case EXPR_BUILTIN_LOAD: return BUILTIN_LOAD;
+        default:
+            error("Unknown builtin expression.");
+            return 0;
+    }
+}
+
+static void generateExprCallBuiltin(ObjExprCallBuiltin* call) {
+    switch (call->callee->builtin) {
+        case EXPR_BUILTIN_LEN:
+            if (call->arguments.objectCount != 1) {
+                errorAt("len", "len expects exactly one argument.");
+                return;
+            }
+            generateCallExprs(&call->arguments, false);
+            emitByte(OP_LEN);
+            break;
+        default: {
+            bool byValue = true;
+            switch (call->callee->builtin) {
+                case EXPR_BUILTIN_LEN:
+                case EXPR_BUILTIN_INT:
+                case EXPR_BUILTIN_MFLOAT64:
+                case EXPR_BUILTIN_PIN:
+                case EXPR_BUILTIN_INT8:
+                case EXPR_BUILTIN_UINT8:
+                case EXPR_BUILTIN_INT16:
+                case EXPR_BUILTIN_UINT16:
+                case EXPR_BUILTIN_INT32:
+                case EXPR_BUILTIN_UINT32:
+                case EXPR_BUILTIN_INT64:
+                case EXPR_BUILTIN_UINT64:
+                case EXPR_BUILTIN_STRING:
+                    byValue = false;
+                    break;
+                default:
+                    byValue = true;
+                    break;
+            }
+            generateCallExprs(&call->arguments, byValue);
+            emitByte(OP_CALL_BUILTIN);
+            emitByte(builtinExprToBuiltinFn(call->callee->builtin));
+            emitByte(call->arguments.objectCount);
+            break;
+        }
+    }
 }
 
 static void generateExprCollectionInit(ObjExprCollectionInitializer* collection) {
  
-    emitBytes(OP_GET_BUILTIN, BUILTIN_NEW);
     emitByte(OP_NIL);
     if (collection->isMap) {
         emitBytes(OP_TYPE_LITERAL, TYPE_LITERAL_STRING);
@@ -529,7 +611,9 @@ static void generateExprCollectionInit(ObjExprCollectionInitializer* collection)
         generateExpr(collection->cardinality);
     }
     emitByte(OP_TYPE_INDEXED_COLLECTION);
-    emitBytes(OP_CALL, 1);
+    emitByte(OP_CALL_BUILTIN);
+    emitByte(BUILTIN_NEW);
+    emitByte(1);
  
     for (int i = 0; i < collection->initializers.objectCount; i++) {
         Obj* item_or_pair = collection->initializers.objects[i];
@@ -562,40 +646,8 @@ static void generateExprCollectionElement(ObjExprCollectionElement* collection) 
 }
 
 static void generateExprBuiltin(ObjExprBuiltin* fn) {
-    switch(fn->builtin) {
-        case EXPR_BUILTIN_READ_YARG_SOURCE: emitBytes(OP_GET_BUILTIN, BUILTIN_READ_YARG_SOURCE); break;
-        case EXPR_BUILTIN_READ_XIP_FILE: emitBytes(OP_GET_BUILTIN, BUILTIN_READ_XIP_FILE); break;
-        case EXPR_BUILTIN_COMPILE: emitBytes(OP_GET_BUILTIN, BUILTIN_COMPILE); break;
-        case EXPR_BUILTIN_MAKE_ROUTINE: emitBytes(OP_GET_BUILTIN, BUILTIN_MAKE_ROUTINE); break;
-        case EXPR_BUILTIN_MAKE_CHANNEL: emitBytes(OP_GET_BUILTIN, BUILTIN_MAKE_CHANNEL); break;
-        case EXPR_BUILTIN_MAKE_SYNCGROUP: emitBytes(OP_GET_BUILTIN, BUILTIN_MAKE_SYNCGROUP); break;
-        case EXPR_BUILTIN_RESUME: emitBytes(OP_GET_BUILTIN, BUILTIN_RESUME); break;
-        case EXPR_BUILTIN_START: emitBytes(OP_GET_BUILTIN, BUILTIN_START); break;
-        case EXPR_BUILTIN_RECEIVE: emitBytes(OP_GET_BUILTIN, BUILTIN_RECEIVE); break;
-        case EXPR_BUILTIN_SEND: emitBytes(OP_GET_BUILTIN, BUILTIN_SEND); break;
-        case EXPR_BUILTIN_CPEEK: emitBytes(OP_GET_BUILTIN, BUILTIN_CPEEK); break;
-        case EXPR_BUILTIN_SHARE: emitBytes(OP_GET_BUILTIN, BUILTIN_SHARE); break;
-        case EXPR_BUILTIN_PEEK: emitBytes(OP_GET_BUILTIN, BUILTIN_PEEK); break;
-        case EXPR_BUILTIN_LEN: emitBytes(OP_GET_BUILTIN, BUILTIN_LEN); break;
-        case EXPR_BUILTIN_PIN: emitBytes(OP_GET_BUILTIN, BUILTIN_PIN); break;
-        case EXPR_BUILTIN_NEW: emitBytes(OP_GET_BUILTIN, BUILTIN_NEW); break;
-        case EXPR_BUILTIN_INT8: emitBytes(OP_GET_BUILTIN, BUILTIN_INT8); break;
-        case EXPR_BUILTIN_UINT8: emitBytes(OP_GET_BUILTIN, BUILTIN_UINT8); break;
-        case EXPR_BUILTIN_INT16: emitBytes(OP_GET_BUILTIN, BUILTIN_INT16); break;
-        case EXPR_BUILTIN_UINT16: emitBytes(OP_GET_BUILTIN, BUILTIN_UINT16); break;
-        case EXPR_BUILTIN_INT32: emitBytes(OP_GET_BUILTIN, BUILTIN_INT32); break;
-        case EXPR_BUILTIN_UINT32: emitBytes(OP_GET_BUILTIN, BUILTIN_UINT32); break;
-        case EXPR_BUILTIN_INT64: emitBytes(OP_GET_BUILTIN, BUILTIN_INT64); break;
-        case EXPR_BUILTIN_UINT64: emitBytes(OP_GET_BUILTIN, BUILTIN_UINT64); break;
-        case EXPR_BUILTIN_TS_SET: emitBytes(OP_GET_BUILTIN, BUILTIN_TS_SET); break;
-        case EXPR_BUILTIN_TS_READ: emitBytes(OP_GET_BUILTIN, BUILTIN_TS_READ); break;
-        case EXPR_BUILTIN_TS_WRITE: emitBytes(OP_GET_BUILTIN, BUILTIN_TS_WRITE); break;
-        case EXPR_BUILTIN_TS_INTERRUPT: emitBytes(OP_GET_BUILTIN, BUILTIN_TS_INTERRUPT); break;
-        case EXPR_BUILTIN_TS_SYNC: emitBytes(OP_GET_BUILTIN, BUILTIN_TS_SYNC); break;
-        case EXPR_BUILTIN_INT: emitBytes(OP_GET_BUILTIN, BUILTIN_INT); break;
-        case EXPR_BUILTIN_MFLOAT64: emitBytes(OP_GET_BUILTIN, BUILTIN_MFLOAT64); break;
-        case EXPR_BUILTIN_STRING: emitBytes(OP_GET_BUILTIN, BUILTIN_STRING); break;
-        case EXPR_BUILTIN_LOAD: emitBytes(OP_GET_BUILTIN, BUILTIN_LOAD); break;
+    if (!fn->calledImmediately) {
+        emitBytes(OP_GET_BUILTIN, builtinExprToBuiltinFn(fn->builtin));
     }
 }
 
@@ -609,7 +661,7 @@ static void generateExprDot(ObjExprDot* dot) {
         generateExpr(dot->assignment);
         emitBytes(OP_SET_PROPERTY, name);
     } else if (dot->call) {
-        generateCallExprs(&dot->call->arguments);
+        generateCallExprs(&dot->call->arguments, true);
         emitBytes(OP_INVOKE, name);
         emitByte(dot->call->arguments.objectCount);
     } else {
@@ -632,7 +684,7 @@ static void generateExprSuper(ObjExprSuper* super) {
 
     generateGetNamedVariable(this_);
     if (super->call) {
-        generateCallExprs(&super->call->arguments);
+        generateCallExprs(&super->call->arguments, true);
         generateGetNamedVariable(super_);
         emitBytes(OP_SUPER_INVOKE, name);
         emitByte(super->call->arguments.objectCount);
@@ -721,6 +773,11 @@ static void generateExprElt(ObjExpr* expr) {
             generateExprString(str);
             break;
         }
+        case OBJ_EXPR_CALL_BUILTIN: {
+            ObjExprCallBuiltin* call = (ObjExprCallBuiltin*)expr;
+            generateExprCallBuiltin(call);
+            break;
+        }
         case OBJ_EXPR_CALL: {
             ObjExprCall* call = (ObjExprCall*)expr;
             generateExprCall(call);
@@ -806,15 +863,17 @@ static void generateStmtPoke(ObjStmtPoke* stmt) {
 static void generateVarDeclaration(ObjStmtVarDeclaration* decl) {
     uint8_t global = parseVariable(decl->name);
 
-    if (decl->type) {
-        generateExpr(decl->type);
-    }
-    else {
+    if (decl->type == NULL && decl->initialiser == NULL) {
         emitByte(OP_NIL);
-    }
-    emitByte(OP_SET_CELL_TYPE);
-
-    if (decl->initialiser) {
+    } else if (decl->type && decl->initialiser == NULL) {
+        generateExpr(decl->type);
+        emitByte(OP_INITIALISE_DEFAULT);
+    } else if (decl->type == NULL && decl->initialiser) {
+        generateExpr(decl->initialiser);
+        emitByte(OP_DUPLICATE);
+    } else {
+        assert(decl->type && decl->initialiser);
+        generateExpr(decl->type);
         generateExpr(decl->initialiser);
         emitByte(OP_DUPLICATE);
         emitByte(OP_INITIALISE);
@@ -1090,6 +1149,10 @@ static void generateStmt(ObjStmt* stmt) {
             generateExpr(((ObjStmtExpression*)stmt)->expression);
             emitByte(OP_PRINT);
             break;
+        case OBJ_STMT_ERROR:
+            generateExpr(((ObjStmtExpression*)stmt)->expression);
+            emitByte(OP_ERROR);
+            break;
         case OBJ_STMT_POKE:
             generateStmtPoke((ObjStmtPoke*)stmt);
             break;
@@ -1184,7 +1247,7 @@ Value compile(ObjRoutine* context) {
     ObjFunction* function = endCompiler();
     push(context, FUNCTION_VAL(function));
 
-    Value result = allocValueStructPair("compileError", "result");
+    Value result = allocValueStructPair("errors", "result");
     push(context, result);
 
     if (!IS_NIL(parseErrors)) {

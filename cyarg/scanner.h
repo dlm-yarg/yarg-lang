@@ -21,7 +21,8 @@ typedef enum {
     TOKEN_AND, TOKEN_ANY, 
     TOKEN_BOOL, TOKEN_BREAK, 
     TOKEN_CLASS, TOKEN_COMPILE, TOKEN_CONST, TOKEN_CONTINUE, TOKEN_CPEEK,
-    TOKEN_ELSE,
+    TOKEN_DEFER,
+    TOKEN_ELSE, TOKEN_STMT_ERROR,
     TOKEN_FALSE,TOKEN_FOR, TOKEN_FUN,
     TOKEN_IF,
     TOKEN_INT,
@@ -61,7 +62,6 @@ typedef struct ObjScanner ObjScanner;
 typedef struct ObjString ObjString;
 
 ObjScanner* newScanner(ObjString* source);
-void markScanner(ObjScanner* scanner);
 
 Token scanToken(ObjScanner* scanner);
 

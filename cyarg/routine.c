@@ -9,11 +9,14 @@
 #include "common.h"
 
 #include "memory.h"
+#include "object_gc_impl.h"
+#include "object_dyn_array.h"
 #include "vm.h"
 #include "debug.h"
 #include "yargobject.h"
 #include "vmobject.h"
 #include "value_cell.h"
+#include "packed_containers.h"
 
 bool addSlice(ObjRoutine* routine);
 
@@ -21,6 +24,7 @@ void initRoutine(ObjRoutine* routine) {
     routine->entryFunction = NULL;
     routine->entryArg = NIL_VAL;
     routine->state = EXEC_UNBOUND;
+    routine->error = NIL_VAL;
     routine->sliceCount = 0;
     initDynamicObjArray(&routine->additionalSlicesArray);
 
@@ -40,9 +44,17 @@ void initRoutine(ObjRoutine* routine) {
     resetRoutine(routine);
 }
 
+void freeRoutine(ObjRoutine* routine) {
+    vm_free(routine->stackSlices);
+    freeDynamicObjArray(&routine->additionalSlicesArray);
+    freeDynamicObjArray(&routine->runtimeErrors);
+}
+
 void resetRoutine(ObjRoutine* routine) {
 
     routine->result = NIL_VAL;
+    freeDynamicObjArray(&routine->runtimeErrors);
+    initDynamicObjArray(&routine->runtimeErrors);
 
     routine->stackTopIndex = 0;
     routine->frameCount = 0;
@@ -132,6 +144,13 @@ void enterEntryFunction(ObjRoutine* routine) {
     callfn(routine, routine->entryFunction, routine->entryFunction->function->arity);
 }
 
+static Value resultPair(Value error, Value result) {
+    Value resultValue = allocValueStructPair("errors", "result");
+    setStructField(resultValue, 0, error);
+    setStructField(resultValue, 1, result);
+    return resultValue;
+}
+
 bool resumeRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Value argument, Value* result) {
     if (target->state == EXEC_UNBOUND) {
         push(target, FUNCTION_VAL(target->entryFunction));
@@ -149,10 +168,13 @@ bool resumeRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Val
     InterpretResult execResult = run(target);
     if (execResult == INTERPRET_OK) {
         target->result = pop(target);
-        *result = target->result;
+        Value resultValue = resultPair(NIL_VAL, target->result);
+        *result = resultValue;
         return true;
     } else {
-        return false;
+        Value resultValue = resultPair(target->error, NIL_VAL);
+        *result = resultValue;
+        return true;
     }
 }
 
@@ -161,11 +183,34 @@ void yieldFromRoutine(ObjRoutine* context) {
     context->state = EXEC_SUSPENDED;
 }
 
-void returnFromRoutine(ObjRoutine* context, Value result) {
-    assert(context->frameCount == 0);
-    context->result = result;
-    context->state = EXEC_CLOSED;
+static void closeUpvalues(ObjRoutine* routine, size_t last) {
+    while (routine->openUpvalues != NULL && routine->openUpvalues->stackOffset >= last) {
+        ObjUpvalue* upvalue = routine->openUpvalues;
+        upvalue->closed = *upvalue->contents;
+        upvalue->contents = &upvalue->closed;
+        routine->openUpvalues = upvalue->next;
+    }
 }
+
+void op_close_upvalues(ObjRoutine* routine) {
+    closeUpvalues(routine, routine->stackTopIndex - 1);
+    pop(routine);
+}
+
+int op_return(ObjRoutine* routine, CallFrame* frame) {
+    routine->result = pop(routine);
+    closeUpvalues(routine, frame->stackEntryIndex);
+    routine->frameCount--;
+    popFrame(routine, frame);
+    push(routine, routine->result);
+    if (routine->frameCount == 0) {
+        routine->state = EXEC_CLOSED;
+    } else {
+        routine->result = NIL_VAL;
+    }
+    return routine->frameCount;
+}
+
 
 bool startRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Value argument) {
 
@@ -198,10 +243,14 @@ bool receiveFromRoutine(ObjRoutine* routine, Value* result) {
 #endif    
         
     if (routine->state == EXEC_CLOSED || routine->state == EXEC_SUSPENDED) {
-        *result = routine->result;
+        Value resultValue = resultPair(NIL_VAL, routine->result);
+        *result = resultValue;
         return true;
-    } 
-    else {
+    } else if (routine->state == EXEC_ERROR) {
+        Value resultValue = resultPair(routine->error, NIL_VAL);
+        *result = resultValue;
+        return true;
+    } else {
         return false;
     }
 }
@@ -234,18 +283,25 @@ void markRoutine(ObjRoutine* routine) {
     }
 
     markDynamicObjArray(&routine->additionalSlicesArray);
+    markDynamicObjArray(&routine->runtimeErrors);
 
     markObject((Obj*)routine->entryFunction);
     markValue(routine->entryArg);
     markValue(routine->result);
+    markValue(routine->error);
 }
 
 void runtimeError(ObjRoutine* routine, const char* format, ...) {
-    va_list args;
+
+    va_list args, args_copy;
     va_start(args, format);
-    vfprintf(stderr, format, args);
+    va_copy(args_copy, args);
+    size_t buffer_required = vsnprintf(NULL, 0, format, args_copy);
+    char* message_buffer = ALLOCATE(char, buffer_required + 1);
+    int written = vsnprintf(message_buffer, buffer_required + 1, format, args);
+    ObjString* errorMessage = takeString(message_buffer, written);
+    appendToDynamicObjArray(&routine->runtimeErrors, (Obj*)errorMessage);
     va_end(args);
-    fputs("\n", stderr);
 
     for (int i = routine->frameCount - 1; i >= 0; i--) {
         CallFrame* frame = &routine->frames[i];
@@ -256,14 +312,15 @@ void runtimeError(ObjRoutine* routine, const char* format, ...) {
             if (function->chunk.lines[s].address > instruction) break;
             line = function->chunk.lines[s].line;
         }
-        PRINTERR("[line %d] in ", line);
-        if (function->fName == NULL) {
-            PRINTERR("script\n");
-        } else {
-            PRINTERR("%s()\n", function->fName->chars); // todo: if this is a synthetic fun e.g. boot or file.ya then don’t put parentheses
-        }
+        // todo: add parenthesis after function name if appropriate
+        const char* scriptName = function->fName ? function->fName->chars : "<script>";
+        size_t buffer_required = snprintf(NULL, 0, "[line %d] in %s", line, scriptName);
+        char* buffer = ALLOCATE(char, buffer_required + 1);
+        int written = snprintf(buffer, buffer_required + 1, "[line %d] in %s", line, scriptName);
+        appendToDynamicObjArray(&routine->runtimeErrors, (Obj*)takeString(buffer, written));
     }
 
+    routine->error = duplicateAsValueArray(&routine->runtimeErrors);
     routine->state = EXEC_ERROR;
     resetRoutine(routine);
 }
@@ -334,6 +391,23 @@ ValueCellTarget peekCellTarget(ObjRoutine* routine, int distance) {
     return result;
 }
 
+ObjString* routineToString(Value routineVal) {
+    assert(!IS_NIL(routineVal));
+    assert(IS_ROUTINE(routineVal));
+    ObjRoutine* routine = AS_ROUTINE(routineVal);
+    int buffer_size = snprintf(NULL, 0, "<R%p>", routine);
+    char* buffer = ALLOCATE(char, buffer_size + 1);
+    if (routine == &vm.core0) {
+        snprintf(buffer, buffer_size + 1, "<R%-*s>", buffer_size - 3, "core0");
+    } else if (vm.core1 && routine == vm.core1) {
+        snprintf(buffer, buffer_size + 1, "<R%-*s>", buffer_size - 3, "core1");
+    } else {
+        snprintf(buffer, buffer_size + 1, "<R%p>", routine);
+    }
+    ObjString* result = takeString(buffer, buffer_size);
+    return result;
+}
+
 static void bufferEscape(const char* src, char* dest, size_t destSize) {
     size_t src_cursor = 0;
     size_t dest_cursor = 0;
@@ -387,10 +461,10 @@ static void snprintValueDescription(char* buffer, size_t bufferSize, Value value
         size_t displayLength = strlen(display);
 
         if (displayLength > bufferSize - 1) {
-            int width = bufferSize - 1 - 3; // account for null terminator, and "..." 
+            int width = (int) bufferSize - 1 - 3; // account for null terminator, and "..."
             snprintf(buffer, bufferSize, "%*.*s...", width, width, display);
         } else {
-            int width = bufferSize - 1; // account for quotes and null terminator
+            int width = (int) bufferSize - 1; // account for quotes and null terminator
             snprintf(buffer, bufferSize, "%*.*s", width, width, display);
         }
     } else {
@@ -470,10 +544,4 @@ void traceExecution(ObjRoutine* routine) {
     printf("    %-16s", functionName);
     disassembleInstruction(&frame->closure->function->chunk, 
         (int)(frame->ip - frame->closure->function->chunk.code));
-}
-
-ObjString* routineToString(const ObjRoutine* routine) {
-    char buffer[64];
-    snprintf(buffer, sizeof(buffer), "<R%p>", routine);
-    return copyString(buffer, (int)strlen(buffer));
 }

@@ -11,14 +11,23 @@ if(WIN32)
 else()
     set(USERHOME $ENV{HOME})
 endif()
-set(sdkVersion 2.3.0)
+set(sdkVersion 2.3.1)
 set(toolchainVersion 14_2_Rel1)
-set(picotoolVersion 2.3.0)
+set(picotoolVersion 2.3.1)
 set(picoVscode ${USERHOME}/.pico-sdk/cmake/pico-vscode.cmake)
 if (EXISTS ${picoVscode})
     include(${picoVscode})
 endif()
 # ====================================================================================
+
+# some common definitions for all builds of the cyarg source tree
+# note that some have corresponding cmake configuration options for
+# CMakeUserPresets.json
+add_compile_definitions(CYARG_ORDERED_STRING_TREE)
+#add_compile_definitions(CYARG_CSTDLIB_HEAP)
+#add_compile_definitions(DEBUG_STRESS_GC)
+#add_compile_definitions(DEBUG_LOG_GC)
+
 
 # Yarg device selection: RASPBERRY_PI_PICO or GENERIC_HOST
 # determines if cyarg is built as hosted or self-hosted binary
@@ -50,6 +59,10 @@ add_compile_definitions(CYARG_PICO_BUSY_SYNC)
 add_compile_definitions(PICO_STACK_SIZE=0x1000)
 elseif(YARG_DEVICE STREQUAL "GENERIC_HOST")
 add_compile_definitions(CYARG_PTHREADS_SYNC)
+endif()
+
+if (CYARG_FEATURE_HEAP STREQUAL "CSTDLIB")
+add_compile_definitions(CYARG_CSTDLIB_HEAP)
 endif()
 
 if(YARG_DEVICE STREQUAL "RASPBERRY_PI_PICO")
@@ -110,6 +123,14 @@ add_executable(cyarg
     scanner.c
     object.h
     object.c
+    object_gc.h
+    object_gc.c
+    object_gc_impl.h
+    object_gc_impl.c
+    object_dyn_array.h
+    object_dyn_array.c
+    heap.h
+    heap.c
     vmobject.h
     vmobject.c
     table.h
@@ -121,6 +142,8 @@ add_executable(cyarg
     channel.h
     channel.c
     yargtype.h
+    yargstructtype.h
+    orderedtreetypes.h
     yargtype.c
     yargobject.h
     yargobject.c
@@ -140,6 +163,10 @@ add_executable(cyarg
     pack.h
     ../external/o1heap/o1heap/o1heap.c
     ../external/o1heap/o1heap/o1heap.h
+    stringstore.h
+    stringstore.c
+    keyvaluestore.h
+    keyvaluestore.c
     )
 
 if (CYARG_HOSTING STREQUAL "HOSTED")

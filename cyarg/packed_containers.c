@@ -6,6 +6,9 @@
 
 #include "common.h"
 #include "memory.h"
+#include "object_gc.h"
+#include "object_gc_impl.h"
+#include "object_dyn_array.h"
 #include "yargtype.h"
 #include "yargstructtype.h"
 #include "value_cell.h"
@@ -82,7 +85,7 @@ size_t yt_flatten_types(FlattenedElements* elements, size_t start_cursor, size_t
 
 ObjPackedStorage* newPackedStorage(const ObjConcreteYargType* type) {
     size_t storage_required = yt_sizeof_type_storage(type);
-    ObjPackedStorage* storage = (ObjPackedStorage*) allocateObject(sizeof(ObjPackedStorage) + storage_required, OBJ_PACKEDSTORAGE);
+    ObjPackedStorage* storage = (ObjPackedStorage*) vm_object_alloc(sizeof(ObjPackedStorage) + storage_required, OBJ_PACKEDSTORAGE);
     storage->storage_size = storage_required;
     tempObjRootPush((Obj*)storage);
 
@@ -120,20 +123,6 @@ void markPackedStorage(ObjPackedStorage* storage) {
 
 void gc_freePackedStorage(ObjPackedStorage* storage) {
     gc_free(storage->values);
-}
-
-bool is_uniformarray(Value value) {
-    if (value.type == NULL) return false;
-    return value.type->yt == TypeArray;
-}
-bool is_pointer(Value value) {
-    if (value.type == NULL) return false;
-    return value.type->yt == TypePointer;
-}
-
-bool is_struct(Value value) {
-    if (value.type == NULL) return false;
-    return value.type->yt == TypeStruct;
 }
 
 bool yt_packs_asValue(const ObjConcreteYargType* type) {
@@ -302,12 +291,17 @@ Value pinPackedValueContainer(Value packedValueContainer) {
 }
 
 bool  isByteArray(Value value) {
-    if (!is_uniformarray(value)) return false;
-    const ObjConcreteYargTypeArray* arrayType = (const ObjConcreteYargTypeArray*) value.type;
-    if (arrayType->element_type) {
-        return arrayType->element_type->yt == TypeUint8;
+    if (!IS_UNIFORMARRAY(value)) return false;
+    else if (value.type) {
+        const ObjConcreteYargTypeArray* arrayType = (const ObjConcreteYargTypeArray*) value.type;
+        if (arrayType->element_type) {
+            return arrayType->element_type->yt == TypeUint8;
+        } else {
+            return false;
+        }
+    } else {
+        return false;
     }
-    return false;
 }
 
 Value allocByteArray(size_t length) {
@@ -347,9 +341,9 @@ Value allocValueStructPair(const char* leftFieldName, const char* rightFieldName
     
     ObjConcreteYargTypeStruct* result_struct_type = (ObjConcreteYargTypeStruct*) newYargStructType(2);
     tempRootPush(IMPL_OBJ_VAL((Obj*)result_struct_type));
-    ObjString* leftField = copyString(leftFieldName, strlen(leftFieldName));
+    ObjString* leftField = copyString(leftFieldName, (int) strlen(leftFieldName));
     tempRootPush(STRING_VAL(leftField));
-    ObjString* rightField = copyString(rightFieldName, strlen(rightFieldName));
+    ObjString* rightField = copyString(rightFieldName, (int) strlen(rightFieldName));
     tempRootPush(STRING_VAL(rightField));
 
     appendFieldType(result_struct_type, NULL, leftField);

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "object.h"
+#include "object_gc.h"
 #include "yargobject.h"
 #include "value.h"
 #include "yargtype.h"
@@ -40,9 +41,36 @@ void fprintObj(FILE* op, const Obj* object) {
     tempRootPop();
 }
 
-void disassembleChunk(Chunk* chunk, const char* name) {
-    printf("== %s ==\n", name);
+static void printSourceLine(const char* source, uint16_t line) {
+    if (source == NULL || line == 0) return;
+
+    const char* start = source;
+    for (uint16_t current = 1; current < line; current++) {
+        const char* newline = strchr(start, '\n');
+        if (newline == NULL) return;
+        start = newline + 1;
+    }
+
+    const char* end = strchr(start, '\n');
+    if (end == NULL) end = start + strlen(start);
+    if (end > start && end[-1] == '\r') end--;
+
+    printf("    %3d | ", line);
+    fwrite(start, 1, (size_t)(end - start), stdout);
+    printf("\n");
+}
+
+void disassembleChunk(Chunk* chunk, const char* name, const char* source) {
+    printf("%s\n", name);
+
     for (int offset = 0; offset < chunk->count;) {
+        for (int i = 0; source != NULL && chunk->lines != NULL && i < chunk->numLines; i++) {
+            if (chunk->lines[i].address == offset) {
+                printSourceLine(source, chunk->lines[i].line);
+                break;
+            }
+            if (chunk->lines[i].address > offset) break;
+        }
         offset = disassembleInstruction(chunk, offset);
     }
     for (int i = 0; i < chunk->constants.count; i++) {
@@ -51,10 +79,10 @@ void disassembleChunk(Chunk* chunk, const char* name) {
             char *funNameC = vm_allocate(fun->fName->length + 1);
             memcpy(funNameC, fun->fName->chars, fun->fName->length + 1);
             int line = fun->chunk.numLines > 0 ? fun->chunk.lines[0].line : 0;
-            size_t l = snprintf(0, 0, "%s/%s(%d)", name, funNameC, line);
+            size_t l = snprintf(0, 0, "%s: %3d:%s()", name, line, funNameC);
             char *funName = vm_allocate(l + 1);
-            snprintf(funName, l + 1, "%s/%s(%d)", name, funNameC, line);
-            disassembleChunk(&fun->chunk, funName);
+            snprintf(funName, l + 1, "%s: %3d:%s()", name, line, funNameC);
+            disassembleChunk(&fun->chunk, funName, source);
             vm_free(funName);
             vm_free(funNameC);
         }
@@ -133,9 +161,7 @@ static int jumpInstruction(const char* name, int sign, Chunk* chunk, int offset)
     return offset + 3;
 }
 
-static int builtinInstruction(const char* name, Chunk* chunk, int offset) {
-    uint8_t slot = chunk->code[offset + 1];
-    printf("%-16s ", name);
+static void printBuiltinName(uint8_t slot) {
     switch (slot) {
         case BUILTIN_PEEK: printf("peek"); break;
         case BUILTIN_READ_YARG_SOURCE: printf("read_yarg_source"); break;
@@ -170,8 +196,14 @@ static int builtinInstruction(const char* name, Chunk* chunk, int offset) {
         case BUILTIN_MFLOAT64:  printf("mfloat64"); break;
         case BUILTIN_STRING: printf("string"); break;
         case BUILTIN_LOAD: printf("load"); break;
-        default: printf("<unknown %4d>", slot); break;
+        default: printf("<unknown %3d>", slot); break;
     }
+}
+
+static int builtinInstruction(const char* name, Chunk* chunk, int offset) {
+    uint8_t slot = chunk->code[offset + 1];
+    printf("%-16s ", name);
+    printBuiltinName(slot);
     printf("\n");
     return offset + 2;
 }
@@ -236,6 +268,8 @@ int disassembleInstruction(Chunk* chunk, int offset) {
             return constantInstruction("OP_SET_GLOBAL", chunk, offset);
         case OP_INITIALISE:
             return simpleInstruction("OP_INITIALISE", offset);
+        case OP_INITIALISE_DEFAULT:
+            return simpleInstruction("OP_INITIALISE_DEFAULT", offset);
         case OP_GET_UPVALUE:
             return byteInstruction("OP_GET_UPVALUE", chunk, offset);
         case OP_SET_UPVALUE:
@@ -278,6 +312,8 @@ int disassembleInstruction(Chunk* chunk, int offset) {
             return simpleInstruction("OP_NEGATE", offset);
         case OP_PRINT:
             return simpleInstruction("OP_PRINT", offset);
+        case OP_ERROR:
+            return simpleInstruction("OP_ERROR", offset);
         case OP_POKE:
             return simpleInstruction("OP_POKE", offset);
         case OP_JUMP:
@@ -288,6 +324,17 @@ int disassembleInstruction(Chunk* chunk, int offset) {
             return jumpInstruction("OP_LOOP", -1, chunk, offset);
         case OP_CALL:
             return byteInstruction("OP_CALL", chunk, offset);
+        case OP_CALL_BUILTIN: {
+            offset++;
+            uint8_t builtin = chunk->code[offset++];
+            uint8_t argCount = chunk->code[offset++];
+            printf("%-16s ", "OP_CALL_BUILTIN");
+            printBuiltinName(builtin);
+            printf(" %4d\n", argCount);
+            return offset;
+        }
+        case OP_LEN:
+            return simpleInstruction("OP_LEN", offset);
         case OP_INVOKE:
             return invokeInstruction("OP_INVOKE", chunk, offset);
         case OP_SUPER_INVOKE:
@@ -344,8 +391,6 @@ int disassembleInstruction(Chunk* chunk, int offset) {
             return byteInstruction("OP_TYPE_STRUCT", chunk, offset);
         case OP_TYPE_INDEXED_COLLECTION:
             return simpleInstruction("OP_TYPE_INDEXED_COLLECTION", offset);
-        case OP_SET_CELL_TYPE:
-            return simpleInstruction("OP_SET_CELL_TYPE", offset);
         case OP_DEREF_PTR:
             return simpleInstruction("OP_DEREF_PTR", offset);
         case OP_SET_PTR_TARGET:

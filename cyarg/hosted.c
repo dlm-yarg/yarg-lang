@@ -1,13 +1,15 @@
 #include "hosted.h"
 
 #include "common.h"
+#include "object_gc.h"
 #include "object.h"
-#include "memory.h"
 #include "debug.h"
 #include "pack.h"
 #include "vm.h"
 #include "vmobject.h"
 #include "packed_containers.h"
+#include "fs/fs.h"
+#include "memory.h"
 
 #include <stdlib.h>
 #include <sysexits.h>
@@ -16,12 +18,23 @@
 
 Host vmHost;
 
+void reportErrors(Value errors) {
+    assert(IS_UNIFORMARRAY(errors));
+
+    size_t cardinality = arrayCardinality(errors);
+    for (size_t i = 0; i < cardinality; i++) {
+        Value error = arrayElement(errors, i);
+        fprintf(stderr, "%s\n", AS_CSTRING(error));
+    }
+}
+
 int bootHosted() {
     vmHost.exitCode = EX_OK;
 
     InterpretResult result = bootXIP();
 
     if (result == INTERPRET_RUNTIME_ERROR) {
+        reportErrors(vm.core0.error);
         return EX_SOFTWARE;
     } else {
         return vmHost.exitCode;
@@ -39,19 +52,10 @@ int bootstrapHostedFile(const char* path) {
 
     tempRootPop();
     if (result == INTERPRET_RUNTIME_ERROR) {
+        reportErrors(vm.core0.error);
         return EX_SOFTWARE;
     } else {
         return vmHost.exitCode;
-    }
-}
-
-void reportCompileErrors(Value compileError) {
-    assert(IS_UNIFORMARRAY(compileError));
-
-    size_t cardinality = arrayCardinality(compileError);
-    for (size_t i = 0; i < cardinality; i++) {
-        Value error = arrayElement(compileError, i);
-        fprintf(stderr, "%s\n", AS_CSTRING(error));
     }
 }
 
@@ -69,9 +73,10 @@ int compileFile(const char* path, const char* outputPath) {
 
     int exitCode = EX_OK;
     if (result == INTERPRET_RUNTIME_ERROR) {
+        reportErrors(vm.core0.error);
         exitCode = EX_SOFTWARE;
     } else if (result == INTERPRET_OK && !IS_NIL(compileErrors)) {
-        reportCompileErrors(compileErrors);
+        reportErrors(compileErrors);
         exitCode = EX_DATAERR;
     } else {
         if (outputPath && IS_CLOSURE(compilerResultClosure)) {
@@ -106,15 +111,18 @@ int disassembleFile(const char* path) {
     int returnCode = EX_OK;
 
     if (result == INTERPRET_RUNTIME_ERROR) {
+        reportErrors(vm.core0.error);
         returnCode = EX_SOFTWARE;
     } else if (result == INTERPRET_OK && !IS_NIL(compileErrors)) {
-        reportCompileErrors(compileErrors);
+        reportErrors(compileErrors);
         returnCode = EX_DATAERR;
     } else {
         returnCode = EX_OK;
         ObjFunction* function = AS_CLOSURE(compilerResultClosure)->function;
+        char* source = readFile(path);
 
-        disassembleChunk(&function->chunk, file);
+        disassembleChunk(&function->chunk, file, source);
+        vm_free(source);
     }
 
     tempRootPop();

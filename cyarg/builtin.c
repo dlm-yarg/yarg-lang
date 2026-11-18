@@ -141,6 +141,7 @@ bool compileBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     }
 
     Value compileResult = compile(routineContext);
+    push(routineContext, compileResult);
     Value compileError = structField(compileResult, 0);
     Value compileFunction = structField(compileResult, 1);
 
@@ -148,9 +149,16 @@ bool compileBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         ObjClosure* closure = newClosure(AS_FUNCTION(compileFunction));
         setStructField(compileResult, 1, CLOSURE_VAL(closure));
     }
-
+    pop(routineContext);
     *result = compileResult;
     return true;
+}
+
+static Value resultPair(Value error, Value result) {
+    Value resultValue = allocValueStructPair("errors", "result");
+    setStructField(resultValue, 0, error);
+    setStructField(resultValue, 1, result);
+    return resultValue;
 }
 
 bool loadBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
@@ -167,7 +175,7 @@ bool loadBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         ObjFunction* function = loadPackageFromBuffer(routineContext, buffer, arrayType->cardinality);
         Value functionVal = function ? FUNCTION_VAL(function) : NIL_VAL;
         push(routineContext, functionVal);
-        Value loadResult = allocValueStructPair("compileError", "result");
+        Value loadResult = resultPair(NIL_VAL, functionVal);
         pop(routineContext);
         push(routineContext, loadResult);
 
@@ -178,13 +186,9 @@ bool loadBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         Value compileError = structField(compileResult, 0);
         Value compileFunction = structField(compileResult, 1);
 
-        Value loadResult = allocValueStructPair("compileError", "result");
+        Value loadResult = resultPair(compileError, NIL_VAL);
         push(routineContext, loadResult);
-
-
-        if (!IS_NIL(compileError)) {
-            setStructField(loadResult, 0, compileError);
-        } else {
+        if (IS_NIL(compileError)) {
             setStructField(loadResult, 1, compileFunction);
         }
         pop(routineContext);
@@ -230,9 +234,12 @@ bool makeChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
     size_t capacity = as_positive_integer(valCapacity);
 
     ObjChannelContainer* channel = newChannel(routine, capacity);
-
-    *result = CHANNEL_VAL((Obj*)channel);
-    return true;
+    if (channel == NULL) {
+        return false;
+    } else {
+        *result = CHANNEL_VAL((Obj*)channel);
+        return true;
+    }
 }
 
 bool sendChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
@@ -465,27 +472,11 @@ bool lenBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
         return false;
     }
 
-    Value arg = peek(routineContext, 0);
-
-    if (IS_STRING(arg)) {
-        ObjString* string = AS_STRING(arg);
-        size_t length = string->length;
-        allocateIntValue(result, sizeof (size_t) / sizeof (uint16_t));
-        int_set_u(length, AS_INT(*result));
-        return true;
-    } else if (IS_UNIFORMARRAY(arg)) {
-        ObjConcreteYargTypeArray* arrayType = (ObjConcreteYargTypeArray*) arg.type;
-        allocateIntValue(result, sizeof (size_t) / sizeof (uint16_t));
-        int_set_u(arrayType->cardinality, AS_INT(*result));
-        return true;
-    } else if (IS_MAP(arg)) {
-        ObjMap* map = AS_MAP(arg);
-        size_t count = map->entries.count;
-        allocateIntValue(result, sizeof (size_t) / sizeof (uint16_t));
-        int_set_u(count, AS_INT(*result));
+    Value res = op_len(routineContext);
+    if (!IS_NIL(res)) { 
+        *result = res;
         return true;
     } else {
-        runtimeError(routineContext, "Expected a string, array or map.");
         return false;
     }
 }
@@ -515,8 +506,14 @@ bool pinBuiltin(ObjRoutine* routineContext, int argCount, Value* result) {
     } else if (IS_UNIFORMARRAY(arg)) {
         *result = pinPackedValueContainer(arg);
         return true;
+    } else if (IS_ADDRESS(arg)) {
+        *result = arg;
+        return true;
+    } else if (IS_POINTER(arg)) {
+        *result = pinPackedValueContainer(arg);
+        return true;
     } else {
-        runtimeError(routineContext, "Expected a routine or uniform array.");
+        runtimeError(routineContext, "Expected a routine, uniform array, pointer or address.");
         return false;
     }
 }
@@ -578,7 +575,8 @@ bool new_Builtin(ObjRoutine* routineContext, int argCount, Value* result) {
         case TypeMap: {
             // TODO: revisit if maps become value types.
             if (isSupportedMapKeyType(AS_YARGTYPE(typeToCreate))) {
-                *result = MAP_VAL(newMap((ObjConcreteYargTypeMap*)AS_YARGTYPE(typeToCreate)));
+                ObjMap *map = newMap((ObjConcreteYargTypeMap*)AS_YARGTYPE(typeToCreate));
+                *result = MAP_VAL(map);
                 return true;
             } else {
                 runtimeError(routineContext, "Unsupported map key type.");
@@ -1072,38 +1070,38 @@ ObjBuiltin* newBuiltin(BuiltinFun function) {
     return builtin;
 }
 
-Value getBuiltin(uint8_t builtin) {
+BuiltinFun getBuiltinFunction(uint8_t builtin) {
     switch (builtin) {
-        case BUILTIN_PEEK: return BUILTIN_VAL(newBuiltin(peekBuiltin));
-        case BUILTIN_READ_YARG_SOURCE: return BUILTIN_VAL(newBuiltin(readYargSourceBuiltin));
-        case BUILTIN_READ_XIP_FILE: return BUILTIN_VAL(newBuiltin(readYargROMSourceBuiltin));
-        case BUILTIN_COMPILE: return BUILTIN_VAL(newBuiltin(compileBuiltin));
-        case BUILTIN_MAKE_ROUTINE: return BUILTIN_VAL(newBuiltin(makeRoutineBuiltin));
-        case BUILTIN_RESUME: return BUILTIN_VAL(newBuiltin(resumeBuiltin));
-        case BUILTIN_START: return BUILTIN_VAL(newBuiltin(startBuiltin));
-        case BUILTIN_MAKE_CHANNEL: return BUILTIN_VAL(newBuiltin(makeChannelBuiltin));
-        case BUILTIN_SEND: return BUILTIN_VAL(newBuiltin(sendChannelBuiltin));
-        case BUILTIN_RECEIVE: return BUILTIN_VAL(newBuiltin(receiveBuiltin));
-        case BUILTIN_SHARE: return BUILTIN_VAL(newBuiltin(shareChannelBuiltin));
-        case BUILTIN_CPEEK: return BUILTIN_VAL(newBuiltin(cpeekBuiltin));
-        case BUILTIN_MAKE_SYNCGROUP: return BUILTIN_VAL(newBuiltin(makeSyncGroupBuiltin));
-        case BUILTIN_LEN: return BUILTIN_VAL(newBuiltin(lenBuiltin));
-        case BUILTIN_PIN: return BUILTIN_VAL(newBuiltin(pinBuiltin));
-        case BUILTIN_NEW: return BUILTIN_VAL(newBuiltin(new_Builtin));
-        case BUILTIN_INT8: return BUILTIN_VAL(newBuiltin(int8Builtin));
-        case BUILTIN_INT16: return BUILTIN_VAL(newBuiltin(int16Builtin));
-        case BUILTIN_UINT16: return BUILTIN_VAL(newBuiltin(uint16Builtin));
-        case BUILTIN_UINT8: return BUILTIN_VAL(newBuiltin(uint8Builtin));
-        case BUILTIN_INT32: return BUILTIN_VAL(newBuiltin(int32Builtin));
-        case BUILTIN_UINT32: return BUILTIN_VAL(newBuiltin(uint32Builtin));
-        case BUILTIN_INT64: return BUILTIN_VAL(newBuiltin(int64Builtin));
-        case BUILTIN_UINT64: return BUILTIN_VAL(newBuiltin(uint64Builtin));
-        case BUILTIN_INT: return BUILTIN_VAL(newBuiltin(intBuiltin));
-        case BUILTIN_MFLOAT64: return BUILTIN_VAL(newBuiltin(floatBuiltin));
-        case BUILTIN_STRING: return BUILTIN_VAL(newBuiltin(stringBuiltin));
-        case BUILTIN_LOAD: return BUILTIN_VAL(newBuiltin(loadBuiltin));
+        case BUILTIN_PEEK: return peekBuiltin;
+        case BUILTIN_READ_YARG_SOURCE: return readYargSourceBuiltin;
+        case BUILTIN_READ_XIP_FILE: return readYargROMSourceBuiltin;
+        case BUILTIN_COMPILE: return compileBuiltin;
+        case BUILTIN_MAKE_ROUTINE: return makeRoutineBuiltin;
+        case BUILTIN_RESUME: return resumeBuiltin;
+        case BUILTIN_START: return startBuiltin;
+        case BUILTIN_MAKE_CHANNEL: return makeChannelBuiltin;
+        case BUILTIN_SEND: return sendChannelBuiltin;
+        case BUILTIN_RECEIVE: return receiveBuiltin;
+        case BUILTIN_SHARE: return shareChannelBuiltin;
+        case BUILTIN_CPEEK: return cpeekBuiltin;
+        case BUILTIN_MAKE_SYNCGROUP: return makeSyncGroupBuiltin;
+        case BUILTIN_LEN: return lenBuiltin;
+        case BUILTIN_PIN: return pinBuiltin;
+        case BUILTIN_NEW: return new_Builtin;
+        case BUILTIN_INT8: return int8Builtin;
+        case BUILTIN_INT16: return int16Builtin;
+        case BUILTIN_UINT16: return uint16Builtin;
+        case BUILTIN_UINT8: return uint8Builtin;
+        case BUILTIN_INT32: return int32Builtin;
+        case BUILTIN_UINT32: return uint32Builtin;
+        case BUILTIN_INT64: return int64Builtin;
+        case BUILTIN_UINT64: return uint64Builtin;
+        case BUILTIN_INT: return intBuiltin;
+        case BUILTIN_MFLOAT64: return floatBuiltin;
+        case BUILTIN_STRING: return stringBuiltin;
+        case BUILTIN_LOAD: return loadBuiltin;
 #ifndef CYARG_FEATURE_TEST_SYSTEM
-        default: return NIL_VAL;
+        default: return NULL;
 #else
         default: return getTestSystemBuiltin(builtin);
 #endif

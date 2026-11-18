@@ -5,11 +5,14 @@
 #include <assert.h>
 
 #include "memory.h"
+#include "object_gc_impl.h"
 #include "object.h"
 #include "value.h"
 #include "yargtype.h"
 #include "yargobject.h"
 #include "debug.h"
+
+#if !defined CYARG_ORDERED_STRING_TREE
 
 #define TABLE_MAX_LOAD 0.75
 
@@ -23,6 +26,11 @@ void initTable(ValueTable* table) {
 
 void freeTable(ValueTable* table) {
     vm_free(table->entries);
+    initTable(table);
+}
+
+void gc_freeTable(ValueTable* table) {
+    gc_free(table->entries);
     initTable(table);
 }
 
@@ -206,6 +214,43 @@ bool tableInvariant(ValueTable* table) {
     }
 }
 
+void stringStoreInit(StringStore *ss) {
+    freeTable(ss);
+    return initTable(ss);
+}
+
+ObjString *stringStoreStore(StringStore *ss, ObjString *s) {
+    char const *key = s->chars;
+    int length = 0;
+    uint32_t hash = 2166136261u;
+    while (*key != 0) {
+        hash ^= (uint8_t)*key++;
+        hash += 16777619;
+        length++;
+    }
+    s->hash = hash;
+
+    tempRootPush(STRING_VAL(s));
+    tableSet(ss, s, NIL_VAL);
+    tempRootPop();
+    return s;
+}
+
+void stringStoreDeleteUnmarked(StringStore *ss) {
+    return tableRemoveWhite(ss);
+}
+
+ObjString *stringStoreGet(StringStore *ss, char const *cs, int length) {
+    char const *key = cs;
+    uint32_t hash = 2166136261u;
+    while (*key != 0) {
+        hash ^= (uint8_t)*key++;
+        hash += 16777619;
+    }
+    ObjString* s = tableFindString(ss, cs, length, hash);
+    return s;
+}
+
 void initCellTable(ValueCellTable* table) {
     table->count = 0;
     table->capacity = 0;
@@ -214,6 +259,11 @@ void initCellTable(ValueCellTable* table) {
 
 void freeCellTable(ValueCellTable* table) {
     vm_free(table->entries);
+    initCellTable(table);
+}
+
+void gc_freeCellTable(ValueCellTable* table) {
+    gc_free(table->entries);
     initCellTable(table);
 }
 
@@ -375,3 +425,45 @@ void printCellTable(ValueCellTable* table) {
         }
     }
 }
+
+void keyValueStoreInit(KeyValueStore *kvs) {
+    return initCellTable(kvs);
+}
+int keyValueStoreCount(KeyValueStore const *kvs) {
+    return kvs->count;
+}
+void keyValueStoreFree(KeyValueStore *kvs) {
+    return freeCellTable(kvs);
+}
+void keyValueStoreGCFree(KeyValueStore *kvs) {
+    return gc_freeCellTable(kvs);
+}
+bool keyValueStoreGet(KeyValueStore const *kvs, ObjString const *key, ValueCell *vc) {
+    return tableCellGet((KeyValueStore *)kvs, (ObjString *)key, vc);
+}
+bool keyValueStoreGetValue(KeyValueStore const *kvs, ObjString const *key, Value *v) {
+    ValueCell vc;
+    bool r = tableCellGet((KeyValueStore *)kvs, (ObjString *)key, &vc);
+    if (r) {
+        *v = vc.value;
+    }
+    return r;
+}
+bool keyValueStorePlace(KeyValueStore const *kvs, ObjString const *key, ValueCell **vc) {
+    return tableCellGetPlace((KeyValueStore *)kvs, (ObjString *)key, vc);
+}
+bool keyValueStoreSet(KeyValueStore *kvs, ObjString const *key, ValueCell const *vc) {
+    return tableCellSet(kvs, (ObjString *)key, *vc);
+}
+bool keyValueStoreSetValue(KeyValueStore *kvs, ObjString const *key, Value const *v) {
+    ValueCell vc = { .value = *v };
+    return tableCellSet(kvs, (ObjString *)key, vc);
+}
+void keyValueStoreAddAll(KeyValueStore const *from, KeyValueStore *to) {
+    return tableCellAddAll((KeyValueStore *)from, to);
+}
+void keyValueStoreMark(KeyValueStore *kvs) {
+    return markCellTable(kvs);
+}
+
+#endif //!defined CYARG_ORDERED_STRING_TREE

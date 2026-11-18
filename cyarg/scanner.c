@@ -4,7 +4,7 @@
 
 #include "common.h"
 #include "object.h"
-#include "memory.h"
+#include "object_gc_impl.h"
 #include "yargobject.h"
 
 typedef struct ObjScanner {
@@ -211,10 +211,18 @@ static TokenType identifierType(ObjScanner* scanner) {
                 }
             }
             break;
+        case 'd':
+            if (scanner->current - scanner->start > 1) {
+                switch (scanner->start[1]) {
+                    case 'e': return checkKeyword(scanner, 2, 3, "fer", TOKEN_DEFER);
+                }
+            }
+            break;
         case 'e': 
             if (scanner->current - scanner->start > 1) {
                 switch (scanner->start[1]) {
                     case 'l': return checkKeyword(scanner, 2, 2, "se", TOKEN_ELSE);
+                    case 'r': return checkKeyword(scanner, 2, 3, "ror", TOKEN_STMT_ERROR);
                 }
             }
             break;

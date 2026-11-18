@@ -17,6 +17,7 @@ typedef enum {
     OP_DEFINE_GLOBAL,
     OP_SET_GLOBAL,
     OP_INITIALISE,
+    OP_INITIALISE_DEFAULT,
     OP_GET_UPVALUE,
     OP_SET_UPVALUE,
     OP_GET_PROPERTY,
@@ -43,6 +44,8 @@ typedef enum {
     OP_JUMP_IF_FALSE,
     OP_LOOP,
     OP_CALL,
+    OP_CALL_BUILTIN,
+    OP_LEN,
     OP_INVOKE,
     OP_SUPER_INVOKE,
     OP_CLOSURE,
@@ -63,11 +66,11 @@ typedef enum {
     OP_TYPE_LITERAL,
     OP_TYPE_STRUCT,
     OP_TYPE_INDEXED_COLLECTION,
-    OP_SET_CELL_TYPE,
     OP_DEREF_PTR,
     OP_SET_PTR_TARGET,
     OP_PLACE,
-    OP_DUPLICATE
+    OP_DUPLICATE,
+    OP_ERROR
 } OpCode;
 
 typedef struct {
@@ -138,7 +141,8 @@ typedef enum {
 } BuiltinType;
 
 void initChunk(Chunk* chunk);
-void gc_freeChunk(Chunk* chunk);
+void freeChunk(Chunk* chunk);
+
 void writeChunk(Chunk* chunk, uint8_t byte, int line);
 int addConstant(Chunk* chunk, Value value);
 

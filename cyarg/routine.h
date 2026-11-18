@@ -3,6 +3,7 @@
 
 #include "value.h"
 #include "object.h"
+#include "object_dyn_array.h"
 #include "value_cell.h"
 
 #define FRAMES_MAX 20
@@ -52,9 +53,12 @@ typedef struct ObjRoutine {
     DynamicObjArray additionalSlicesArray;
     AddSliceFn addSlice;
 
+    DynamicObjArray runtimeErrors;
+
     ObjClosure* entryFunction;
     Value entryArg;
     Value result;
+    Value error;
 
     ObjUpvalue* openUpvalues;
 
@@ -64,7 +68,9 @@ typedef struct ObjRoutine {
 
 void initRoutine(ObjRoutine* routine);
 ObjRoutine* newRoutine();
+void freeRoutine(ObjRoutine* routine);
 void resetRoutine(ObjRoutine* routine);
+
 bool bindEntryFn(ObjRoutine* routine, ObjClosure* closure);
 void bindEntryArgs(ObjRoutine* routine, Value entryArg);
 void pushEntryElements(ObjRoutine* routine);
@@ -77,11 +83,10 @@ void runAndRenter(ObjRoutine* routine);
 
 bool resumeRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Value argument, Value* result);
 void yieldFromRoutine(ObjRoutine* routine);
-void returnFromRoutine(ObjRoutine* routine, Value result);
+int op_return(ObjRoutine* routine, CallFrame* frame);
+void op_close_upvalues(ObjRoutine* routine);
 bool startRoutine(ObjRoutine* context, ObjRoutine* target, size_t argCount, Value argument);
 bool receiveFromRoutine(ObjRoutine* routine, Value* result);
-
-void markRoutine(ObjRoutine* routine);
 
 void push(ObjRoutine* routine, Value value);
 void pushTyped(ObjRoutine* routine, Value value, Value type);
@@ -95,6 +100,6 @@ void runtimeError(ObjRoutine* routine, const char* format, ...);
 
 void traceExecution(ObjRoutine* routine);
 
-ObjString* routineToString(const ObjRoutine* routine);
+ObjString* routineToString(Value routine);
 
 #endif

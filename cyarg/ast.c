@@ -6,6 +6,8 @@
 #include <assert.h>
 
 #include "memory.h"
+#include "object.h"
+#include "object_gc.h"
 #include "big-int/big-int.h"
 #include "yargobject.h"
 #include "routine.h"
@@ -24,6 +26,7 @@ ObjStmt* pushNewStmt(ObjRoutine* context, ObjType type, int line) {
         case OBJ_STMT_RETURN: stmt = (ObjStmt*) ALLOCATE_OBJ(ObjStmtExpression, OBJ_STMT_RETURN); break;
         case OBJ_STMT_YIELD: stmt = (ObjStmt*) ALLOCATE_OBJ(ObjStmtExpression, OBJ_STMT_YIELD); break;
         case OBJ_STMT_PRINT: stmt = (ObjStmt*) ALLOCATE_OBJ(ObjStmtExpression, OBJ_STMT_PRINT); break;
+        case OBJ_STMT_ERROR: stmt = (ObjStmt*) ALLOCATE_OBJ(ObjStmtExpression, OBJ_STMT_ERROR); break;
         case OBJ_STMT_BLOCK: stmt = (ObjStmt*) ALLOCATE_OBJ(ObjStmtBlock, OBJ_STMT_BLOCK); break;
         case OBJ_STMT_IF: stmt = (ObjStmt*) ALLOCATE_OBJ(ObjStmtIf, OBJ_STMT_IF); break;
         case OBJ_STMT_WHILE: stmt = (ObjStmt*) ALLOCATE_OBJ(ObjStmtWhile, OBJ_STMT_WHILE); break;
@@ -89,7 +92,7 @@ ObjExprNumber* newExprNumberDouble(double value) {
 ObjExprNumber* newExprNumberInt(int numberDecimalDigits) {
     uint8_t s = INT_DIGITS_FOR_S(numberDecimalDigits);
     s += s % 2;
-    ObjExprNumber *num = (ObjExprNumber *) allocateObject(sizeof (ObjExprNumber) + sizeof (uint16_t) * s, OBJ_EXPR_NUMBER);
+    ObjExprNumber *num = (ObjExprNumber *) vm_object_alloc(sizeof (ObjExprNumber) + sizeof (uint16_t) * s, OBJ_EXPR_NUMBER);
     num->bigInt.m_ = s;
     num->type = NUMBER_INT;
     return num;
@@ -98,7 +101,7 @@ ObjExprNumber* newExprNumberInt(int numberDecimalDigits) {
 ObjExprNumber* newExprNumberFromCint(int constant) {
     int64_t val = constant;
     uint8_t s = (uint8_t) (sizeof(int) / sizeof(uint16_t));
-    ObjExprNumber *num = (ObjExprNumber *) allocateObject(sizeof (ObjExprNumber) + sizeof (uint16_t) * s, OBJ_EXPR_NUMBER);
+    ObjExprNumber *num = (ObjExprNumber *) vm_object_alloc(sizeof (ObjExprNumber) + sizeof (uint16_t) * s, OBJ_EXPR_NUMBER);
     num->type = NUMBER_INT;
     num->bigInt.m_ = s;
     int_set_i(val, &num->bigInt);
@@ -136,6 +139,13 @@ ObjExprString* newExprString(ObjRoutine* context, const char* str, int strLength
 
 ObjExprCall* newExprCall() {
     ObjExprCall* call = ALLOCATE_OBJ(ObjExprCall, OBJ_EXPR_CALL);
+    return call;
+}
+
+ObjExprCallBuiltin* newExprCallBuiltin(ObjExprBuiltin* callee) {
+    ObjExprCallBuiltin* call = ALLOCATE_OBJ(ObjExprCallBuiltin, OBJ_EXPR_CALL_BUILTIN);
+    call->callee = callee;
+    callee->calledImmediately = true;
     return call;
 }
 
@@ -516,6 +526,7 @@ void printStmtExpression(ObjStmtExpression* stmt) {
         case OBJ_STMT_RETURN: printf("return "); break;
         case OBJ_STMT_YIELD: printf("yield "); break;
         case OBJ_STMT_PRINT: printf("print "); break;
+        case OBJ_STMT_ERROR: printf("error "); break;
         case OBJ_STMT_EXPRESSION: break;
         default: break;
     }
@@ -619,6 +630,7 @@ void printStmts(ObjStmt* stmts) {
             case OBJ_STMT_RETURN: // fall through
             case OBJ_STMT_YIELD:
             case OBJ_STMT_PRINT:
+            case OBJ_STMT_ERROR:
             case OBJ_STMT_EXPRESSION: printStmtExpression((ObjStmtExpression*)cursor); break;
             case OBJ_STMT_POKE: printStmtPoke((ObjStmtPoke*)cursor); break;
             case OBJ_STMT_VARDECLARATION: printStmtVarDeclaration((ObjStmtVarDeclaration*)cursor); break;

@@ -1,64 +1,29 @@
 #include "object.h"
 
-#include <stdio.h>
-#include <string.h>
-#include <assert.h>
-
+#include "common.h"
 #include "memory.h"
-#include "vm.h"
+#include "object_gc.h"
+
 #include "yargobject.h"
 #include "vmobject.h"
 #include "builtin.h"
 #include "channel.h"
 #include "sync_group.h"
 
-Obj* allocateObject(size_t size, ObjType type) {
+#include <string.h>
+
+Obj* vm_object_alloc(size_t size, ObjType type) {
     Obj* object = (Obj*)vm_allocate(size);
     memset(object, 0, size);
     object->type = type;
 
-    vm_mutex_enter_blocking(&vm.heap);
-
-    object->next = vm.objects;
-    vm.objects = object;
-    
-    vm_mutex_exit(&vm.heap);
+    gc_register_object(object);
 
 #ifdef DEBUG_LOG_GC
     PRINTERR("%p allocate %zu for %d\n", (void*)object, size, type);
 #endif
 
     return object;
-}
-
-// note that this call can be omitted for objects where
-// the DynamicObjArray is a member, and Zero filled
-void initDynamicObjArray(DynamicObjArray* array) {
-    array->objects = NULL;
-    array->stash = NULL;
-    array->objectCapacity = 0;
-    array->objectCount = 0;
-}
-
-void freeDynamicObjArray(DynamicObjArray* array) {
-    vm_free(array->objects);
-    initDynamicObjArray(array);
-}
-
-void gc_freeDynamicObjArray(DynamicObjArray* array) {
-    gc_free(array->objects);
-}
-
-void appendToDynamicObjArray(DynamicObjArray* array, Obj* obj) {
-    array->stash = obj;
-    if (array->objectCapacity < array->objectCount + 1) {
-        int oldCapacity = array->objectCapacity;
-        array->objectCapacity = GROW_CAPACITY(oldCapacity);
-        array->objects = GROW_ARRAY(Obj*, array->objects, oldCapacity, array->objectCapacity);
-    }
-    array->objects[array->objectCount] = obj;
-    array->objectCount++;
-    array->stash = NULL;
 }
 
 ObjString* objectToString(const Obj* value) {
@@ -89,10 +54,6 @@ ObjString* objectToString(const Obj* value) {
             return copyString("<native fn>", 11);
         case OBJ_BUILTIN:
             return builtinToString((const ObjBuiltin*)value);
-        case OBJ_ROUTINE: {
-            const ObjRoutine* routine = (const ObjRoutine*)value;
-            return routineToString(routine);
-        }
         case OBJ_CHANNELCONTAINER: {
             const ObjChannelContainer* channel = (const ObjChannelContainer*)value;
             return channelToString(channel);

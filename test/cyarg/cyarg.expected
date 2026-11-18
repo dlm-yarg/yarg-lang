@@ -25,7 +25,7 @@ os-hosted
 64-bit word size
 sizeof(Value): 24
 sizeof(ValueCell): 32
-Yarg binary format version: 0x2604
+Yarg binary format version: 0x2607
 1
 1
 2
@@ -36,7 +36,8 @@ test/cyarg/hosted.ya
 [line 1] Error: Unexpected character.
 [line 1] Error: Unexpected character.
 1
-== simple.ya ==
+simple.ya
+      1 | print 1;
 0000    1 OP_IMMEDIATE_P8     1
 0002    | OP_PRINT
 0003    | OP_NIL

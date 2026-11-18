@@ -2,6 +2,7 @@
 #define cyarg_ast_h
 
 #include "object.h"
+#include "object_dyn_array.h"
 #include "value.h"
 #include "big-int/big-int.h"
 
@@ -147,6 +148,19 @@ typedef struct {
 
 typedef struct {
     ObjExpr expr;
+    ExprBuiltin builtin;
+    int arity;
+    bool calledImmediately;
+} ObjExprBuiltin;
+
+typedef struct {
+    ObjExpr expr;
+    ObjExprBuiltin* callee;
+    DynamicObjArray arguments;
+} ObjExprCallBuiltin;
+
+typedef struct {
+    ObjExpr expr;
     bool isMap;
     DynamicObjArray initializers;
     ObjExpr* cardinality;
@@ -163,12 +177,6 @@ typedef struct {
     ObjExpr* a;
     ObjExpr* b;
 } ObjExprPair;
-
-typedef struct {
-    ObjExpr expr;
-    ExprBuiltin builtin;
-    int arity;
-} ObjExprBuiltin;
 
 typedef struct {
     ObjExpr expr;
@@ -305,6 +313,7 @@ ObjExprOperation* newExprOperation(ObjExpr* rhs, ExprOp op);
 ObjExprGrouping* newExprGrouping(ObjExpr* expression);
 ObjExprNamedVariable* newExprNamedVariable(ObjRoutine* context, const char* name, int nameLength);
 ObjExprCall* newExprCall();
+ObjExprCallBuiltin* newExprCallBuiltin(ObjExprBuiltin* callee);
 ObjExprCollectionInitializer* newExprCollectionInitializer();
 ObjExprCollectionElement* newExprCollectionElement();
 ObjExprBuiltin* newExprBuiltin(ExprBuiltin fn, int arity);

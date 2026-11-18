@@ -3,9 +3,8 @@
 
 #include "object.h"
 #include "big-int/big-int.h"
-#include "value.h"
 #include "chunk.h"
-#include "table.h"
+#include "orderedtreetypes.h"
 
 typedef struct ObjConcreteYargType ObjConcreteYargType;
 
@@ -45,13 +44,6 @@ typedef struct ObjConcreteYargType ObjConcreteYargType;
 
 Value cstring_val(const char*);
 
-struct ObjString {
-    Obj obj;
-    int length;
-    char* chars;
-    uint32_t hash;
-};
-
 typedef struct ObjInt {
     Obj obj;
     Int bigInt;
@@ -68,24 +60,25 @@ typedef struct ObjFunction {
 typedef struct {
     Obj obj;
     ObjString* name;
-    ValueTable methods;
+    KeyValueStore methods;
 } ObjClass;
 
 typedef struct {
     Obj obj;
     ObjClass* klass;
-    ValueTable fields;
+    KeyValueStore fields;
 } ObjInstance;
 
 typedef struct {
     Obj obj;
     ObjConcreteYargTypeMap* type;
-    ValueTable entries;
+    KeyValueStore entries;
 } ObjMap;
 
-ObjFunction* newFunction();
+ObjFunction* newFunction(void);
 void initFunction(ObjFunction* function);
 ObjString* functionToString(const ObjFunction* function);
+void freeFunction(ObjFunction* function);
 
 ObjClass* newClass(ObjString* name);
 ObjInstance* newInstance(ObjClass* klass);
@@ -99,7 +92,7 @@ ObjString* copyStringWithEscapes(const char* chars, int length);
 ObjString* concatenateStrings(ObjString* a, ObjString* b);
 
 ObjInt* allocateIntObject(size_t numDigits);
-Value defaultIntValue();
+Value defaultIntValue(void);
 void noLongerLiteralInt(Value *value);
 
 #endif

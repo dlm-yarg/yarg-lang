@@ -2,12 +2,15 @@
 #define cyarg_vm_h
 
 #include "object.h"
+#include "memory.h"
+#include "object_gc.h"
 #include "yargobject.h"
 #include "table.h"
+#include "stringstore.h"
+#include "keyvaluestore.h"
 #include "value.h"
 #include "vm-result.h"
 
-#include "memory.h"
 #include "routine.h"
 #include "vm_mutex.h"
 
@@ -25,22 +28,12 @@ typedef struct {
     
     vm_mutex env;
     
-    ValueCellTable globals;
-    ValueTable strings;
+    KeyValueStore globals;
+    StringStore stringStore;
     ObjString* initString;
     ObjString* libraryPath;
 
-    vm_mutex heap;
-    O1HeapInstance* heap_instance;
-
-    Value tempRoots[TEMP_ROOTS_MAX];
-    Value* tempRootsTop;
-
-    size_t nextGC;
-    Obj* objects;
-    int grayCount;
-    int grayCapacity;
-    Obj** grayStack;
+    vm_mutex  mem;
 } VM;
 
 extern VM vm;
@@ -49,7 +42,6 @@ extern VM vm;
 void initVMMemory();
 void initVMRuntime();
 void freeVM();
-void markVMRoots();
 
 InterpretResult bootScript(ObjString* filename);
 InterpretResult compileScript(ObjString* filename, Value* compileResult);
@@ -62,5 +54,7 @@ bool installPinnedRoutine(ObjRoutine* pinnedRoutine, uintptr_t* address);
 bool removePinnedRoutine(uintptr_t address);
 
 void runOnCore1(ObjRoutine* routine);
+
+Value op_len(ObjRoutine* context);
 
 #endif
