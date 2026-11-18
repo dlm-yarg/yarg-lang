@@ -9,8 +9,8 @@
  * with a stdlib compatible interface. See vm-c-heap/ .
  */
 
-#include <stddef.h>
 #include "vm_mutex.h"
+#include <stddef.h>
 
 void vm_heap_init(vm_mutex* mutex);
 

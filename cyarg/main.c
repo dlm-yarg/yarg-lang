@@ -3,18 +3,18 @@
 #include <pico/stdlib.h>
 #endif
 
-#ifdef CYARG_FEATURE_HOSTED_REPL
-#include <string.h>
-#include <stdio.h>
-#include <sysexits.h>
-#endif
-
 #include "common.h"
 #include "vm_mutex.h"
 #include "vm.h"
 #include "debug.h"
 #ifdef CYARG_FEATURE_HOSTED_REPL
 #include "hosted.h"
+#endif
+
+#ifdef CYARG_FEATURE_HOSTED_REPL
+#include <string.h>
+#include <stdio.h>
+#include <sysexits.h>
 #endif
 
 #ifdef CYARG_FEATURE_HOSTED_REPL

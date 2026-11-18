@@ -1,10 +1,5 @@
 #include "hosted.h"
 
-#include <stdlib.h>
-#include <sysexits.h>
-#include <assert.h>
-#include <string.h>
-
 #include "common.h"
 #include "object_gc.h"
 #include "object.h"
@@ -15,6 +10,11 @@
 #include "packed_containers.h"
 #include "fs/fs.h"
 #include "memory.h"
+
+#include <stdlib.h>
+#include <sysexits.h>
+#include <assert.h>
+#include <string.h>
 
 Host vmHost;
 
