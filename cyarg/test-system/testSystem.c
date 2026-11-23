@@ -189,16 +189,16 @@ TestSystem *self(void)
     if (firstTime)
     {
         firstTime = false;
-        pthread_cond_init(&ts.handlers_.triggerInterrupts_, 0);
-        pthread_cond_init(&ts.handlers_.doneInterrupts_, 0);
-        pthread_mutex_init(&ts.expected_.mutex_, 0);
-        pthread_mutex_init(&ts.memory_.mutex_, 0);
-        pthread_mutex_init(&ts.scheduled_.mutex_, 0);
-        pthread_mutex_init(&ts.handlers_.itemsMutex_, 0);
+        assert(pthread_cond_init(&ts.handlers_.triggerInterrupts_, 0) == 0);
+        assert(pthread_cond_init(&ts.handlers_.doneInterrupts_, 0) == 0);
+        assert(pthread_mutex_init(&ts.expected_.mutex_, 0) == 0);
+        assert(pthread_mutex_init(&ts.memory_.mutex_, 0) == 0);
+        assert(pthread_mutex_init(&ts.scheduled_.mutex_, 0) == 0);
+        assert(pthread_mutex_init(&ts.handlers_.itemsMutex_, 0) == 0);
 //        pthread_mutex_init(&ts.handlers_.triggerOrDoneMutex_, 0);
 
         ts.handlers_.triggerOrDoneMutex_ = &ts.handlers_.itemsMutex_;
-        pthread_mutex_init(&ts.logMutex_, 0);
+        assert(pthread_mutex_init(&ts.logMutex_, 0) == 0);
     }
     return (TestSystem *)&ts;
 }
@@ -252,7 +252,7 @@ void *simulateInterrupt(void *indexAsP) // thread entry
         assert(ts->handlers_.i_[index].state_ == Installing);
 
         ts->handlers_.i_[index].state_ = Waiting;
-        pthread_mutex_unlock(&ts->handlers_.itemsMutex_);
+        assert(pthread_mutex_unlock(&ts->handlers_.itemsMutex_) == 0);
     }
 
     while (1)
@@ -261,14 +261,13 @@ void *simulateInterrupt(void *indexAsP) // thread entry
         {
             assert(pthread_mutex_lock(&ts->handlers_.itemsMutex_) == 0);
             s = ts->handlers_.i_[index].state_;
-            pthread_mutex_unlock(&ts->handlers_.itemsMutex_);
+            assert(pthread_mutex_unlock(&ts->handlers_.itemsMutex_) == 0);
         }
         {
             assert(pthread_mutex_lock(ts->handlers_.triggerOrDoneMutex_) == 0);
             ts->handlers_.numWaiting_++;
-            int e = pthread_cond_signal(&ts->handlers_.doneInterrupts_);
-            assert(e == 0);
-            pthread_mutex_unlock(ts->handlers_.triggerOrDoneMutex_);
+            assert(pthread_cond_signal(&ts->handlers_.doneInterrupts_) == 0);
+            assert(pthread_mutex_unlock(ts->handlers_.triggerOrDoneMutex_) == 0);
         }
         if (s == Dead)
         {
@@ -277,12 +276,13 @@ void *simulateInterrupt(void *indexAsP) // thread entry
 
         {
             assert(pthread_mutex_lock(ts->handlers_.triggerOrDoneMutex_) == 0);
-            int e;
+            int e = 0;
             while (ts->handlers_.i_[index].state_ == Waiting)
             {
                 e = pthread_cond_wait(&ts->handlers_.triggerInterrupts_, ts->handlers_.triggerOrDoneMutex_); // unlocks then locks triggerOrDoneMutex_
             }
-            pthread_mutex_unlock(ts->handlers_.triggerOrDoneMutex_);
+            assert(e == 0);
+            assert(pthread_mutex_unlock(ts->handlers_.triggerOrDoneMutex_) == 0);
         }
         void (*theIsr)() = 0;
         {
@@ -301,7 +301,7 @@ void *simulateInterrupt(void *indexAsP) // thread entry
             {
                 assert(s == Waiting);
             }
-            pthread_mutex_unlock(&ts->handlers_.itemsMutex_);
+            assert(pthread_mutex_unlock(&ts->handlers_.itemsMutex_) == 0);
         }
         if (s != Running) continue;
 
@@ -316,7 +316,7 @@ void *simulateInterrupt(void *indexAsP) // thread entry
         {
             assert(pthread_mutex_lock(&ts->handlers_.itemsMutex_) == 0);
             ts->handlers_.i_[index].state_ = Waiting;
-            pthread_mutex_unlock(&ts->handlers_.itemsMutex_);
+            assert(pthread_mutex_unlock(&ts->handlers_.itemsMutex_) == 0);
         }
     }
 }
@@ -339,7 +339,7 @@ size_t read(size_t address)
                 break;
             }
         }
-        pthread_mutex_unlock(&ts->memory_.mutex_);
+        assert(pthread_mutex_unlock(&ts->memory_.mutex_) == 0);
     }
     if (writtenOrSet)
     {
@@ -365,7 +365,7 @@ size_t read(size_t address)
                 }
                 ts->expected_.n_--;
             }
-            pthread_mutex_unlock(&ts->expected_.mutex_);
+            assert(pthread_mutex_unlock(&ts->expected_.mutex_) == 0);
         }
         if (!read)
         {
@@ -388,7 +388,7 @@ size_t read(size_t address)
                     }
                     ts->expected_.n_--;
                 }
-                pthread_mutex_unlock(&ts->expected_.mutex_);
+                assert(pthread_mutex_unlock(&ts->expected_.mutex_) == 0);
             }
         }
         if (!read)
@@ -420,7 +420,7 @@ void write(size_t address, size_t value)
         }
         extend(&ts->memory_, sizeof ts->memory_.i_[0]);
         ts->memory_.i_[ts->memory_.n_++] = (struct TsMemoryItem){address, value};
-        pthread_mutex_unlock(&ts->memory_.mutex_);
+        assert(pthread_mutex_unlock(&ts->memory_.mutex_) == 0);
     }
 
     bool written = false;
@@ -445,7 +445,7 @@ void write(size_t address, size_t value)
             }
             ts->expected_.n_--;
         }
-        pthread_mutex_unlock(&ts->expected_.mutex_);
+        assert(pthread_mutex_unlock(&ts->expected_.mutex_) == 0);
     }
     if (!written)
     {
@@ -468,7 +468,7 @@ void write(size_t address, size_t value)
                 }
                 ts->expected_.n_--;
             }
-            pthread_mutex_unlock(&ts->expected_.mutex_);
+            assert(pthread_mutex_unlock(&ts->expected_.mutex_) == 0);
         }
     }
     if (!written)
@@ -483,7 +483,7 @@ void addInterruptHandler(uint32_t intId, void (*address)(void))
 
     struct TsInterruptHandler *newHandler = 0;
     {
-        pthread_mutex_lock(&ts->handlers_.itemsMutex_);
+        assert(pthread_mutex_lock(&ts->handlers_.itemsMutex_) == 0);
         for (int i = 0; i < ts->handlers_.n_; i++)
         {
             if (ts->handlers_.i_[i].id_ == intId && ts->handlers_.i_[i].isr_ == address)
@@ -499,19 +499,20 @@ void addInterruptHandler(uint32_t intId, void (*address)(void))
             newHandler->id_ = intId;
             newHandler->isr_ = address;
             newHandler->state_ = Installing;
-            pthread_create(&newHandler->t_, 0, simulateInterrupt, (void *)(uintptr_t)(ts->handlers_.n_ - 1));
+            assert(pthread_create(&newHandler->t_, 0, simulateInterrupt, (void *)(uintptr_t)(ts->handlers_.n_ - 1)) == 0);
         }
-        pthread_mutex_unlock(&ts->handlers_.itemsMutex_);
+        assert(pthread_mutex_unlock(&ts->handlers_.itemsMutex_) == 0);
     }
     if (newHandler != 0)
     {
         assert(pthread_mutex_lock(ts->handlers_.triggerOrDoneMutex_) == 0);
-        int e;
+        int e = 0;
         while (newHandler->state_ == Installing)
         {
             e = pthread_cond_wait(&ts->handlers_.doneInterrupts_, ts->handlers_.triggerOrDoneMutex_); // unlocks (allows all triggered handlers to run) then locks triggerOrDoneMutex_
         }
-        pthread_mutex_unlock(ts->handlers_.triggerOrDoneMutex_);
+        assert(e == 0);
+        assert(pthread_mutex_unlock(ts->handlers_.triggerOrDoneMutex_) == 0);
     }
     else
     {
@@ -525,7 +526,7 @@ void removeInterruptHandler(uint32_t intId, void (*address)(void))
 
     bool added = false;
     {
-        pthread_mutex_unlock(&ts->handlers_.itemsMutex_);
+        assert(pthread_mutex_unlock(&ts->handlers_.itemsMutex_) == 0);
         int i = 0;
         for (; i < ts->handlers_.n_; i++)
         {
@@ -543,7 +544,7 @@ void removeInterruptHandler(uint32_t intId, void (*address)(void))
             }
             ts->handlers_.n_--;
         }
-        pthread_mutex_unlock(&ts->handlers_.itemsMutex_);
+        assert(pthread_mutex_unlock(&ts->handlers_.itemsMutex_) == 0);
     }
     if (!added)
     {
@@ -570,7 +571,7 @@ void tslog(char const *s, ...)
         assert(pthread_mutex_lock(&ts->logMutex_) == 0);
         extend(&ts->log_, sizeof ts->log_.i_[0]);
         ts->log_.i_[ts->log_.n_++] = newString;
-        pthread_mutex_unlock(&ts->logMutex_);
+        assert(pthread_mutex_unlock(&ts->logMutex_) == 0);
     }
 }
 
@@ -588,7 +589,7 @@ TsLog *testIntrinsicsSync(void)
         {
             assert(pthread_mutex_lock(&ts->scheduled_.mutex_) == 0);
             numberToSchedule = ts->scheduled_.n_;
-            pthread_mutex_unlock(&ts->scheduled_.mutex_);
+            assert(pthread_mutex_unlock(&ts->scheduled_.mutex_) == 0);
         }
         if (numberToSchedule == 0) break;
 
@@ -596,7 +597,7 @@ TsLog *testIntrinsicsSync(void)
         {
             assert(pthread_mutex_lock(&ts->scheduled_.mutex_) == 0);
             id = ts->scheduled_.i_[0];
-            pthread_mutex_unlock(&ts->scheduled_.mutex_);
+            assert(pthread_mutex_unlock(&ts->scheduled_.mutex_) == 0);
         }
 
         bool triggerThisTranche = false;
@@ -624,7 +625,7 @@ TsLog *testIntrinsicsSync(void)
                     break;
                 }
             }
-            pthread_mutex_unlock(&ts->handlers_.itemsMutex_);
+            assert(pthread_mutex_unlock(&ts->handlers_.itemsMutex_) == 0);
         }
 
         if (found) // remove from scheduled
@@ -636,7 +637,7 @@ TsLog *testIntrinsicsSync(void)
                 ts->scheduled_.i_[i - 1] = ts->scheduled_.i_[i];
             }
             ts->scheduled_.n_--;
-            pthread_mutex_unlock(&ts->scheduled_.mutex_);
+            assert(pthread_mutex_unlock(&ts->scheduled_.mutex_) == 0);
         }
         if (triggerThisTranche)
         {
@@ -645,15 +646,16 @@ TsLog *testIntrinsicsSync(void)
                 assert(ts->handlers_.numWaiting_ == ts->handlers_.n_);
                 ts->handlers_.numWaiting_ -= numberInTranche;
                 numberInTranche = 0;
-                pthread_cond_broadcast(&ts->handlers_.triggerInterrupts_);
+                assert(pthread_cond_broadcast(&ts->handlers_.triggerInterrupts_) == 0);
 
-                int e;
+                int e = 0;
                 assert(ts->handlers_.numWaiting_ <= ts->handlers_.n_);
                 while (ts->handlers_.numWaiting_ != ts->handlers_.n_)
                 {
                     e = pthread_cond_wait(&ts->handlers_.doneInterrupts_, ts->handlers_.triggerOrDoneMutex_); // unlocks (allows all triggered handlers to run) then locks triggerOrDoneMutex_
                 }
-                pthread_mutex_unlock(ts->handlers_.triggerOrDoneMutex_);
+                assert(e == 0);
+                assert(pthread_mutex_unlock(ts->handlers_.triggerOrDoneMutex_) == 0);
             }
         }
     }
@@ -690,7 +692,7 @@ TsLog *testIntrinsicsSync(void)
             }
         }
         ts->expected_.n_ = 0;
-        pthread_mutex_unlock(&ts->expected_.mutex_);
+        assert(pthread_mutex_unlock(&ts->expected_.mutex_) == 0);
     }
     return &ts->log_; // log cleared by caller
 }
@@ -702,7 +704,7 @@ void testIntrinsicsExpectRead(size_t address, uint32_t value)
         assert(pthread_mutex_lock(&ts->expected_.mutex_) == 0);
         extend(&ts->expected_, sizeof ts->expected_.i_[0]);
         ts->expected_.i_[ts->expected_.n_++] = (struct TsExpectedItem){TsExpectedRead, address, value};
-        pthread_mutex_unlock(&ts->expected_.mutex_);
+        assert(pthread_mutex_unlock(&ts->expected_.mutex_) == 0);
     }
 }
 
@@ -713,7 +715,7 @@ void testIntrinsicsExpectReadAnyValue(size_t address)
         assert(pthread_mutex_lock(&ts->expected_.mutex_) == 0);
         extend(&ts->expected_, sizeof ts->expected_.i_[0]);
         ts->expected_.i_[ts->expected_.n_++] = (struct TsExpectedItem){TsExpectedReadAny, address, 0u};
-        pthread_mutex_unlock(&ts->expected_.mutex_);
+        assert(pthread_mutex_unlock(&ts->expected_.mutex_) == 0);
     }
 }
 
@@ -724,7 +726,7 @@ void testIntrinsicsExpectWrite(size_t address, uint32_t value)
         assert(pthread_mutex_lock(&ts->expected_.mutex_) == 0);
         extend(&ts->expected_, sizeof ts->expected_.i_[0]);
         ts->expected_.i_[ts->expected_.n_++] = (struct TsExpectedItem){TsExpectedWrite, address, value};
-        pthread_mutex_unlock(&ts->expected_.mutex_);
+        assert(pthread_mutex_unlock(&ts->expected_.mutex_) == 0);
     }
 }
 
@@ -735,7 +737,7 @@ void testIntrinsicsExpectWriteAnyValue(size_t address)
         assert(pthread_mutex_lock(&ts->expected_.mutex_) == 0);
         extend(&ts->expected_, sizeof ts->expected_.i_[0]);
         ts->expected_.i_[ts->expected_.n_++] = (struct TsExpectedItem){TsExpectedWriteAny, address, 0u};
-        pthread_mutex_unlock(&ts->expected_.mutex_);
+        assert(pthread_mutex_unlock(&ts->expected_.mutex_) == 0);
     }
 }
 
@@ -758,7 +760,7 @@ void testIntrinsicsSetMemory(size_t address, uint32_t value)
             extend(&ts->memory_, sizeof ts->memory_.i_[0]);
             ts->memory_.i_[ts->memory_.n_++] = (struct TsMemoryItem){address, value};
         }
-        pthread_mutex_unlock(&ts->memory_.mutex_);
+        assert(pthread_mutex_unlock(&ts->memory_.mutex_) == 0);
     }
 }
 
@@ -769,7 +771,7 @@ bool testIntrinsicsTriggerInterrupt(uint32_t intId)
         assert(pthread_mutex_lock(&ts->scheduled_.mutex_) == 0);
         extend(&ts->scheduled_, sizeof ts->scheduled_.i_[0]);
         ts->scheduled_.i_[ts->scheduled_.n_++] = intId;
-        pthread_mutex_unlock(&ts->scheduled_.mutex_);
+        assert(pthread_mutex_unlock(&ts->scheduled_.mutex_) == 0);
     }
     return true;
 }
@@ -800,7 +802,8 @@ void extend(void *collection, size_t itemSize)
     if (c->n_ == c->e_)
     {
         int newSize = c->e_ + 4;
-        c->i_ = vm_reallocate(c->i_, newSize * itemSize);
+        void *newCollection = vm_reallocate(c->i_, newSize * itemSize);
+        c->i_ = newCollection;
         c->e_ = newSize;
     }
 }

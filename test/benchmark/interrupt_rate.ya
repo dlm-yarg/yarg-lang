@@ -1,0 +1,148 @@
+import("timer");
+
+var r = "";
+
+
+var chan0 = make_channel();
+var chanRate0 = make_channel();
+
+var p0 = uint32(0);
+var rate0 = uint32(1000000);
+var timerawl0 = uint32(peek(timer.timerawl));
+
+fun handler0() {
+    poke timer.intr, uint32(REG_ALIAS_SET_BITS), 1; // 1 << 0
+    var overflow = share(chan0, p0);
+    if (overflow) {
+        // need to slow down - about 10%
+        rate0 = rate0 * uint32(4289);
+        rate0 = rate0 / uint32(3907);
+        // print "newRate0 = " + string(rate0);
+        share(chanRate0, rate0);
+    } else {
+        // rate increases from /1 s to /10 µs over about 1000 iterations
+        rate0 = rate0 * uint32(4289);
+        rate0 = rate0 / uint32(4339);
+        p0 = uint32(1) + p0;
+        share(chanRate0, rate0);
+    }
+    timerawl0 = rate0 + timerawl0;
+    poke timer.alarm[0], timerawl0;
+}
+
+var handler_routine0 = make_routine(handler0);
+var handler_address0 = pin(handler_routine0);
+irq_add_shared_handler(0, handler_address0, 1);
+
+poke timer.inte, uint32(REG_ALIAS_SET_BITS), uint32(1) << uint32(0);
+irq_set_enabled(timer_irq[0], true);
+timerawl0 = rate0 + timerawl0;
+poke timer.alarm[0], timerawl0;
+
+// do 1000 interrupts -- todo go until N (4?) rate increases
+
+// kick off interrupts for simulation
+test_interrupt("TIMER_IRQ_0");
+r = r + string(test_sync()) + "\
+";
+
+var v = uint32(99);
+var currentRate0 = uint32(0);
+while (v < 100) {
+    v = receive(chan0);
+    test_interrupt("TIMER_IRQ_0");
+    r = r + string(test_sync())+ "\
+";
+    print string(v) + ":" + string(p0);
+    var rate = cpeek(chanRate0);
+    if (rate != nil and rate > currentRate0) {
+        print "new rate0 = " + string(rate);
+        currentRate0 = rate;
+    }
+}
+
+irq_set_enabled(timer_irq[0], false);
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////
+var handlers = ["TIMER_IRQ_0": ["addr" : handler_address0, "chan" :chan0]];
+
+var p1 = uint32(0);
+var chan1 = make_channel();
+var chanRate1 = make_channel();
+
+rate0 = uint32(1000000);
+var rate1 = uint32(999983);
+timerawl0 = uint32(peek(timer.timerawl));
+var timerawl1 = timerawl0;
+
+fun handler1() {
+    poke timer.intr, uint32(REG_ALIAS_SET_BITS), 2; // 1 << 1
+    var overflow = share(chan1, p1);
+    if (overflow) {
+        // need to slow down - about 10%
+        rate1 = rate1 * uint32(4289);
+        rate1 = rate1 / uint32(3907);
+        // print "newRate1 = " + string(rate1);
+        share(chanRate1, rate1);
+    } else {
+        // rate increases from /1 s to /10 µs over about 1000 iterations
+        rate1 = rate1 * uint32(4289);
+        rate1 = rate1 / uint32(4339);
+        p1 = uint32(1) + p1;
+        }
+    timerawl1 = rate1 + timerawl1;
+    poke timer.alarm[1], timerawl1;
+}
+
+var handler_routine1 = make_routine(handler1);
+var handler_address1 = pin(handler_routine1);
+irq_add_shared_handler(1, handler_address1, 1);
+
+handlers["TIMER_IRQ_1"] = ["addr" : handler_address1, "chan" : chan1];
+
+poke timer.inte, uint32(REG_ALIAS_SET_BITS), uint32(1) << uint32(1);
+irq_set_enabled(timer_irq[0], true);
+irq_set_enabled(timer_irq[1], true);
+timerawl1 = rate1 + timerawl1;
+poke timer.alarm[1], timerawl1;
+
+// do 1000 interrupts receiving in a sync_group -- todo go until N (4?) rate increases
+
+var channels = [handlers["TIMER_IRQ_0"]["chan"], handlers["TIMER_IRQ_1"]["chan"]];
+var group = make_sync_group(channels);
+
+// kick off interrupts for simulation -- TIMER_IRQ_0 already pending
+test_interrupt("TIMER_IRQ_1");
+r = r + string(test_sync())+ "\
+";
+
+v = [499, 499];
+currentRate0 = uint32(0);
+var currentRate1 = currentRate0;
+while (v[1] < 500000) {
+    v = receive(group);
+    print string(v[0]) + ":" + string(p0) + ", " + string(v[1]) + ":" + string(p1);
+    test_interrupt("TIMER_IRQ_0");
+    test_interrupt(1);
+    r = r + string(test_sync())+ "\
+";
+    var rate = cpeek(chanRate0);
+    if (rate != nil and rate != currentRate0) {
+        print "new rate0 = " + string(rate);
+        currentRate0 = rate;
+    }
+    rate = cpeek(chanRate1);
+    if (rate != nil and rate != currentRate1) {
+        print "new rate1 = " + string(rate);
+        currentRate1 = rate;
+    }
+}
+
+irq_set_enabled(timer_irq[0], false);
+irq_set_enabled(timer_irq[1], false);
+
+irq_remove_handler(1, handlers["TIMER_IRQ_0"]["addr"]);
+irq_remove_handler(2, handlers["TIMER_IRQ_1"]["addr"]);
+
+print r;

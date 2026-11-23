@@ -9,6 +9,7 @@
 #include "sync_group.h"
 #include "vm_mutex.h"
 
+#include <assert.h>
 #include <stdio.h>
 #ifdef CYARG_PTHREADS_SYNC
 #include <semaphore.h>
@@ -33,8 +34,9 @@ typedef struct ObjChannelContainer {
 } ObjChannelContainer;
 
 ObjChannelContainer* newChannel(ObjRoutine* routine, size_t capacity) {
+    RS_ENTRY;
+    TR_ENTRY;
     ObjChannelContainer* channel = ALLOCATE_OBJ(ObjChannelContainer, OBJ_CHANNELCONTAINER);
-    push(routine, IMPL_OBJ_VAL(channel));
     channel->overflow = false;
 
     channel->buffer = ALLOCATE(Value, capacity);
@@ -50,10 +52,14 @@ ObjChannelContainer* newChannel(ObjRoutine* routine, size_t capacity) {
     if (channel->access == SEM_FAILED) {
         pop(routine);
         runtimeError(routine, "Semaphore open failed.");
+        TR_EXIT(0);
+        RS_EXIT(0);
         return NULL;
     }
 #endif
     pop(routine);
+    TR_EXIT(0);
+    RS_EXIT(0);
     return channel;
 }
 
@@ -66,13 +72,6 @@ void gc_freeChannelObject(ObjChannelContainer* channel) {
     gc_free(channel->buffer);
 }
 
-size_t readCursor(const ObjChannelContainer* channel) {
-    size_t count = channel->occupied;
-    size_t size = channel->bufferSize;
-    size_t cursor = (channel->writeCursor + size - count) % size;
-    return cursor;
-}
-
 static void channelMutexEnter(ObjChannelContainer* channel) {
     vm_mutex_enter_blocking(channel->lock_access);
 }
@@ -80,14 +79,23 @@ static void channelMutexEnter(ObjChannelContainer* channel) {
 static void channelMutexLeave(ObjChannelContainer* channel) {
     vm_mutex_exit(channel->lock_access);
 }
- 
+
+size_t readCursor(const ObjChannelContainer* channel) {
+    size_t count = channel->occupied;
+    size_t size = channel->bufferSize;
+    size_t cursor = (channel->writeCursor + size - count) % size;
+    return cursor;
+}
+
 void markChannel(ObjChannelContainer* channel) {
     if (channel->buffer != 0) {
+        channelMutexEnter((ObjChannelContainer*)channel);
         size_t cursor = readCursor(channel);
         for (int i = 0; i < channel->occupied; i++) {
             markValue(channel->buffer[cursor]);
             cursor = (cursor + 1) % channel->bufferSize;
         }
+        channelMutexLeave((ObjChannelContainer*)channel);
     }
 }
 
@@ -185,7 +193,9 @@ Value peekChannel(ObjChannelContainer* channel) {
     Value result = NIL_VAL;
 
     if (channel->occupied > 0) {
+        channelMutexEnter((ObjChannelContainer*)channel);
         result = channel->buffer[readCursor(channel)];
+        channelMutexLeave((ObjChannelContainer*)channel);
     }
 
     return result;

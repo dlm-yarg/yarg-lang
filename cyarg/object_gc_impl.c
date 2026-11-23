@@ -413,13 +413,9 @@ void freeObject(Obj* object) {
         }
         case OBJ_NATIVE: break;
         case OBJ_BUILTIN: break;
-        case OBJ_ROUTINE: {
-            ObjRoutine* routine = (ObjRoutine*)object;
-            gc_free(routine->stackSlices);
-            gc_freeDynamicObjArray(&routine->additionalSlicesArray);
-            gc_freeDynamicObjArray(&routine->runtimeErrors);
+        case OBJ_ROUTINE:
+            gc_freeRoutine((ObjRoutine*)object);
             break;
-        }
         case OBJ_STRING: heap_free(((ObjString*)object)->chars); break;
         case OBJ_UPVALUE: break;
         case OBJ_CHANNELCONTAINER: gc_freeChannelObject((ObjChannelContainer*)object); break;

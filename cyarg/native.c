@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
+#include <assert.h>
 
 #include "common.h"
 #include "object.h"
@@ -30,6 +31,8 @@ static Value nativeArgument(ObjRoutine* routine, size_t argCount, size_t argumen
 }
 
 bool irq_add_shared_handlerNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
 
     Value numVal = nativeArgument(routine, argCount, 0);
     Value address = nativeArgument(routine, argCount, 1);
@@ -66,10 +69,14 @@ bool irq_add_shared_handlerNative(ObjRoutine* routine, int argCount, Value* resu
     #error "No IRQ handler implementation for this build."
 #endif
 
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
 }
 
 bool irq_remove_handlerNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
 
     Value numVal = nativeArgument(routine, argCount, 0);
     Value address = nativeArgument(routine, argCount, 1);
@@ -100,21 +107,29 @@ bool irq_remove_handlerNative(ObjRoutine* routine, int argCount, Value* result) 
 #endif
 
     removePinnedRoutine(isrRoutine);
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
 }
 
 
 bool clockNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
     if (argCount != 0) {
         runtimeError(routine, "Expected 0 arguments but got %d.", argCount);
         return false;
     }
 
     *result = SIZE_T_UI_VAL(clock() / CLOCKS_PER_SEC);
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
 }
 
 bool clock_get_hzNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 arguments but got %d.", argCount);
         return false;
@@ -133,10 +148,14 @@ bool clock_get_hzNative(ObjRoutine* routine, int argCount, Value* result) {
 #endif
 
     *result = SIZE_T_UI_VAL(res);
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
 }
 
 bool stdin_getsNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
     if (argCount != 0) {
         runtimeError(routine, "Expected 0 arguments but got %d.", argCount);
         return false;
@@ -153,6 +172,8 @@ bool stdin_getsNative(ObjRoutine* routine, int argCount, Value* result) {
         length--;
     }
     *result = STRING_VAL(copyString(buffer, (int) length));
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
 }
 
@@ -162,6 +183,8 @@ bool stdin_eofNative(ObjRoutine* routine, int argCount, Value* result) {
 }
 
 bool stdout_putsNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
         return false;
@@ -179,10 +202,14 @@ bool stdout_putsNative(ObjRoutine* routine, int argCount, Value* result) {
     int32_t res = fputs(AS_CSTRING(strVal), stdout);
     *result = I32_VAL(res);
 #endif
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
 }
 
 bool stderr_putsNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
         return false;
@@ -200,12 +227,18 @@ bool stderr_putsNative(ObjRoutine* routine, int argCount, Value* result) {
     int32_t res = fputs(AS_CSTRING(strVal), stderr);
     *result = I32_VAL(res);
 #endif
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
 }
 
 bool stderr_put_newlineNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
     if (argCount != 0) {
         runtimeError(routine, "Expected 0 arguments but got %d.", argCount);
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 
@@ -216,63 +249,93 @@ bool stderr_put_newlineNative(ObjRoutine* routine, int argCount, Value* result) 
     int32_t res = fputs("\n", stderr);
     *result = I32_VAL(res);
 #endif
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
 }
 
 
 #if defined(CYARG_FEATURE_HOSTED_REPL)
 bool host_argcNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
     if (argCount != 0) {
         runtimeError(routine, "Expected 0 arguments but got %d.", argCount);
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 
     *result = I32_VAL(vmHost.argc);
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
 }
 
 bool host_argnNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 
     Value indexVal = nativeArgument(routine, argCount, 0);
     if (!is_positive_integer(indexVal)) {
         runtimeError(routine, "Expected a positive integer.");
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
     size_t index = as_positive_integer(indexVal);
     if (index >= vmHost.argc) {
         runtimeError(routine, "Argument index out of range.");
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 
     *result = STRING_VAL(copyString(vmHost.argv[index], (int) strlen(vmHost.argv[index])));
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
 }
 
 bool host_exitCodeNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 
     Value codeVal = nativeArgument(routine, argCount, 0);
     if (!is_positive_integer(codeVal)) {
         runtimeError(routine, "Expected a positive integer.");
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
     size_t code = as_positive_integer(codeVal);
     vmHost.exitCode = (int) code;
     *result = NIL_VAL;
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
 }
 #endif
 
 bool readFileIntoBufferNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
     if (argCount != 3) {
         runtimeError(routine, "Expected 3 arguments but got %d.", argCount);
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 
@@ -282,15 +345,21 @@ bool readFileIntoBufferNative(ObjRoutine* routine, int argCount, Value* result) 
 
     if (!is_positive_integer(bufferSizeVal)) {
         runtimeError(routine, "Expected a positive integer for the buffer size.");
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 
     if (!IS_STRING(pathVal)) {
         runtimeError(routine, "Expected a string for the file path.");
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
     if (!IS_ADDRESS(bufferVal)) {
         runtimeError(routine, "Expected an address for the buffer.");
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 
@@ -300,19 +369,26 @@ bool readFileIntoBufferNative(ObjRoutine* routine, int argCount, Value* result) 
 
     readFileIntoBuffer(path, buf, bufferSize);
 
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
-
 }
 
 bool fileSizeNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 
     Value pathVal = nativeArgument(routine, argCount, 0);
     if (!IS_STRING(pathVal)) {
         runtimeError(routine, "Expected a string.");
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
     const char* path = AS_CSTRING(pathVal);
@@ -320,41 +396,59 @@ bool fileSizeNative(ObjRoutine* routine, int argCount, Value* result) {
     size_t size = fileSize(path);
 
     *result = SIZE_T_UI_VAL(size);
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
 }
 
 bool fileExistsNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 
     Value pathVal = nativeArgument(routine, argCount, 0);
     if (!IS_STRING(pathVal)) {
         runtimeError(routine, "Expected a string.");
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
     const char* path = AS_CSTRING(pathVal);
 
     *result = BOOL_VAL(fileExists(path));
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
 }
 
 bool vm_xip_string_nodeNative(ObjRoutine* routine, int argCount, Value* result) {
+    RS_ENTRY;
+    TR_ENTRY;
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 
     Value nodeVal = nativeArgument(routine, argCount, 0);
     if (!is_positive_integer(nodeVal)) {
         runtimeError(routine, "Expected a positive integer for the node.");
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 
     size_t node = as_positive_integer(nodeVal);
     if (node > UINT16_MAX) {
         runtimeError(routine, "Node value out of range.");
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
     uint16_t node16 = (uint16_t) node;
@@ -362,10 +456,14 @@ bool vm_xip_string_nodeNative(ObjRoutine* routine, int argCount, Value* result) 
     const char* string = xipLibraryStringNode(node16);
     if (string == NULL) {
         runtimeError(routine, "String node not found.");
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 
     Value stringVal = cstring_val(string);
     *result = stringVal;
+    TR_EXIT(0);
+    RS_EXIT(0);
     return true;
 }

@@ -76,7 +76,8 @@ typedef enum {
    TypeStruct,
    TypePointer,
    TypeMap,
-   TypeYargType
+   TypeYargType,
+   TypeImplementationObj
 } ConcreteYargType;
 
 typedef union {

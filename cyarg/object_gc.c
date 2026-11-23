@@ -18,7 +18,7 @@
 #include "sync_group.h"
 
 // configuration
-#define TEMP_ROOTS_MAX 8
+#define TEMP_ROOTS_MAX 16
 #define FIRST_GC_AT 50 * 1024
 #define ALWAYS_GC_ABOVE 100 * 1024
 #define GC_HEAP_GROW_FACTOR 2
@@ -59,17 +59,18 @@ void vm_objects_free() {
     assert(heap_bytes_allocated() == 0);
 }
 
-void tempRootPush(Value value) {
-
-    vm_mutex_enter_blocking(vm_objects.mutex);
-
+static void tempRootPushUnlocked(Value value) {
     *vm_objects.tempRootsTop = value;
     vm_objects.tempRootsTop++;
 
-    if (vm_objects.tempRootsTop - &vm_objects.tempRoots[0] >= TEMP_ROOTS_MAX) {
+    if (vm_objects.tempRootsTop - &vm_objects.tempRoots[0] > TEMP_ROOTS_MAX) {
         fatalVMError("Allocation Stash Max Exeeded.");
     }
+}
 
+void tempRootPush(Value value) {
+    vm_mutex_enter_blocking(vm_objects.mutex);
+    tempRootPushUnlocked(value);
     vm_mutex_exit(vm_objects.mutex);
 }
 
@@ -81,7 +82,21 @@ void tempObjRootPush(Obj* object) {
 Value tempRootPop() {
     vm_mutex_enter_blocking(vm_objects.mutex);
     vm_objects.tempRootsTop--;
+    assert(vm_objects.tempRootsTop >= vm_objects.tempRoots);
     Value result = *vm_objects.tempRootsTop;
+    vm_mutex_exit(vm_objects.mutex);
+    return result;
+}
+
+Value tempRootPopBelow(int depth) {
+    vm_mutex_enter_blocking(vm_objects.mutex);
+    assert(&vm_objects.tempRootsTop[-depth - 1] >= vm_objects.tempRoots);
+    Value *v = &vm_objects.tempRootsTop[-depth - 1];
+    Value result = *v;
+    vm_objects.tempRootsTop--;
+    for (; v < vm_objects.tempRootsTop; v++) {
+        *v = v[1];
+    }
     vm_mutex_exit(vm_objects.mutex);
     return result;
 }
@@ -91,12 +106,16 @@ void gc_register_object(Obj* object) {
 
     object->next = vm_objects.objects;
     vm_objects.objects = object;
-    
+    tempRootPushUnlocked(IMPL_OBJ_VAL(object));
     vm_mutex_exit(vm_objects.mutex);
 }
 
 void pinObj(Obj* object) {
     ; // currently a nop.
+}
+
+size_t tempRootDebugSize(void) {
+    return vm_objects.tempRootsTop - vm_objects.tempRoots;
 }
 
 void gc_objects(size_t newSize) {
@@ -112,6 +131,7 @@ void gc_objects(size_t newSize) {
 }
 
 void markObject(Obj* object) {
+    assert(((uintptr_t) object & 7) == 0);
     if (object == NULL) return;
     if (object->isMarked) return;
 
@@ -159,6 +179,7 @@ static void markRoots() {
 static void traceReferences() {
     while (vm_objects.grayCount > 0) {
         Obj* object = vm_objects.grayStack[--vm_objects.grayCount];
+        assert(((uintptr_t) object & 7) == 0);
         blackenObject(object);
     }
 }

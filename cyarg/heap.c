@@ -60,24 +60,25 @@ void* heap_allocate(size_t size) {
 
 void* heap_reallocate(void* old_pointer, size_t new_size) {
 #if defined CYARG_CSTDLIB_HEAP
-    heap_item* old_item = (heap_item*)((uint8_t*)old_pointer - offsetof(heap_item, data));
+    heap_item* old_item;
     if (old_pointer != NULL) {
+        old_item = (heap_item*)((uint8_t*)old_pointer - offsetof(heap_item, data));;
         cyarg_heap.bytes_allocated -= old_item->size;
+    } else {
+        old_item = 0;
     }
 
     if (new_size == 0) {
         if (old_pointer != NULL) {
-//            printf("%p free: %zu\n", old_item, old_item->size);
             free(old_item);
         }
         return NULL;
     }
 
-    heap_item* item = realloc(old_pointer == NULL ? NULL : old_item, new_size + sizeof(heap_item));
+    heap_item* item = realloc(old_item, new_size + sizeof (heap_item));
     if (item != NULL) {
         item->size = new_size;
         cyarg_heap.bytes_allocated += new_size;
-//        printf("%p realloc: %zu (from %p)\n", item, item->size, old_pointer == NULL ? NULL : old_item);
         return &item->data[0];
     }
     return NULL;

@@ -1127,7 +1127,7 @@ const SimpleYargTypes yargTypes = {
     .class_ = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeClass },
     .string = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeString },
     .integer = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeInt },
-    .implementation_obj = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeBool },
+    .implementation_obj = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeImplementationObj },
     .function = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeFunction },
     .routine = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeRoutine },
     .channel = { .obj = { .type = OBJ_YARGTYPE, .isMarked = true, .next = NULL }, .yt = TypeChannel },

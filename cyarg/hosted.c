@@ -25,6 +25,7 @@ void reportErrors(Value errors) {
     for (size_t i = 0; i < cardinality; i++) {
         Value error = arrayElement(errors, i);
         fprintf(stderr, "%s\n", AS_CSTRING(error));
+        tempRootPop();
     }
 }
 
@@ -42,17 +43,18 @@ int bootHosted() {
 }
 
 int bootstrapHostedFile(const char* path) {
-
+    TR_ENTRY;
     vmHost.exitCode = EX_OK;
 
     ObjString* pathString = copyString(path, (int) strlen(path));
-    tempRootPush(STRING_VAL(pathString));
 
     InterpretResult result = bootScript(pathString);
+    assert(tempRootPop().as.obj == &pathString->obj);
 
-    tempRootPop();
+    TR_EXIT(0);
     if (result == INTERPRET_RUNTIME_ERROR) {
         reportErrors(vm.core0.error);
+        TR_EXIT(0);
         return EX_SOFTWARE;
     } else {
         return vmHost.exitCode;
@@ -62,7 +64,6 @@ int bootstrapHostedFile(const char* path) {
 int compileFile(const char* path, const char* outputPath) {
 
     ObjString* pathString = copyString(path, (int) strlen(path));
-    tempRootPush(STRING_VAL(pathString));
 
     Value compilerResult;
     InterpretResult result = compileScript(pathString, &compilerResult);
@@ -84,6 +85,8 @@ int compileFile(const char* path, const char* outputPath) {
         }
     }
 
+    tempRootPop();
+    tempRootPop();
     tempRootPop();
     tempRootPop();
     return exitCode;
@@ -125,6 +128,8 @@ int disassembleFile(const char* path) {
         vm_free(source);
     }
 
+    tempRootPop();
+    tempRootPop();
     tempRootPop();
     tempRootPop();
     return returnCode;

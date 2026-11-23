@@ -7,6 +7,7 @@
 
 #include "pack_format.h"
 #include "object.h"
+#include "object_gc.h"
 #include "memory.h"
 #include "routine.h"
 #include "yargobject.h"
@@ -16,7 +17,8 @@ enum { PACKAGE_OK = 0, PACKAGE_DATAERR = 65, PACKAGE_PROTOCOL = 71, PACKAGE_SOFT
 int8_t const packageMagic[PACKAGE_MAGIC_LEN] = {0x79, 0x0a, 0x72, 0x67, 0xff, 0x42};
 int16_t const packageVersion = 0x2607;
 
-ObjFunction *loadPackageFromBuffer(ObjRoutine* context, uint8_t* buffer, size_t bufferSize) {
+ObjFunction *loadPackageFromBuffer(ObjRoutine* routine, uint8_t* buffer, size_t bufferSize) {
+    RS_ENTRY;
     int r = PACKAGE_OK;
 
     ObjFunction **functions = 0;
@@ -80,7 +82,6 @@ ObjFunction *loadPackageFromBuffer(ObjRoutine* context, uint8_t* buffer, size_t 
 
     for (int i = 0; i < h->numChunks_; i++) {
         functions[i] = newFunction();
-        push(context, FUNCTION_VAL(functions[i]));
     }
 
     uint8_t const *startOfCode = next;
@@ -158,6 +159,7 @@ ObjFunction *loadPackageFromBuffer(ObjRoutine* context, uint8_t* buffer, size_t 
                 Int *loadedInt = AS_INT(value);
                 memcpy(loadedInt, thisInt, sizeof (Int) + loadedInt->m_ * sizeof (uint16_t)); // should be able to shallow copy
                 appendToDynamicValueArray(&currentFunction->chunk.constants, value);
+                tempRootPop();
                 DP(printf(":"); int_print(thisInt));
                 break;
             }
@@ -191,13 +193,14 @@ ObjFunction *loadPackageFromBuffer(ObjRoutine* context, uint8_t* buffer, size_t 
             }
             DP(printf("\n"));
         }
+        RS_EXIT(0);
     }
 
 exit:
     if (functions != 0) {
         currentFunction = functions[0];
         for (int i = 0; i < h->numChunks_; i++) {
-            pop(context);
+            pop(routine);
         }
         vm_free(functions);
     } else {

@@ -80,7 +80,7 @@ bool is_nil(Value value) {
 }
 
 Value getPlacedValue(PlacedValue placedStorage) {
-    
+    TR_ENTRY;
     if (is_placeable_type(placedStorage.type)) {
         Value value = NIL_VAL;
         value.type = placedStorage.type;
@@ -107,10 +107,12 @@ Value getPlacedValue(PlacedValue placedStorage) {
         } else {
             fatalVMError("Unsupported placeable type: %s", placedStorage.type->yt);
         }
+        TR_EXIT(0);
         return value;
     } else {
         fatalVMError("Unsupported non-placeable type: %s", placedStorage.type->yt);
     }
+    TR_EXIT(0);
     return NIL_VAL;
 }
 
@@ -199,6 +201,7 @@ Value defaultValue(Value type) {
             case TypeChannel:
             case TypeSyncGroup:
             case TypeYargType:
+            case TypeImplementationObj:
                 return NIL_VAL;
         }
     }
@@ -311,7 +314,6 @@ static ObjString* arrayToString(Value arrayVal) {
     size_t cursor = strlen(buffer);
     for (int i = 0; i < arrayType->cardinality; i++) {
         Value element = arrayElement(arrayVal, i);
-        tempRootPush(element);
         ObjString* candidate = valueToString(element);
         snprintf(buffer + cursor, sizeof(buffer) - cursor, "%s", candidate->chars);
         cursor = strlen(buffer);
@@ -345,69 +347,76 @@ static ObjString* pointerToString(Value ptrVal) {
 }
 
 static ObjString* structToString(Value stVal) {
+    TR_ENTRY;
     const ObjConcreteYargTypeStruct* structType = (const ObjConcreteYargTypeStruct*)stVal.type;
     char buffer[1024];
     snprintf(buffer, sizeof(buffer), "struct{|%zu:%zu|", structType->field_count, structType->storage_size);
     size_t cursor = strlen(buffer);
     for (size_t i = 0; i < structType->field_count; i++) {
         Value f = structField(stVal, i);
-        tempRootPush(f);
         ObjString* fieldStr = valueToString(f);
-        tempRootPush(STRING_VAL(fieldStr));
+        assert(tempRootPopBelow(1).as.obj == 0);
+
         snprintf(buffer + cursor, sizeof(buffer) - cursor, "%s; ", fieldStr->chars);
         cursor = strlen(buffer);
-        tempRootPop();
-        tempRootPop();
+        assert(tempRootPop().as.obj == &fieldStr->obj);
     }
+    TR_EXIT(0);
     snprintf(buffer + cursor, sizeof(buffer) - cursor, "}");
-    return copyString(buffer, (int)strlen(buffer));
+    ObjString *s = copyString(buffer, (int)strlen(buffer));
+    TR_EXIT(1);
+    return s;
 }
 
 
 ObjString* valueToString(Value value) {
-
+    TR_ENTRY;
+    ObjString *s;
     if (is_nil(value)) {
-        return copyString("nil", 3);
+        s = copyString("nil", 3);
     } else if (value.type == &yargTypes.implementation_obj) {
         // implementation object
-        return objectToString(value.as.obj);
+        s = objectToString(value.as.obj);
     } else {
         switch (value.type->yt) {
-            case TypeBool:     return copyString(AS_BOOL(value) ? "true" : "false", AS_BOOL(value) ? 4 : 5);
-            case TypeDouble:   return doubleToString(AS_DOUBLE(value));
-            case TypeInt8:     return i8ToString(AS_I8(value));
-            case TypeUint8:    return ui8ToString(AS_UI8(value));
-            case TypeInt16:    return i16ToString(AS_I16(value));
-            case TypeUint16:   return ui16ToString(AS_UI16(value));
-            case TypeInt32:    return i32ToString(AS_I32(value));
-            case TypeUint32:   return ui32ToString(AS_UI32(value));
-            case TypeInt64:    return i64ToString(AS_I64(value));
-            case TypeUint64:   return ui64ToString(AS_UI64(value));
-            case TypeAddress:  return addressToString(AS_ADDRESS(value));
-            case TypeArray:    return arrayToString(value);
-            case TypeStruct:   return structToString(value);
-            case TypeYargType: return objectToString(value.as.obj);
-            case TypePointer:  return pointerToString(value);
+            case TypeBool:     s = copyString(AS_BOOL(value) ? "true" : "false", AS_BOOL(value) ? 4 : 5); break;
+            case TypeDouble:   s = doubleToString(AS_DOUBLE(value)); break;
+            case TypeInt8:     s = i8ToString(AS_I8(value)); break;
+            case TypeUint8:    s = ui8ToString(AS_UI8(value)); break;
+            case TypeInt16:    s = i16ToString(AS_I16(value)); break;
+            case TypeUint16:   s = ui16ToString(AS_UI16(value)); break;
+            case TypeInt32:    s = i32ToString(AS_I32(value)); break;
+            case TypeUint32:   s = ui32ToString(AS_UI32(value)); break;
+            case TypeInt64:    s = i64ToString(AS_I64(value)); break;
+            case TypeUint64:   s = ui64ToString(AS_UI64(value)); break;
+            case TypeAddress:  s = addressToString(AS_ADDRESS(value)); break;
+            case TypeArray:    s = arrayToString(value); break;
+            case TypeStruct:   s = structToString(value); break;
+            case TypeYargType: s = objectToString(value.as.obj); break;
+            case TypePointer:  s = pointerToString(value); break;
             case TypeInt:
-            if (IS_BIG_INT(value)) {
-                return objectToString((Obj *)AS_BIG_SMALL_INT(value).objInt_);
-            } else {
-                char sb[INT_STRLEN_FOR_INT254];
-                Int * int_ = BIG_SMALL_INT_AS_INT(AS_BIG_SMALL_INT(value));
-                char const* s = int_to_s(int_, sb, INT_STRLEN_FOR_INT254);
-                return copyString(s, (int)strlen(s));
-            }
-            case TypeMap:      return objectToString(value.as.obj);
-            case TypeString:   return objectToString(value.as.obj);
-            case TypeRoutine:  return routineToString(value);
-            case TypeClass:    return objectToString(value.as.obj);
-            case TypeInstance: return objectToString(value.as.obj);
-            case TypeFunction: return objectToString(value.as.obj);
-            case TypeChannel:  return objectToString(value.as.obj);
-            case TypeSyncGroup: return objectToString(value.as.obj);
+                if (IS_BIG_INT(value)) {
+                    s = objectToString((Obj *)AS_BIG_SMALL_INT(value).objInt_);
+                } else {
+                    char sb[INT_STRLEN_FOR_INT254];
+                    Int *int_ = BIG_SMALL_INT_AS_INT(AS_BIG_SMALL_INT(value));
+                    char const* cstring = int_to_s(int_, sb, INT_STRLEN_FOR_INT254);
+                    s = copyString(cstring, (int)strlen(cstring));
+                }
+                break;
+            case TypeMap:      s = objectToString(value.as.obj); break;
+            case TypeString:   s = objectToString(value.as.obj); break;
+            case TypeRoutine:  s = routineToString(value); break;
+            case TypeClass:    s = objectToString(value.as.obj); break;
+            case TypeInstance: s = objectToString(value.as.obj); break;
+            case TypeFunction: s = objectToString(value.as.obj); break;
+            case TypeChannel:  s = objectToString(value.as.obj); break;
+            case TypeSyncGroup: s = objectToString(value.as.obj); break;
+            default: s = 0; break;
         }
     }
-    return NULL;
+    TR_EXIT(s != 0);
+    return s;
 }
 
 bool valuesEqual(Value a, Value b) {
@@ -439,6 +448,7 @@ bool valuesEqual(Value a, Value b) {
         case TypeFunction:
         case TypeChannel:
         case TypeSyncGroup:
+        case TypeImplementationObj:
             return AS_OBJ(a) == AS_OBJ(b);
     }
     assert(false && "Unhandled value type in valuesEqual");

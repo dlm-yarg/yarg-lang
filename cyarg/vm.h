@@ -10,7 +10,7 @@
 #include "keyvaluestore.h"
 #include "value.h"
 #include "vm-result.h"
-
+#include "objroutine.h" // this is needed by VM.core0 but accessing members may cause race conditions
 #include "routine.h"
 #include "vm_mutex.h"
 

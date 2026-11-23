@@ -24,6 +24,7 @@ void freeChunk(Chunk* chunk) {
 }
 
 void writeChunk(Chunk* chunk, uint8_t byte, int line) {
+    TR_ENTRY;
     if (chunk->capacity < chunk->count + 1) {
         int oldCapacity = chunk->capacity;
         chunk->capacity = GROW_CAPACITY(oldCapacity);
@@ -32,6 +33,7 @@ void writeChunk(Chunk* chunk, uint8_t byte, int line) {
 
     chunk->code[chunk->count] = byte;
     chunk->count++;
+    TR_EXIT(0);
 }
 
 int addConstant(Chunk* chunk, Value value) {

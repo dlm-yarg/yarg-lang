@@ -97,10 +97,14 @@ bool isAddressValue(Value val) {
     }
 }
 
-static ObjString* allocateString(char* chars, int length) {
+static ObjString* allocateString(char const *chars, int length) {
+    if (memcmp(chars, "/", 1) == 0)
+    {
+        chars = chars;
+    }
     ObjString *string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
     string->length = length;
-    string->chars = chars;
+    string->chars = (char *)chars;
     string = stringStoreStore(&vm.stringStore, string);
     return string;
 }
@@ -110,6 +114,7 @@ ObjString* takeString(char* chars, int length) {
     if (s == NULL) {
         s = allocateString(chars, length);
     } else {
+        tempRootPush(STRING_VAL(s));
         vm_free(chars);
     }
     return s;
@@ -124,6 +129,8 @@ ObjString* copyString(const char* chars, int length) {
         memcpy(heapChars, chars, length);
         heapChars[length] = '\0';
         s = allocateString(heapChars, length);
+    } else {
+        tempRootPush(STRING_VAL(s));
     }
     return s;
 }

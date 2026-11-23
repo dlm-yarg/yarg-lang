@@ -127,6 +127,8 @@ static void defineNative(ObjRoutine* context, const char* name, NativeFn functio
     push(context, STRING_VAL(nameString));
     ObjNative* native = newNative(function);
     push(context, IMPL_OBJ_VAL(native));
+    assert(valuesEqual(tempRootPop(), IMPL_OBJ_VAL(native)));
+    assert(valuesEqual(tempRootPop(), IMPL_OBJ_VAL(nameString)));
 
     keyValueStoreSetValue(&vm.globals, nameString, &NATIVE_VAL(native));
     pop(context);
@@ -136,6 +138,7 @@ static void defineNative(ObjRoutine* context, const char* name, NativeFn functio
 static void defineGlobal(ObjRoutine* context, const char* name, Value value) {
     ObjString* nameString = copyString(name, (int)strlen(name));
     push(context, STRING_VAL(nameString));
+    assert(valuesEqual(tempRootPop(), IMPL_OBJ_VAL(nameString)));
 
     keyValueStoreSetValue(&vm.globals, nameString, &value);
     pop(context);
@@ -145,6 +148,7 @@ void initVMMemory(void) {
 
     memset(&vm, 0, sizeof(VM));
 
+    vm_mutex_init(&vm.env);
     vm_mutex_init(&vm.mem);
     vm_heap_init(&vm.mem);
     vm_objects_init(&vm.mem);
@@ -174,6 +178,7 @@ void initVMRuntime(void) {
     initFunction(&vm.bootFunction);
 
     vm.initString = copyString("init", 4);
+    tempRootPop();
 
     defineNative(&vm.core0, "clock", clockNative);
     defineNative(&vm.core0, "c_clock_get_hz", clock_get_hzNative);
@@ -249,15 +254,11 @@ bool callfn(ObjRoutine* routine, ObjClosure* closure, int argCount) {
         return false;
     }
 
-    if (routine->frameCount == FRAMES_MAX) {
-        runtimeError(routine, "Stack overflow.");
+    if (routineStackOverflow(routine)) {
         return false;
     }
 
-    CallFrame* frame = &routine->frames[routine->frameCount++];
-    frame->closure = closure;
-    frame->ip = closure->function->chunk.code;
-    frame->stackEntryIndex = routine->stackTopIndex - (argCount + 1);
+    routineNewFrame(routine, closure, argCount);
     return true;
 }
 
@@ -272,6 +273,7 @@ static InterpretResult callValue(ObjRoutine* routine, Value callee, int argCount
         ObjClass* klass = AS_CLASS(callee);
         ValueCell* target = peekCell(routine, argCount);
         target->value = INSTANCE_VAL(newInstance(klass));
+        tempRootPop();
         target->cellType = NULL;
         Value initializer;
         if (keyValueStoreGetValue(&klass->methods, vm.initString, &initializer)) {
@@ -351,10 +353,13 @@ static InterpretResult invoke(ObjRoutine* routine, ObjString* name, int argCount
         Value result = structField(receiver, index);
         if (!IS_CLOSURE(result)) {
             runtimeError(routine, "field value must be function.");
+            tempRootPop();
             return INTERPRET_RUNTIME_ERROR;
         }
 
-        return callfn(routine, AS_CLOSURE(result), argCount) ? INTERPRET_OK : INTERPRET_RUNTIME_ERROR;
+        InterpretResult r = callfn(routine, AS_CLOSURE(result), argCount) ? INTERPRET_OK : INTERPRET_RUNTIME_ERROR;
+        tempRootPop();
+        return r;
     }
 }
 
@@ -368,30 +373,7 @@ static void bindMethod(ObjRoutine* routine, ObjClass* klass, ObjString* name) {
     ObjBoundMethod* bound = newBoundMethod(peek(routine, 0), AS_CLOSURE(method));
     pop(routine);
     push(routine, BOUNDMETHOD_VAL(bound));
-}
-
-static ObjUpvalue* captureUpvalue(ObjRoutine* routine, ValueCell* local, size_t stackOffset) {
-    ObjUpvalue* prevUpvalue = NULL;
-    ObjUpvalue* upvalue = routine->openUpvalues;
-    while (upvalue != NULL && upvalue->stackOffset > stackOffset) {
-        prevUpvalue = upvalue;
-        upvalue = upvalue->next;
-    }
-
-    if (upvalue != NULL && upvalue->stackOffset == stackOffset) {
-        return upvalue;
-    }
-
-    ObjUpvalue* createdUpvalue = newUpvalue(local, stackOffset);
-    createdUpvalue->next = upvalue;
-
-    if (prevUpvalue == NULL) {
-        routine->openUpvalues = createdUpvalue;
-    } else {
-        prevUpvalue->next = createdUpvalue;
-    }
-
-    return createdUpvalue;
+    tempRootPop();
 }
 
 static void defineMethod(ObjRoutine* routine, ObjString* name) {
@@ -419,19 +401,19 @@ static bool derefArrayElement(ObjRoutine* routine) {
         result = arrayElement(peek(routine, 1), index);
     } else {
         Value arrayVal = pointerDestination(peek(routine, 1));
-        tempRootPush(arrayVal);
         const ObjConcreteYargTypeArray* arrayType = (const ObjConcreteYargTypeArray*)arrayVal.type;
         if (index >= arrayType->cardinality) {
             runtimeError(routine, "Array index %zu out of bounds.", index);
             return false;
         }
         result = arrayElementPointer(arrayVal, index);
-        tempRootPop();
+        assert(valuesEqual(tempRootPopBelow(1), arrayVal));
     }
 
     pop(routine);
     pop(routine);
     push(routine, result);
+    assert(valuesEqual(tempRootPop(), result));
     return true;
 }
 
@@ -468,6 +450,7 @@ static bool derefStructElement(ObjRoutine* routine) {
     pop(routine);
     pop(routine);
     push(routine, result);
+    tempRootPop();
     return true;
 }
 
@@ -551,6 +534,7 @@ static void derefPtr(ObjRoutine* routine) {
 
     pop(routine);
     push(routine, target);
+    tempRootPop();
 }
 
 static bool isFalsey(Value value) {
@@ -690,8 +674,8 @@ Value op_len(ObjRoutine* context) {
 }
 
 InterpretResult run(ObjRoutine* routine) {
-    CallFrame* frame = &routine->frames[routine->frameCount - 1];
-    routine->state = EXEC_RUNNING;
+    CallFrame* frame = routineCurrentFrame(routine);
+    routineSetStateRunning(routine);
 
 #define READ_BYTE() (*frame->ip++)
 
@@ -824,13 +808,10 @@ InterpretResult run(ObjRoutine* routine) {
     } while (false)
 
     for (;;) {
-        if (routine->state == EXEC_ERROR) {
-            assert(!IS_NIL(routine->error));
+        if (routineErrorState(routine)) {
             return INTERPRET_RUNTIME_ERROR;
         }
-        if (routine->traceExecution) {
-            traceExecution(routine);
-        }
+        traceExecutionIfEnabled(routine);
 
         uint8_t instruction = READ_BYTE();
         switch (instruction) {
@@ -875,6 +856,7 @@ InterpretResult run(ObjRoutine* routine) {
                 }
                 ObjBuiltin* builtinObj = newBuiltin(builtinFn);
                 push(routine, BUILTIN_VAL(builtinObj));
+                tempRootPop();
                 break;
             }
             case OP_SET_LOCAL: {
@@ -961,6 +943,7 @@ InterpretResult run(ObjRoutine* routine) {
                 Value lhs = duplicateValue(rhs);
                 pop(routine);
                 push(routine, lhs);
+                tempRootPop();
                 break;
             }
             case OP_GET_UPVALUE: {
@@ -1012,12 +995,12 @@ InterpretResult run(ObjRoutine* routine) {
                     Value result = structField(structVal, index);
                     pop(routine);
                     push(routine, result);
+                    assert(valuesEqual(tempRootPop(), result));
                 } else if (isStructPointer(peek(routine, 0))) {
                     Value pointerVal = peek(routine, 0);
                     ObjString* name = READ_STRING();
 
                     Value structVal = pointerDestination(pointerVal);
-                    tempRootPush(structVal);
                     size_t index;
                     if (!structFieldIndex((const ObjConcreteYargTypeStruct*)structVal.type, name, &index)) {
                         runtimeError(routine, "field not present in struct.");
@@ -1028,6 +1011,8 @@ InterpretResult run(ObjRoutine* routine) {
                     tempRootPop();
                     pop(routine);
                     push(routine, result);
+                    assert(valuesEqual(tempRootPop(), result));
+                    assert(valuesEqual(tempRootPop(), structVal));
                 } else if (IS_INT(peek(routine, 0))) {
                     Value i = pop(routine);
                     Int *b = AS_INT(i);
@@ -1271,9 +1256,7 @@ InterpretResult run(ObjRoutine* routine) {
                     runtimeError(routine, "Error: a non-nil value is required for error.");
                 } else if (IS_UNIFORMARRAY(errorValue)) {
                     // for now special case an array of errors
-                    routine->error = errorValue;
-                    routine->state = EXEC_ERROR;
-                    resetRoutine(routine);
+                    resetRoutine(routine, errorValue);
                     return INTERPRET_RUNTIME_ERROR;
                 } else {
                     runtimeError(routine, "Error: %s", valueToString(errorValue)->chars);
@@ -1373,6 +1356,7 @@ InterpretResult run(ObjRoutine* routine) {
                 if (builtinFn(routine, argCount, &result)) {
                     popN(routine, argCount);
                     push(routine, result);
+                    tempRootPop();
                 } else {
                     return INTERPRET_RUNTIME_ERROR;
                 }
@@ -1385,7 +1369,7 @@ InterpretResult run(ObjRoutine* routine) {
                 if (result != INTERPRET_OK) {
                     return result;
                 }
-                frame = &routine->frames[routine->frameCount - 1];
+                frame = routineCurrentFrame(routine);
                 break;
             }
             case OP_INVOKE: {
@@ -1395,7 +1379,7 @@ InterpretResult run(ObjRoutine* routine) {
                 if (result != INTERPRET_OK) {
                     return result;
                 }
-                frame = &routine->frames[routine->frameCount - 1];
+                frame = routineCurrentFrame(routine);
                 break;
             }
             case OP_SUPER_INVOKE: {
@@ -1406,21 +1390,16 @@ InterpretResult run(ObjRoutine* routine) {
                 if (result != INTERPRET_OK) {
                     return result;
                 }
-                frame = &routine->frames[routine->frameCount - 1];
+                frame = routineCurrentFrame(routine);
                 break;
             }
             case OP_CLOSURE: {
                 ObjFunction* function = AS_FUNCTION(READ_CONSTANT());
                 ObjClosure* closure = newClosure(function);
-                push(routine, CLOSURE_VAL(closure));
                 for (int i = 0; i < closure->cUpvalueCount; i++) {
                     uint8_t isLocal = READ_BYTE();
                     uint8_t index = READ_BYTE();
-                    if (isLocal) {
-                        closure->upvalues[i] = captureUpvalue(routine, frameSlot(routine, frame, index), stackOffsetOf(frame, index));
-                    } else {
-                        closure->upvalues[i] = frame->closure->upvalues[index];
-                    }
+                    routineCaptureUpvalue(routine, closure, i, isLocal, frame, index);
                 }
                 break;
             }
@@ -1438,11 +1417,12 @@ InterpretResult run(ObjRoutine* routine) {
                 if (remainingFrames == 0) {
                     return INTERPRET_OK;
                 }
-                frame = &routine->frames[routine->frameCount - 1];
+                frame = routineCurrentFrame(routine);
                 break;
             }
             case OP_CLASS:
                 push(routine, CLASS_VAL(newClass(READ_STRING())));
+                tempRootPop();
                 break;
             case OP_INHERIT: {
                 Value superclass = peek(routine, 1);
@@ -1514,7 +1494,6 @@ InterpretResult run(ObjRoutine* routine) {
 
                 if (IS_NIL(indexer) || IS_YARGTYPE(indexer)) {
                     ObjConcreteYargTypeMap* mapType = ALLOCATE_OBJ(ObjConcreteYargTypeMap, OBJ_YARGTYPE_MAP);
-                    tempObjRootPush((Obj*)mapType);
                     mapType->core.yt = TypeMap;
                     mapType->key_type = IS_NIL(indexer) ? NULL : AS_YARGTYPE(indexer);
                     mapType->value_type = IS_NIL(peek(routine, 1)) ? NULL : AS_YARGTYPE(peek(routine, 1));
@@ -1524,7 +1503,6 @@ InterpretResult run(ObjRoutine* routine) {
                         return INTERPRET_RUNTIME_ERROR;
                     }
                     typeObject = (ObjConcreteYargType*) mapType;
-                    tempRootPop();
                 } else if (is_positive_integer(indexer)) {
                     size_t cardinality = as_positive_integer(indexer);
                     if (cardinality == 0) {
@@ -1542,6 +1520,7 @@ InterpretResult run(ObjRoutine* routine) {
                 pop(routine);
                 pop(routine);
                 push(routine, YARGTYPE_VAL(typeObject));
+                tempRootPop();
                 break;
             }
             case OP_DEREF_PTR: {
@@ -1584,6 +1563,7 @@ InterpretResult run(ObjRoutine* routine) {
                 pop(routine);
                 pop(routine);
                 push(routine, result);
+                tempRootPop();
                 break;
             }
         }
@@ -1602,6 +1582,7 @@ typedef void (*bindBootstrapFunction)(ObjString* script);
 static void bindBootstrapCode(const char* name, size_t nameLength, 
                               const uint8_t code[], size_t codeLength) {
     vm.bootFunction.fName = copyString(name, (int)nameLength);
+    tempRootPop(); // vm.bootFunction.fName
 
     for (size_t i = 0; i < codeLength; i++) {
         writeChunk(&vm.bootFunction.chunk, code[i], 0);
@@ -1654,6 +1635,7 @@ InterpretResult bootstrapVM(Value* bootstrapResult, ObjString* script) {
     ObjClosure* closure = newClosure(&vm.bootFunction);
 
     bindEntryFn(&vm.core0, closure);
+    tempRootPop();
     pushEntryElements(&vm.core0);
 
     enterEntryFunction(&vm.core0);
@@ -1701,6 +1683,7 @@ void unaryIntOp(ObjRoutine* routine, int op) {
     int_neg(AS_INT(negI));
     pop(routine);
     push(routine, negI);
+    tempRootPop();
 }
 
 void binaryIntOp(ObjRoutine* routine, char const *c)
@@ -1753,8 +1736,9 @@ void binaryIntOp(ObjRoutine* routine, char const *c)
     default:
         assert(!"IntOp");
     }
-    routine->stackTopIndex -= 2;
+    popN(routine, 2);
     push(routine, r);
+    tempRootPop();
 }
 
 void binaryIntBoolOp(ObjRoutine* routine, char const *op)

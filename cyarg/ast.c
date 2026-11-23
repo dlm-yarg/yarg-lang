@@ -15,12 +15,16 @@
 #include "debug.h"
 
 ObjAst* newObjAst() {
+    TR_ENTRY;
     ObjAst* ast = ALLOCATE_OBJ(ObjAst, OBJ_AST);
+    TR_EXIT(1);
     return ast;
 }
 
-ObjStmt* pushNewStmt(ObjRoutine* context, ObjType type, int line) {
-    ObjStmt* stmt = NULL;
+ObjStmt* pushNewStmt(ObjRoutine* routine, ObjType type, int line) {
+    RS_ENTRY;
+    TR_ENTRY;
+    ObjStmt* stmt;
     switch (type) {
         case OBJ_STMT_EXPRESSION: stmt = (ObjStmt*) ALLOCATE_OBJ(ObjStmtExpression, OBJ_STMT_EXPRESSION); break;
         case OBJ_STMT_RETURN: stmt = (ObjStmt*) ALLOCATE_OBJ(ObjStmtExpression, OBJ_STMT_RETURN); break;
@@ -39,13 +43,17 @@ ObjStmt* pushNewStmt(ObjRoutine* context, ObjType type, int line) {
         case OBJ_STMT_FIELDDECLARATION: stmt = (ObjStmt*) ALLOCATE_OBJ(ObjStmtFieldDeclaration, OBJ_STMT_FIELDDECLARATION); break;
         default: assert(!"Unsupported statement type in pushNewStmt"); break;
     }
-    push(context, IMPL_OBJ_VAL(stmt));
+    push(routine, IMPL_OBJ_VAL(stmt));
     stmt->line = line;
+    TR_EXIT(1);
+    RS_EXIT(1);
     return stmt;
 }
 
-ObjStmt* pushNewStmtDeclaration(ObjRoutine* context, ObjType type, const char* name, int nameLength, int line) {
-    ObjStmt* stmt = pushNewStmt(context, type, line);
+ObjStmt* pushNewStmtDeclaration(ObjRoutine* routine, ObjType type, const char* name, int nameLength, int line) {
+    RS_ENTRY;
+    TR_ENTRY;
+    ObjStmt* stmt = pushNewStmt(routine, type, line);
 
     ObjString* objName = copyString(name, nameLength);
     switch (type) {
@@ -55,154 +63,213 @@ ObjStmt* pushNewStmtDeclaration(ObjRoutine* context, ObjType type, const char* n
         case OBJ_STMT_FIELDDECLARATION: ((ObjStmtFieldDeclaration*)stmt)->name = objName; break;
         default: assert(!"Unsupported statement type in pushNewStmtDeclaration"); break;
     }
+    tempRootPop(); // objName
+    TR_EXIT(1);
+    RS_EXIT(1);
     return stmt;
 }
 
-void appendPlaceAlias(ObjRoutine* context, ObjStmtPlaceDeclaration* place, ObjExpr* location, const char* name, int nameLength) {
+void appendPlaceAlias(ObjRoutine* routine, ObjStmtPlaceDeclaration* place, ObjExpr* location, const char* name, int nameLength) {
+    RS_ENTRY;
+    TR_ENTRY;
     ObjPlaceAlias* alias = ALLOCATE_OBJ(ObjPlaceAlias, OBJ_PLACEALIAS);
-    push(context, IMPL_OBJ_VAL(alias));
+    push(routine, IMPL_OBJ_VAL(alias));
+    tempRootPop();
     alias->name = copyString(name, nameLength);
+    tempRootPop(); // expr->name
     alias->location = location;
     appendToDynamicObjArray(&place->aliases, (Obj*)alias);
-    pop(context);
+    pop(routine);
+    TR_EXIT(1);
+    RS_EXIT(1);
 }
 
 ObjExprOperation* newExprOperation(ObjExpr* rhs, ExprOp op) {
+    TR_ENTRY;
     ObjExprOperation* operation = ALLOCATE_OBJ(ObjExprOperation, OBJ_EXPR_OPERATION);
     operation->rhs = rhs;
     operation->operation = op;
 
+    TR_EXIT(1);
     return operation;
 }
 
 ObjExprGrouping* newExprGrouping(ObjExpr* expression) {
+    TR_ENTRY;
     ObjExprGrouping* grp = ALLOCATE_OBJ(ObjExprGrouping, OBJ_EXPR_GROUPING);
     grp->expr.nextExpr = NULL;
     grp->expression = expression;
+    TR_EXIT(1);
     return grp;
 }
 
 ObjExprNumber* newExprNumberDouble(double value) {
+    TR_ENTRY;
     ObjExprNumber* num = ALLOCATE_OBJ(ObjExprNumber, OBJ_EXPR_NUMBER);
     num->type = NUMBER_DOUBLE;
     num->dbl = value;
+    TR_EXIT(1);
     return num;
 }
 
 ObjExprNumber* newExprNumberInt(int numberDecimalDigits) {
+    TR_ENTRY;
     uint8_t s = INT_DIGITS_FOR_S(numberDecimalDigits);
     s += s % 2;
     ObjExprNumber *num = (ObjExprNumber *) vm_object_alloc(sizeof (ObjExprNumber) + sizeof (uint16_t) * s, OBJ_EXPR_NUMBER);
     num->bigInt.m_ = s;
     num->type = NUMBER_INT;
+    TR_EXIT(1);
     return num;
 }
 
 ObjExprNumber* newExprNumberFromCint(int constant) {
-    int64_t val = constant;
+    TR_ENTRY;
+   int64_t val = constant;
     uint8_t s = (uint8_t) (sizeof(int) / sizeof(uint16_t));
     ObjExprNumber *num = (ObjExprNumber *) vm_object_alloc(sizeof (ObjExprNumber) + sizeof (uint16_t) * s, OBJ_EXPR_NUMBER);
     num->type = NUMBER_INT;
     num->bigInt.m_ = s;
     int_set_i(val, &num->bigInt);
+    TR_EXIT(1);
     return num;
 }
 
-ObjExprNamedVariable* newExprNamedVariable(ObjRoutine* context, const char* name, int nameLength) {
+ObjExprNamedVariable* newExprNamedVariable(ObjRoutine* routine, const char* name, int nameLength) {
+    RS_ENTRY;
+    TR_ENTRY;
     ObjExprNamedVariable* var = ALLOCATE_OBJ(ObjExprNamedVariable, OBJ_EXPR_NAMEDVARIABLE);
-    push(context, IMPL_OBJ_VAL(var));
+    push(routine, IMPL_OBJ_VAL(var));
     var->name = copyString(name, nameLength);
-    pop(context);
+    tempRootPop(); // var->name
+    pop(routine);
+    TR_EXIT(1);
+    RS_EXIT(0);
     return var;
 }
 
 ObjExprLiteral* newExprLiteral(ExprLiteral literal) {
+    TR_ENTRY;
     ObjExprLiteral* lit = ALLOCATE_OBJ(ObjExprLiteral, OBJ_EXPR_LITERAL);
     lit->expr.nextExpr = NULL;
     lit->literal = literal;
+    TR_EXIT(1);
     return lit;
 }
 
 ObjExprAddress* newExprAddress(uintptr_t value) {
+    TR_ENTRY;
     ObjExprAddress* addr = ALLOCATE_OBJ(ObjExprAddress, OBJ_EXPR_ADDRESS);
     addr->address = value;
+    TR_EXIT(1);
     return addr;
 }
 
-ObjExprString* newExprString(ObjRoutine* context, const char* str, int strLength) {
+ObjExprString* newExprString(ObjRoutine* routine, const char* str, int strLength) {
+    RS_ENTRY;
+    TR_ENTRY;
     ObjExprString* string = ALLOCATE_OBJ(ObjExprString, OBJ_EXPR_STRING);
-    push(context, IMPL_OBJ_VAL(string));
     string->string = copyStringWithEscapes(str, strLength);
-    pop(context);
+    assert(tempRootPop().as.obj == &string->string->obj);
+    TR_EXIT(1);
+    RS_EXIT(0);
     return string;
 }
 
 ObjExprCall* newExprCall() {
+    TR_ENTRY;
     ObjExprCall* call = ALLOCATE_OBJ(ObjExprCall, OBJ_EXPR_CALL);
+    TR_EXIT(1);
     return call;
 }
 
 ObjExprCallBuiltin* newExprCallBuiltin(ObjExprBuiltin* callee) {
+    TR_ENTRY;
     ObjExprCallBuiltin* call = ALLOCATE_OBJ(ObjExprCallBuiltin, OBJ_EXPR_CALL_BUILTIN);
     call->callee = callee;
     callee->calledImmediately = true;
+    TR_EXIT(1);
     return call;
 }
 
 ObjExprCollectionInitializer* newExprCollectionInitializer() {
+    TR_ENTRY;
     ObjExprCollectionInitializer* collection = ALLOCATE_OBJ(ObjExprCollectionInitializer, OBJ_EXPR_COLLECTION_INITIALIZER);
+    TR_EXIT(1);
     return collection;
 }
 
 ObjExprCollectionElement* newExprCollectionElement() {
+    TR_ENTRY;
     ObjExprCollectionElement* collection = ALLOCATE_OBJ(ObjExprCollectionElement, OBJ_EXPR_COLLECTION_ELEMENT);
+    TR_EXIT(1);
     return collection;
 }
 
 ObjExprTypeIndexedCollection* newExprTypeIndexedCollection() {
+    TR_ENTRY;
     ObjExprTypeIndexedCollection* collection = ALLOCATE_OBJ(ObjExprTypeIndexedCollection, OBJ_EXPR_TYPE_INDEXED_COLLECTION);
+    TR_EXIT(1);
     return collection;
 }
 
 ObjExprPair* newExprPair(ObjExpr* a, ObjExpr* b) {
+    TR_ENTRY;
     ObjExprPair* pair = ALLOCATE_OBJ(ObjExprPair, OBJ_EXPR_PAIR);
     pair->a = a;
     pair->b = b;
+    TR_EXIT(1);
     return pair;
 }
 
 ObjExprBuiltin* newExprBuiltin(ExprBuiltin fn, int arity) {
+    TR_ENTRY;
     ObjExprBuiltin* builtin = ALLOCATE_OBJ(ObjExprBuiltin, OBJ_EXPR_BUILTIN);
     builtin->expr.nextExpr = NULL;
     builtin->builtin = fn;
     builtin->arity = arity;
+    TR_EXIT(1);
     return builtin;
 }
 
-ObjExprDot* newExprDot(ObjRoutine* context, const char* name, int nameLength) {
+ObjExprDot* newExprDot(ObjRoutine* routine, const char* name, int nameLength) {
+    RS_ENTRY;
+    TR_ENTRY;
     ObjExprDot* expr = ALLOCATE_OBJ(ObjExprDot, OBJ_EXPR_DOT);
-    push(context, IMPL_OBJ_VAL(expr));
+    push(routine, IMPL_OBJ_VAL(expr));
     expr->name = copyString(name, nameLength);
-    pop(context);
+    tempRootPop(); // expr->name
+    pop(routine);
+    TR_EXIT(1);
+    RS_EXIT(0);
     return expr;
 }
 
-ObjExprSuper* newExprSuper(ObjRoutine* context, const char* name, int nameLength) {
+ObjExprSuper* newExprSuper(ObjRoutine* routine, const char* name, int nameLength) {
+    RS_ENTRY;
+    TR_ENTRY;
     ObjExprSuper* expr = ALLOCATE_OBJ(ObjExprSuper, OBJ_EXPR_SUPER);
-    push(context, IMPL_OBJ_VAL(expr));
+    push(routine, IMPL_OBJ_VAL(expr));
     expr->name = copyString(name, nameLength);
-    pop(context);
+    tempRootPop(); // expr->name
+    pop(routine);
+    TR_EXIT(1);
+    RS_EXIT(1);
     return expr;
 }
 
 ObjExprTypeLiteral* newExprType(ExprTypeLiteral type) {
+    TR_ENTRY;
     ObjExprTypeLiteral* expr = ALLOCATE_OBJ(ObjExprTypeLiteral, OBJ_EXPR_TYPE);
     expr->type = type;
+    TR_EXIT(1);
     return expr;
 }
 
 ObjExprTypeStruct* newExprTypeStruct() {
+    TR_ENTRY;
     ObjExprTypeStruct* expr = ALLOCATE_OBJ(ObjExprTypeStruct, OBJ_EXPR_TYPE_STRUCT);
+    TR_EXIT(1);
     return expr;
 }
 
@@ -650,6 +717,7 @@ void printStmts(ObjStmt* stmts) {
 }
 
 ObjString* valueAsSourceString(Value value) {
+    TR_ENTRY;
     if (IS_STRING(value)) {
         ObjString* str = AS_STRING(value);
         char* sourceStr = ALLOCATE(char, str->length + 3); // for quotes and null terminator
@@ -659,12 +727,15 @@ ObjString* valueAsSourceString(Value value) {
         ObjString* str = valueToString(value);
         return str;
     }
+    TR_EXIT(1);
 }
 
 
 void printSourceValue(FILE* op, Value value) {
+    TR_ENTRY;
     ObjString* str = valueAsSourceString(value);
     tempRootPush(STRING_VAL(str));
     fprintf(op, "%s", str->chars);
     tempRootPop();
+    TR_EXIT(-1);
 }

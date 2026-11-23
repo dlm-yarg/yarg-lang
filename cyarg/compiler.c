@@ -11,6 +11,7 @@
 #include "chunk.h"
 #include "memory.h"
 #include "object.h"
+#include "object_gc.h"
 #include "object_gc_impl.h"
 #include "yargobject.h"
 #include "scanner.h"
@@ -62,10 +63,11 @@ typedef struct ClassCompiler {
 static struct Compiler* current = NULL;
 static ClassCompiler* currentClass = NULL;
 
-static void initCompiler(Compiler* compiler, FunctionType type, ObjString* name, ObjRoutine* context) {
-
+static void initCompiler(Compiler* compiler, FunctionType type, ObjString* name, ObjRoutine* routine) {
+    RS_ENTRY;
+    TR_ENTRY;
     compiler->enclosing = current;
-    compiler->context = context;
+    compiler->context = routine;
     compiler->function = NULL;
     compiler->type = type;
     compiler->recent = NULL;
@@ -79,6 +81,7 @@ static void initCompiler(Compiler* compiler, FunctionType type, ObjString* name,
     current = compiler;
 
     compiler->function = newFunction();
+    assert(valuesEqual(tempRootPop(), IMPL_OBJ_VAL(compiler->function)));
 
     if (type != TYPE_SCRIPT) {
         current->function->fName = name;
@@ -93,6 +96,9 @@ static void initCompiler(Compiler* compiler, FunctionType type, ObjString* name,
     } else {
         local->name = copyString("", 0);
     }
+    assert(tempRootPop().as.obj == &local->name->obj);
+    TR_EXIT(0);
+    RS_EXIT(0);
 }
 
 static void errorAt(const char* location, const char* message) {
@@ -364,6 +370,7 @@ static void generateNumber(ObjExprNumber* num) {
         AS_INT(v)->literal_ = true;
         int_set_t(&num->bigInt, AS_INT(v));
         emitConstant(v);
+        if (AS_INT(v)->obj_) tempRootPop();
         break;
     }
     default:
@@ -470,23 +477,27 @@ static void generateExprNamedVariable(ObjExprNamedVariable* var) {
 
     ObjString* this_ = copyString("this", 4);
     if (identifiersEqual(this_, var->name) && currentClass == NULL) {
+        assert(tempRootPop().as.obj == &this_->obj);
         errorAt("this", "Can't use 'this' outside of a class.");
         return;
     }
-    this_ = NULL;
+    assert(tempRootPop().as.obj == &this_->obj);
 
     uint8_t getOp, setOp;
     int arg = resolveLocal(current, var->name);
     if (arg != -1) {
         getOp = OP_GET_LOCAL;
         setOp = OP_SET_LOCAL;
+        printf("L%s %d %s:%s\n", (var->assignment ? "S" : "G"), arg, (current->function->fName ? current->function->fName->chars : ""), var->name->chars);
     } else if ((arg = resolveUpvalue(current, var->name)) != -1) {
         getOp = OP_GET_UPVALUE;
         setOp = OP_SET_UPVALUE;
+        printf("U%s %d %s:%s\n", (var->assignment ? "S" : "G"), arg, (current->function->fName ? current->function->fName->chars : ""), var->name->chars);
     } else {
         arg = identifierConstant(var->name);
         getOp = OP_GET_GLOBAL;
         setOp = OP_SET_GLOBAL;
+        printf("%s %d %s:%s\n", (var->assignment ? "S" : "G"), arg, (current->function->fName ? current->function->fName->chars : ""), var->name->chars);
     }
     
     if (var->assignment) {
@@ -626,6 +637,7 @@ static void generateExprCollectionInit(ObjExprCollectionInitializer* collection)
             ObjExpr* element = (ObjExpr*)newExprNumberFromCint(i);
             push(current->context, IMPL_OBJ_VAL((Obj*)element));
             generateExpr(element);
+            tempRootPop();
             generateExpr((ObjExpr*)item_or_pair);
             emitByte(OP_SET_ELEMENT);
             pop(current->context);
@@ -1126,6 +1138,7 @@ static void generateStmtFieldDeclaration(ObjStmtFieldDeclaration* stmt) {
 }
 
 static void generateStmt(ObjStmt* stmt) {
+    TR_ENTRY;
 #ifndef COMPILE_EXCLUDE_LINE_NUMBERS
     if (current->function->chunk.numLines == 0 ||
         current->function->chunk.lines[current->function->chunk.numLines - 1].line != stmt->line) {
@@ -1144,62 +1157,79 @@ static void generateStmt(ObjStmt* stmt) {
         case OBJ_STMT_EXPRESSION:
             generateExpr(((ObjStmtExpression*)stmt)->expression);
             emitByte(OP_POP);
+        TR_EXIT(0);
             break;
         case OBJ_STMT_PRINT:
             generateExpr(((ObjStmtExpression*)stmt)->expression);
             emitByte(OP_PRINT);
+        TR_EXIT(0);
             break;
         case OBJ_STMT_ERROR:
             generateExpr(((ObjStmtExpression*)stmt)->expression);
             emitByte(OP_ERROR);
+        TR_EXIT(0);
             break;
         case OBJ_STMT_POKE:
             generateStmtPoke((ObjStmtPoke*)stmt);
+        TR_EXIT(0);
             break;
         case OBJ_STMT_VARDECLARATION:
             generateVarDeclaration((ObjStmtVarDeclaration*)stmt);
+        TR_EXIT(0);
             break;
         case OBJ_STMT_PLACEDECLARATION:
             generatePlaceDeclaration((ObjStmtPlaceDeclaration*)stmt);
+        TR_EXIT(0);
             break;
         case OBJ_STMT_BLOCK:
             generateStmtBlock((ObjStmtBlock*)stmt);
+        TR_EXIT(0);
             break;
         case OBJ_STMT_IF:
             generateStmtIf((ObjStmtIf*)stmt);
+        TR_EXIT(0);
             break;
         case OBJ_STMT_FUNDECLARATION:
             generateStmtFunDeclaration((ObjStmtFunDeclaration*)stmt);
+        TR_EXIT(0);
             break;
         case OBJ_STMT_WHILE:
             generateStmtWhile((ObjStmtWhile*)stmt);
+        TR_EXIT(0);
             break;
         case OBJ_STMT_YIELD:
             generateStmtYield((ObjStmtExpression*)stmt);
+        TR_EXIT(0);
             break;
         case OBJ_STMT_RETURN:
             generateStmtReturn((ObjStmtExpression*)stmt);
+        TR_EXIT(0);
             break;
         case OBJ_STMT_FOR:
             generateStmtFor((ObjStmtFor*)stmt);
+        TR_EXIT(0);
             break;
         case OBJ_STMT_CLASSDECLARATION:
             generateStmtClassDeclaration((ObjStmtClassDeclaration*)stmt);
+        TR_EXIT(0);
             break;
         case OBJ_STMT_FIELDDECLARATION:
             generateStmtFieldDeclaration((ObjStmtFieldDeclaration*)stmt);
+        TR_EXIT(0);
             break;
         default:
-            return; // Unexpected
+            break; // Unexpected
     }
+    TR_EXIT(0);
 }
 
 static void generate(ObjStmt* stmt) {
-
+    TR_ENTRY;
     while (stmt != NULL) {
         generateStmt(stmt);
         stmt = stmt->nextStmt;
     }
+    TR_EXIT(0);
 }
 
 static ObjFunction* endCompiler() {
@@ -1220,35 +1250,41 @@ static ObjFunction* endCompiler() {
     return function;
 }
 
-Value compile(ObjRoutine* context) {
-    Value source = peek(context, 0);
+Value compile(ObjRoutine* routine) {
+    RS_ENTRY; // 2
+    TR_ENTRY; // 1
+    Value source = peek(routine, 0);
 
     ObjScanner* scanner = newScanner(AS_STRING(source));
-    push(context, IMPL_OBJ_VAL((Obj*)scanner));
+    push(routine, IMPL_OBJ_VAL((Obj*)scanner));
+    assert(tempRootPop().as.obj == (Obj *)scanner);
 
     ObjAst* ast = newObjAst();
-    push(context, IMPL_OBJ_VAL((Obj*)ast));
+    push(routine, IMPL_OBJ_VAL((Obj*)ast));
+    assert(tempRootPop().as.obj == (Obj *)ast);
 
-    ObjParser* parser = newParser(context, ast, scanner);
-    push(context, IMPL_OBJ_VAL((Obj*)parser));
+    ObjParser* parser = newParser(routine, ast, scanner);
+    push(routine, IMPL_OBJ_VAL((Obj*)parser));
+    assert(tempRootPop().as.obj == (Obj *)parser);
 
-    struct Compiler compiler;
-    initCompiler(&compiler, TYPE_SCRIPT, NULL, context);
+    Compiler compiler;
+    initCompiler(&compiler, TYPE_SCRIPT, NULL, routine);
 
-    Value parseErrors = parse(context);
-    push(context, parseErrors);
+    Value parseErrors = parse(routine);
+    push(routine, parseErrors);
     if (IS_NIL(parseErrors)) {
         generate(ast->statements);
     }
 
     Value errors = duplicateAsValueArray(&compiler.errors);
-    push(context, errors);
+    push(routine, errors);
     
     ObjFunction* function = endCompiler();
-    push(context, FUNCTION_VAL(function));
+    push(routine, FUNCTION_VAL(function));
 
     Value result = allocValueStructPair("errors", "result");
-    push(context, result);
+    push(routine, result);
+    assert(tempRootPop().as.obj == result.as.obj);
 
     if (!IS_NIL(parseErrors)) {
         setStructField(result, 0, parseErrors);
@@ -1261,14 +1297,15 @@ Value compile(ObjRoutine* context) {
         setStructField(result, 1, FUNCTION_VAL(function));
     }
 
-    pop(context); // result
-    pop(context); // function
-    pop(context); // errors
-    pop(context); // parser
-    pop(context); // ast
-    pop(context); // scanner
+    pop(routine); // result
+    pop(routine); // function
+    pop(routine); // errors
+    pop(routine); // parser
+    pop(routine); // ast
+    pop(routine); // scanner
 
-    pop(context); // parseErrors
+    TR_EXIT(0);
+    RS_EXIT(0);
     return result;
 }
 

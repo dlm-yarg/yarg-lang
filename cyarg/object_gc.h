@@ -3,6 +3,10 @@
 
 #include "value.h"
 #include "vm_mutex.h"
+
+#define TR_ENTRY        size_t _tr_entry_ = tempRootDebugSize()
+#define TR_EXIT(EX)     do { assert(tempRootDebugSize() - _tr_entry_ - (EX) == 0); } while (0)
+
 typedef struct Obj Obj;
 
 // GC startup
@@ -19,7 +23,10 @@ void vm_objects_free();
 void tempRootPush(Value value);
 void tempObjRootPush(Obj* object);
 Value tempRootPop();
+Value tempRootPopBelow(int);
 
 void pinObj(Obj* object);
+
+size_t tempRootDebugSize(void);
 
 #endif // cyarg_object_gc_h

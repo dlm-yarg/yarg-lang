@@ -2,81 +2,31 @@
 #define cyarg_routine_h
 
 #include "value.h"
-#include "object.h"
-#include "object_dyn_array.h"
-#include "value_cell.h"
 
-#define FRAMES_MAX 20
-#define SLICE_MAX 64
+#include <inttypes.h>
 
+#define RS_ENTRY        size_t _rs_entry_ = routineStackSize(routine)
+#define RS_EXIT(EX)     do { assert(routineStackSize(routine) - _rs_entry_ - (EX) == 0); } while (0)
+
+typedef struct ObjRoutine ObjRoutine;
 typedef struct ObjClosure ObjClosure;
 typedef struct ObjUpvalue ObjUpvalue;
-
-typedef struct {
-    ObjClosure* closure;
-    uint8_t* ip;
-    size_t stackEntryIndex;
-} CallFrame;
-
-typedef enum {
-    EXEC_UNBOUND,
-    EXEC_RUNNING,
-    EXEC_SUSPENDED,
-    EXEC_CLOSED,
-    EXEC_ERROR
-} ExecState;
-
-typedef bool (*AddSliceFn)(ObjRoutine* routine);
-
-typedef struct StackSlice {
-    ValueCell elements[SLICE_MAX];
-} StackSlice;
-
-typedef struct ObjStackSlice{
-    Obj obj;
-    StackSlice slice;
-} ObjStackSlice;
-
-typedef struct ObjRoutine {
-    Obj obj;
-
-    CallFrame frames[FRAMES_MAX];
-    int frameCount;
-
-    StackSlice** stackSlices;
-    size_t stackSliceCapacity;
-    size_t sliceCount;
-    
-    size_t stackTopIndex;
-
-    StackSlice stk;
-    DynamicObjArray additionalSlicesArray;
-    AddSliceFn addSlice;
-
-    DynamicObjArray runtimeErrors;
-
-    ObjClosure* entryFunction;
-    Value entryArg;
-    Value result;
-    Value error;
-
-    ObjUpvalue* openUpvalues;
-
-    volatile ExecState state;
-    bool traceExecution;
-} ObjRoutine;
+typedef struct ValueCell ValueCell;
+typedef struct Value Value;
+typedef struct ObjString ObjString;
+typedef struct CallFrame CallFrame;
 
 void initRoutine(ObjRoutine* routine);
 ObjRoutine* newRoutine();
+void gc_freeRoutine(ObjRoutine* routine);
 void freeRoutine(ObjRoutine* routine);
-void resetRoutine(ObjRoutine* routine);
+void resetRoutine(ObjRoutine* routine, Value error);
 
 bool bindEntryFn(ObjRoutine* routine, ObjClosure* closure);
 void bindEntryArgs(ObjRoutine* routine, Value entryArg);
 void pushEntryElements(ObjRoutine* routine);
 void enterEntryFunction(ObjRoutine* routine);
 ValueCell* frameSlot(ObjRoutine* routine, CallFrame* frame, size_t index);
-size_t stackOffsetOf(CallFrame* frame, size_t frameIndex);
 
 bool pinRoutine(ObjRoutine* routine, uintptr_t* address);
 void runAndRenter(ObjRoutine* routine);
@@ -96,9 +46,20 @@ void popFrame(ObjRoutine* routine, CallFrame* frame);
 Value peek(ObjRoutine* routine, int distance);
 ValueCell* peekCell(ObjRoutine* routine, int distance);
 
+void routineNewFrame(ObjRoutine* routine, ObjClosure* closure, int argCount);
+void routineCaptureUpvalue(ObjRoutine* routine, ObjClosure* closure, int upValueIndex, bool isLocal, CallFrame* frame, uint8_t frameIndex);
+CallFrame* routineCurrentFrame(ObjRoutine* routine);
+
+void routineSetStateRunning(ObjRoutine* routine);
+bool routineSuspendedOrUnbound(ObjRoutine* routine);
+bool routineErrorState(ObjRoutine* routine);
+int routineArity(ObjRoutine* routine);
+
+size_t routineStackSize(ObjRoutine* routine);
+bool routineStackOverflow(ObjRoutine* routine);
 void runtimeError(ObjRoutine* routine, const char* format, ...);
 
-void traceExecution(ObjRoutine* routine);
+void traceExecutionIfEnabled(ObjRoutine* routine);
 
 ObjString* routineToString(Value routine);
 

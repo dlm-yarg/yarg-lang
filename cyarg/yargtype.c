@@ -32,7 +32,7 @@ const SimpleYargTypes yargTypes = {
     .routine = { .obj.isMarked = true, .obj.next = NULL, .obj.type = OBJ_YARGTYPE, .yt = TypeRoutine },
     .channel = { .obj.isMarked = true, .obj.next = NULL, .obj.type = OBJ_YARGTYPE, .yt = TypeChannel },
     .syncGroup = { .obj.isMarked = true, .obj.next = NULL, .obj.type = OBJ_YARGTYPE, .yt = TypeSyncGroup },
-    .implementation_obj = { .obj.isMarked = true, .obj.next = NULL, .obj.type = OBJ_YARGTYPE, .yt = 0 },
+    .implementation_obj = { .obj.isMarked = true, .obj.next = NULL, .obj.type = OBJ_YARGTYPE, .yt = TypeImplementationObj },
 };
 
 
@@ -102,11 +102,11 @@ size_t arrayElementOffset(const ObjConcreteYargTypeArray* arrayType, size_t inde
 }
 
 ObjConcreteYargType* newYargStructType(size_t fieldCount) {
+    TR_ENTRY;
     ObjConcreteYargTypeStruct* t = ALLOCATE_OBJ(ObjConcreteYargTypeStruct, OBJ_YARGTYPE_STRUCT);
     t->core.yt = TypeStruct;
     t->alignment = 1;
     keyValueStoreInit(&t->field_names);
-    tempObjRootPush((Obj*)t);
 
     ObjConcreteYargType** fieldTypes = ALLOCATE(ObjConcreteYargType*, fieldCount);
     for (size_t i = 0; i < fieldCount; i++) {
@@ -122,7 +122,7 @@ ObjConcreteYargType* newYargStructType(size_t fieldCount) {
     t->field_types = fieldTypes;
     t->field_count = fieldCount;
 
-    tempRootPop();
+    TR_EXIT(1);
     return (ObjConcreteYargType*)t;
 }
 
@@ -286,6 +286,7 @@ size_t yt_sizeof_type_storage(const ObjConcreteYargType* type) {
         case TypeSyncGroup:
         case TypeMap:
         case TypeYargType:
+        case TypeImplementationObj:
             return sizeof(Value);
         }
     }
@@ -338,6 +339,7 @@ size_t yt_alignmentfor_type_storage(const ObjConcreteYargType* type) {
         case TypePointer:
         case TypeMap:
         case TypeYargType:
+        case TypeImplementationObj:
             return sizeof(Value);
         }
     }
@@ -555,12 +557,10 @@ static ObjString* typeLiteralToString(const ObjConcreteYargType* type) {
 
 ObjString* typeToString(const ObjConcreteYargType* type) {
     ObjString* literalStr = typeLiteralToString(type);
-    tempRootPush(STRING_VAL(literalStr));
     ObjString* prefix = copyString("Type:", 5);
-    tempRootPush(STRING_VAL(prefix));
     ObjString* result = concatenateStrings(prefix, literalStr);
-    tempRootPop();
-    tempRootPop();
+    tempRootPopBelow(1);
+    tempRootPopBelow(1);
     return result;
 }
 

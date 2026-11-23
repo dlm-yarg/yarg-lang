@@ -22,6 +22,10 @@
 #include "../yargobject.h"
 #include "../packed_containers.h"
 
+#include <assert.h>
+#include <stdlib.h>
+#include <time.h>
+
 static bool setBuiltin(ObjRoutine *, int, Value *);
 static bool readBuiltin(ObjRoutine *, int, Value *);
 static bool writeBuiltin(ObjRoutine *, int, Value *);
@@ -40,13 +44,14 @@ BuiltinFun getTestSystemBuiltin(uint8_t builtin)
     }
 }
 
-bool setBuiltin(ObjRoutine *routineContext, int argCount, Value* result)
+bool setBuiltin(ObjRoutine *routine, int argCount, Value* result)
 {
+    RS_ENTRY;
     bool ok = false;
     if (argCount == 2)
     {
-        Value arg0 = peek(routineContext, 1);
-        Value arg1 = peek(routineContext, 0);
+        Value arg0 = peek(routine, 1);
+        Value arg1 = peek(routine, 0);
         if (IS_ADDRESS(arg0) && IS_UI32(arg1))
         {
             size_t address = AS_ADDRESS(arg0);
@@ -58,24 +63,26 @@ bool setBuiltin(ObjRoutine *routineContext, int argCount, Value* result)
     }
     if (!ok)
     {
-        runtimeError(routineContext, "Expected an address and a value.");
+        runtimeError(routine, "Expected an address and a value.");
     }
+    RS_EXIT(0);
     return ok;
 }
 
-bool readBuiltin(ObjRoutine *routineContext, int argCount, Value *result) {
+bool readBuiltin(ObjRoutine *routine, int argCount, Value *result) {
+    RS_ENTRY;
     bool ok = false;
-    if (argCount == 1 && IS_ADDRESS(peek(routineContext, 0)))
+    if (argCount == 1 && IS_ADDRESS(peek(routine, 0)))
     {
-        Value arg0 = peek(routineContext, 0);
+        Value arg0 = peek(routine, 0);
         size_t address = AS_ADDRESS(arg0);
         testIntrinsicsExpectReadAnyValue(address);
         ok = true;
     }
-    else if (argCount == 2 && IS_UI32(peek(routineContext, 0)) && IS_ADDRESS(peek(routineContext, 1)))
+    else if (argCount == 2 && IS_UI32(peek(routine, 0)) && IS_ADDRESS(peek(routine, 1)))
     {
-        Value arg0 = peek(routineContext, 1);
-        Value arg1 = peek(routineContext, 0);
+        Value arg0 = peek(routine, 1);
+        Value arg1 = peek(routine, 0);
         size_t address = AS_ADDRESS(arg0);
         uint32_t value = AS_UI32(arg1);
         testIntrinsicsExpectRead(address, value);
@@ -84,24 +91,26 @@ bool readBuiltin(ObjRoutine *routineContext, int argCount, Value *result) {
 
     if (!ok)
     {
-        runtimeError(routineContext, "Expected an address to peek or and address and a value.");
+        runtimeError(routine, "Expected an address to peek or and address and a value.");
     }
+    RS_EXIT(0);
     return ok;
 }
 
-bool writeBuiltin(ObjRoutine *routineContext, int argCount, Value *result) {
+bool writeBuiltin(ObjRoutine *routine, int argCount, Value *result) {
+    RS_ENTRY;
     bool ok = false;
-    if (argCount == 1 && IS_ADDRESS(peek(routineContext, 0)))
+    if (argCount == 1 && IS_ADDRESS(peek(routine, 0)))
     {
-        Value arg0 = peek(routineContext, 0);
+        Value arg0 = peek(routine, 0);
         size_t address = AS_ADDRESS(arg0);
         testIntrinsicsExpectWriteAnyValue(address);
         ok = true;
     }
-    else if (argCount == 2 && IS_ADDRESS(peek(routineContext, 1)) && IS_UI32(peek(routineContext, 0)))
+    else if (argCount == 2 && IS_ADDRESS(peek(routine, 1)) && IS_UI32(peek(routine, 0)))
     {
-        Value arg0 = peek(routineContext, 1);
-        Value arg1 = peek(routineContext, 0);
+        Value arg0 = peek(routine, 1);
+        Value arg1 = peek(routine, 0);
         size_t address = AS_ADDRESS(arg0);
         uint32_t value = AS_UI32(arg1);
         testIntrinsicsExpectWrite(address, value);
@@ -110,16 +119,21 @@ bool writeBuiltin(ObjRoutine *routineContext, int argCount, Value *result) {
 
     if (!ok)
     {
-        runtimeError(routineContext, "Expected an address to poke or and address and a value.");
+        runtimeError(routine, "Expected an address to poke or and address and a value.");
     }
+    RS_EXIT(0);
     return ok;
 }
 
-bool interruptBuiltin(ObjRoutine *routineContext, int argCount, Value *result) {
+bool interruptBuiltin(ObjRoutine *routine, int argCount, Value *result) {
+    RS_ENTRY;
     bool ok = false;
     if (argCount == 1)
     {
-        Value arg0 = peek(routineContext, 0);
+        clock_t start = clock();
+        clock_t stop = start + CLOCKS_PER_SEC * rand() % 11 / 1000;
+        while (stop - clock() < 2100000000);
+        Value arg0 = peek(routine, 0);
         if (is_positive_integer(arg0) && as_positive_integer(arg0) <= UINT32_MAX)
         {
             uint32_t interruptNumber = (uint32_t) as_positive_integer(arg0);
@@ -133,13 +147,14 @@ bool interruptBuiltin(ObjRoutine *routineContext, int argCount, Value *result) {
     }
     if (!ok)
     {
-        runtimeError(routineContext, "Expected an interrupt name or number.");
+        runtimeError(routine, "Expected an interrupt name or number.");
     }
     return ok;
 }
 
-bool syncBuiltin(ObjRoutine *routineContext, int argCount, Value *result)
+bool syncBuiltin(ObjRoutine *routine, int argCount, Value *result)
 {
+    RS_ENTRY;
     TsLog *log = testIntrinsicsSync();
 
     Value resultArrayVal = allocValueArray(log->n_);
@@ -147,16 +162,17 @@ bool syncBuiltin(ObjRoutine *routineContext, int argCount, Value *result)
 
     for (size_t i = 0; i < log->n_; i++)
     {
-//        printf("%s\n", log->i_[i]); // until log gets coppied to *result
         // log entries created with vm_(re)alloc, so we can take ownership.
         ObjString *s = takeString(log->i_[i], (int)strlen(log->i_[i]));
         setArrayElement(resultArrayVal, i, STRING_VAL(s));
     }
     vm_free(log->i_);
     log->i_ = NULL;
+    log->n_ = 0;
+    log->e_ = 0;
     tempRootPop(); // array
     *result = resultArrayVal;
-    log->n_ = 0;
 
+    RS_EXIT(0);
     return true;
 }
