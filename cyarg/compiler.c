@@ -370,7 +370,7 @@ static void generateNumber(ObjExprNumber* num) {
         AS_INT(v)->literal_ = true;
         int_set_t(&num->bigInt, AS_INT(v));
         emitConstant(v);
-        if (AS_INT(v)->obj_) tempRootPop();
+        tempRootPop();
         break;
     }
     default:

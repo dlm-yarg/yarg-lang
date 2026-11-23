@@ -225,11 +225,12 @@ Value defaultPointerValue(const ObjConcreteYargType* type) {
 }
 
 Value duplicateArray(Value arrayVal) {
+    tempRootPush(NIL_VAL);
     return arrayVal; // TODO: revisit when arrays become value types
 }
 
 Value duplicateStruct(Value rhsStructVal) {
-
+    TR_ENTRY;
     ObjOwningPackedContainer* container = ALLOCATE_OBJ(ObjOwningPackedContainer, OBJ_PACKEDCONTAINER);
     const ObjConcreteYargType* type = rhsStructVal.type;
     ObjPackedStorage* storage = newPackedStorage(type);
@@ -242,10 +243,12 @@ Value duplicateStruct(Value rhsStructVal) {
     container->container.loc = &container->storage->storage[0];
     tempRootPop();
     tempRootPop();
+    TR_EXIT(1);
     return TYPED_VAL(container, type);
 }
 
 Value duplicatePointer(Value pointer) {
+    tempRootPush(NIL_VAL);
     return pointer;
 }
 

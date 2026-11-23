@@ -18,6 +18,7 @@ int8_t const packageMagic[PACKAGE_MAGIC_LEN] = {0x79, 0x0a, 0x72, 0x67, 0xff, 0x
 int16_t const packageVersion = 0x2607;
 
 ObjFunction *loadPackageFromBuffer(ObjRoutine* routine, uint8_t* buffer, size_t bufferSize) {
+    TR_ENTRY;
     RS_ENTRY;
     int r = PACKAGE_OK;
 
@@ -127,6 +128,7 @@ ObjFunction *loadPackageFromBuffer(ObjRoutine* routine, uint8_t* buffer, size_t 
     if (h->numLines_ > 0) {
         for (int i = 0; i < h->numChunks_; i++) {
             functions[i]->fName = copyString((char *)next, (int)strlen((char *)next)); // todo - mark as xip
+            tempRootPop();
             next += 16;
         }
     }
@@ -149,6 +151,7 @@ ObjFunction *loadPackageFromBuffer(ObjRoutine* routine, uint8_t* buffer, size_t 
                 char *thisString = (char *)&stringFile[index];
                 ObjString *obj = copyString(thisString, (int)strlen(thisString)); // mark as xip
                 appendToDynamicValueArray(&currentFunction->chunk.constants, STRING_VAL(obj));
+                tempRootPop();
                 DP(printf(":\"%s\"", thisString));
                 break;
             }
@@ -172,16 +175,18 @@ ObjFunction *loadPackageFromBuffer(ObjRoutine* routine, uint8_t* buffer, size_t 
             case PACK_CONST_TYPE_F: {
                 ObjFunction *thisFun = functions[index];
                 appendToDynamicValueArray(&currentFunction->chunk.constants, FUNCTION_VAL(thisFun));
+#if defined DEBUG_PACK
                 if (thisFun->fName != 0) {
                     char name[21];
                     int len = thisFun->fName->length;
                     len = len > 20 ? 20 : len;
                     memcpy(name, thisFun->fName->chars, len);
                     name[len] = '\0';
-                    DP(printf(":%s", name));
+                    printf(":%s", name);
                 } else {
-                    DP(printf(":<no name>"));
+                    printf(":<no name>");
                 }
+#endif // defined DEBUG_PACK
                 break;
             }
             case PACK_CONST_TYPE_A: {
@@ -199,8 +204,8 @@ ObjFunction *loadPackageFromBuffer(ObjRoutine* routine, uint8_t* buffer, size_t 
 exit:
     if (functions != 0) {
         currentFunction = functions[0];
-        for (int i = 0; i < h->numChunks_; i++) {
-            pop(routine);
+        for (int i = 1; i < h->numChunks_; i++) {
+            tempRootPop(); // all functions except currentFunction
         }
         vm_free(functions);
     } else {
@@ -209,8 +214,14 @@ exit:
 
     DP(printf("chunks__:%u\nints__:%u\nstrings__:%u\ncode__:%u\nlines__:%u\nnames__:%u\nend__:%u\n", chunks__, ints__, strings__, code__, lines__, names__, end__));
 
-    if (r == PACKAGE_OK)
+    if (r == PACKAGE_OK) {
+        TR_EXIT(1);
+        RS_EXIT(0);
         return currentFunction;
-    else
+    } else {
+        tempRootPop(); // currentFunction
+        TR_EXIT(0);
+        RS_EXIT(0);
         return 0;
+    }
 }

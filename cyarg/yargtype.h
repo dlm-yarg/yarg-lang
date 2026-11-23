@@ -94,6 +94,10 @@ typedef union {
     int64_t i64;
     uintptr_t address;
     Obj* obj;
+    ObjString* s;
+    struct ObjFunction* f;
+    struct ObjClosure* c;
+    struct ObjRoutine* r;
 } AnyValue;
 
 typedef struct ObjConcreteYargType {

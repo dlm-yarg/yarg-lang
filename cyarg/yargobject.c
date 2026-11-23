@@ -110,6 +110,7 @@ static ObjString* allocateString(char const *chars, int length) {
 }
 
 ObjString* takeString(char* chars, int length) {
+    TR_ENTRY;
     ObjString *s = stringStoreGet(&vm.stringStore, chars, length);
     if (s == NULL) {
         s = allocateString(chars, length);
@@ -117,6 +118,7 @@ ObjString* takeString(char* chars, int length) {
         tempRootPush(STRING_VAL(s));
         vm_free(chars);
     }
+    TR_EXIT(1);
     return s;
 }
 

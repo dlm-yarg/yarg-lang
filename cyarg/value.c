@@ -167,6 +167,7 @@ Value duplicateValue(Value src) {
     } else if (IS_POINTER(src)) {
         return duplicatePointer(src);
     } else {
+        tempRootPush(NIL_VAL);
         return src;
     }
 }
@@ -306,25 +307,32 @@ ObjString* addressToString(uintptr_t value) {
 }
 
 static ObjString* arrayToString(Value arrayVal) {
+    TR_ENTRY;
     const ObjConcreteYargTypeArray* arrayType = (const ObjConcreteYargTypeArray*)arrayVal.type;
 
     char buffer[1024];
     ObjString* typeStr = valueToString(YARGTYPE_VAL(arrayType));
     snprintf(buffer, sizeof(buffer), "%s:[", typeStr->chars);
+    assert(tempRootPop().as.obj == &typeStr->obj);
+
     size_t cursor = strlen(buffer);
     for (int i = 0; i < arrayType->cardinality; i++) {
         Value element = arrayElement(arrayVal, i);
         ObjString* candidate = valueToString(element);
+        tempRootPopBelow(1); //  element
         snprintf(buffer + cursor, sizeof(buffer) - cursor, "%s", candidate->chars);
+        assert(tempRootPop().as.obj == &candidate->obj);
+
         cursor = strlen(buffer);
         if (i < arrayType->cardinality - 1) {
             snprintf(buffer + cursor, sizeof(buffer) - cursor, ", ");
             cursor = strlen(buffer);
         }
-        tempRootPop();
     }
     snprintf(buffer + cursor, sizeof(buffer) - cursor, "]");
-    return copyString(buffer, (int)strlen(buffer));
+    ObjString *s = copyString(buffer, (int)strlen(buffer));
+    TR_EXIT(1);
+    return s;
 }
 
 static ObjString* pointerToString(Value ptrVal) {
@@ -536,6 +544,7 @@ size_t as_positive_integer(Value a) {
 }
 
 void allocateIntValue(Value *newBigSmallInt, size_t numDigits) {
+    TR_ENTRY;
     newBigSmallInt->type = &yargTypes.integer;
     BigSmallInt *bsi = &newBigSmallInt->as.bigSmallInt;
     if (numDigits > 2) {
@@ -543,5 +552,7 @@ void allocateIntValue(Value *newBigSmallInt, size_t numDigits) {
         bsi->obj_ = true;
     } else {
         (void) int_init_concrete2(&bsi->i_);
+        tempRootPush(NIL_VAL);
     }
+    TR_EXIT(1);
 }

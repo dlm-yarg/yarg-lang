@@ -134,7 +134,7 @@ bool readYargROMSourceBuiltin(ObjRoutine* routine, int argCount, Value* result) 
         runtimeError(routine, "Unsupported format requested: %d.", format_requested);
         return false;
     }
-    TR_EXIT(0);
+    TR_EXIT(1);
     RS_EXIT(0);
    return true;
 }
@@ -195,11 +195,12 @@ bool loadBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         uint8_t* buffer = (uint8_t*)container->loc;
         ObjFunction* function = loadPackageFromBuffer(routine, buffer, arrayType->cardinality);
         Value functionVal = function ? FUNCTION_VAL(function) : NIL_VAL;
-        push(routine, functionVal);
         Value loadResult = resultPair(NIL_VAL, functionVal);
-        pop(routine);
         push(routine, loadResult);
         tempRootPop();
+        if (function != 0) {
+            tempRootPop();
+        }
 
         setStructField(loadResult, 1, functionVal);
     } else if (IS_STRING(arg)) {
@@ -222,6 +223,8 @@ bool loadBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         push(routine, loadResult);
     } else {
         runtimeError(routine, "Argument to load must be a byte array or a string.");
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 
@@ -229,17 +232,14 @@ bool loadBuiltin(ObjRoutine* routine, int argCount, Value* result) {
     Value functionVal = structField(loadResult, 1);
 
     if (!IS_NIL(functionVal)) {
-        push(routine, functionVal);
         ObjClosure* closure = newClosure(AS_FUNCTION(functionVal));
         setStructField(loadResult, 1, CLOSURE_VAL(closure));
         tempRootPop(); // closure
-        pop(routine);
     }
 
-    pop(routine);
     *result = loadResult;
     TR_EXIT(1);
-    RS_EXIT(0);
+    RS_EXIT(1);
     return true;
 }
 

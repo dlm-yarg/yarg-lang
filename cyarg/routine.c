@@ -578,7 +578,7 @@ void pushTyped(ObjRoutine* routine, Value value, Value type) {
     ValueCell* top = peekCell(routine, 0);
     top->cellType = IS_NIL(type) ? NULL : AS_YARGTYPE(type);
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
 }
 
 Value pop(ObjRoutine* routine) {

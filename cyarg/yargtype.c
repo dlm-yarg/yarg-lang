@@ -472,45 +472,46 @@ bool isSupportedMapKeyType(const ObjConcreteYargType* type) {
 }
 
 static ObjString* typeLiteralToString(const ObjConcreteYargType* type) {
+    TR_ENTRY;
+    ObjString *s;
     if (type == NULL) {
-        return copyString("any", 3);
+        s = copyString("any", 3);
     }
 
-    switch (type->yt) {
-        case TypeBool: return copyString("bool", 4);
-        case TypeDouble: return copyString("mfloat64", 8);
-        case TypeInt: return copyString("int", 3);
-        case TypeInt8: return copyString("int8", 4);
-        case TypeUint8: return copyString("uint8", 5);
-        case TypeInt16: return copyString("int16", 5);
-        case TypeUint16: return copyString("uint16", 6);
-        case TypeInt32: return copyString("int32", 5);
-        case TypeUint32: return copyString("uint32", 6);
-        case TypeInt64: return copyString("int64", 5);
-        case TypeUint64: return copyString("uint64", 6);
-        case TypeAddress: return copyString("address", 7);
-        case TypeString: return copyString("string", 6);
-        case TypeClass: return copyString("Class", 5);
-        case TypeInstance: return copyString("Instance", 8);
-        case TypeFunction: return copyString("Function", 8);
-        case TypeRoutine: return copyString("Routine", 7);
-        case TypeChannel: return copyString("Channel", 7);
-        case TypeSyncGroup: return copyString("SyncGroup", 9);
-        case TypeYargType: return copyString("Type", 4);
+    else switch (type->yt) {
+        case TypeBool: s = copyString("bool", 4); break;
+        case TypeDouble: s = copyString("mfloat64", 8); break;
+        case TypeInt: s = copyString("int", 3); break;
+        case TypeInt8: s = copyString("int8", 4); break;
+        case TypeUint8: s = copyString("uint8", 5); break;
+        case TypeInt16: s = copyString("int16", 5); break;
+        case TypeUint16: s = copyString("uint16", 6); break;
+        case TypeInt32: s = copyString("int32", 5); break;
+        case TypeUint32: s = copyString("uint32", 6); break;
+        case TypeInt64: s = copyString("int64", 5); break;
+        case TypeUint64: s = copyString("uint64", 6); break;
+        case TypeAddress: s = copyString("address", 7); break;
+        case TypeString: s = copyString("string", 6); break;
+        case TypeClass: s = copyString("Class", 5); break;
+        case TypeInstance: s = copyString("Instance", 8); break;
+        case TypeFunction: s = copyString("Function", 8); break;
+        case TypeRoutine: s = copyString("Routine", 7); break;
+        case TypeChannel: s = copyString("Channel", 7); break;
+        case TypeSyncGroup: s = copyString("SyncGroup", 9); break;
+        case TypeYargType: s = copyString("Type", 4); break;
         case TypeArray: {
             const ObjConcreteYargTypeArray* array = (const ObjConcreteYargTypeArray*) type;
             ObjString* typeStr = typeLiteralToString(array->element_type);
-            tempRootPush(STRING_VAL(typeStr));
             char buffer[128];
             if (array->cardinality > 0) {
                 snprintf(buffer, sizeof(buffer), "%s[%zu]", typeStr->chars, array->cardinality);
             } else {
                 snprintf(buffer, sizeof(buffer), "%s[]", typeStr->chars);
             }
-            ObjString* result = copyString(buffer, (int)strlen(buffer));
-            tempRootPop();
-            return result;
+            assert(tempRootPop().as.obj == &typeStr->obj);
+            s = copyString(buffer, (int)strlen(buffer));
         }
+            break;
         case TypeStruct: {
             const ObjConcreteYargTypeStruct* st = (const ObjConcreteYargTypeStruct*) type;
             char buffer[1024];
@@ -524,8 +525,9 @@ static ObjString* typeLiteralToString(const ObjConcreteYargType* type) {
                 tempRootPop();
             }
             snprintf(buffer + cursor, sizeof(buffer) - cursor, "}");
-            return copyString(buffer, (int)strlen(buffer));
+            s = copyString(buffer, (int)strlen(buffer));
         }
+            break;
         case TypePointer: {
             const ObjConcreteYargTypePointer* st = (const ObjConcreteYargTypePointer*) type;
             ObjString* typeStr = typeLiteralToString(st->target_type);
@@ -534,8 +536,9 @@ static ObjString* typeLiteralToString(const ObjConcreteYargType* type) {
             snprintf(buffer, sizeof(buffer), "*%s", typeStr->chars);
             ObjString* result = copyString(buffer, (int)strlen(buffer));
             tempRootPop();
-            return result;
+            s = result;
         }
+            break;
         case TypeMap: {
             const ObjConcreteYargTypeMap* mt = (const ObjConcreteYargTypeMap*) type;
             ObjString* typeStr = typeLiteralToString(mt->value_type);
@@ -547,20 +550,25 @@ static ObjString* typeLiteralToString(const ObjConcreteYargType* type) {
             ObjString* result = copyString(buffer, (int)strlen(buffer));
             tempRootPop();
             tempRootPop();
-            return result;
+            s = result;
         }
-        default: {
-            return copyString("Unknown", 7);
-        }
+            break;
+        default:
+            s = copyString("Unknown", 7);
+            break;
     }
+    TR_EXIT(1);
+    return s;
 }
 
 ObjString* typeToString(const ObjConcreteYargType* type) {
+    TR_ENTRY;
     ObjString* literalStr = typeLiteralToString(type);
     ObjString* prefix = copyString("Type:", 5);
     ObjString* result = concatenateStrings(prefix, literalStr);
     tempRootPopBelow(1);
     tempRootPopBelow(1);
+    TR_EXIT(1);
     return result;
 }
 

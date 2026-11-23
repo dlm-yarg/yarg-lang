@@ -1674,6 +1674,7 @@ InterpretResult bootXIP(void) {
 }
 
 void unaryIntOp(ObjRoutine* routine, int op) {
+    TR_ENTRY;
     assert(op == OP_NEGATE);
     Value i = peek(routine, 0);
     Int *a = AS_INT(i);
@@ -1684,6 +1685,7 @@ void unaryIntOp(ObjRoutine* routine, int op) {
     pop(routine);
     push(routine, negI);
     tempRootPop();
+    TR_EXIT(1);
 }
 
 void binaryIntOp(ObjRoutine* routine, char const *c)
