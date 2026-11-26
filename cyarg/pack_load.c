@@ -83,6 +83,8 @@ ObjFunction *loadPackageFromBuffer(ObjRoutine* routine, uint8_t* buffer, size_t 
 
     for (int i = 0; i < h->numChunks_; i++) {
         functions[i] = newFunction();
+        push(routine, FUNCTION_VAL(functions[i]));
+        tempRootPop();
     }
 
     uint8_t const *startOfCode = next;
@@ -198,14 +200,14 @@ ObjFunction *loadPackageFromBuffer(ObjRoutine* routine, uint8_t* buffer, size_t 
             }
             DP(printf("\n"));
         }
-        RS_EXIT(0);
+        RS_EXIT(h->numChunks_);
     }
 
 exit:
     if (functions != 0) {
         currentFunction = functions[0];
         for (int i = 1; i < h->numChunks_; i++) {
-            tempRootPop(); // all functions except currentFunction
+            pop(routine); // all functions except currentFunction
         }
         vm_free(functions);
     } else {
@@ -215,11 +217,11 @@ exit:
     DP(printf("chunks__:%u\nints__:%u\nstrings__:%u\ncode__:%u\nlines__:%u\nnames__:%u\nend__:%u\n", chunks__, ints__, strings__, code__, lines__, names__, end__));
 
     if (r == PACKAGE_OK) {
-        TR_EXIT(1);
-        RS_EXIT(0);
+        TR_EXIT(0);
+        RS_EXIT(1);
         return currentFunction;
     } else {
-        tempRootPop(); // currentFunction
+        pop(routine); // currentFunction
         TR_EXIT(0);
         RS_EXIT(0);
         return 0;

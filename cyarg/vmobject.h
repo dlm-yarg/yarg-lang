@@ -40,7 +40,7 @@ typedef struct {
     ObjClosure* method;
 } ObjBoundMethod;
 
-typedef bool (*NativeFn)(ObjRoutine* routine, int argCount, Value* result);
+typedef bool (*NativeFn)(ObjRoutine* routine, int argCount);
 
 typedef struct {
     Obj obj;

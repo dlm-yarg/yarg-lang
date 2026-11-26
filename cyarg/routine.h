@@ -42,6 +42,7 @@ void push(ObjRoutine* routine, Value value);
 void pushTyped(ObjRoutine* routine, Value value, Value type);
 Value pop(ObjRoutine* routine);
 void popN(ObjRoutine* routine, size_t count);
+void popNBehindTop(ObjRoutine* routine, size_t count);
 void popFrame(ObjRoutine* routine, CallFrame* frame);
 Value peek(ObjRoutine* routine, int distance);
 ValueCell* peekCell(ObjRoutine* routine, int distance);

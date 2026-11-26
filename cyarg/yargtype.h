@@ -98,6 +98,7 @@ typedef union {
     struct ObjFunction* f;
     struct ObjClosure* c;
     struct ObjRoutine* r;
+    struct ObjOwningPackedContainer* st;
 } AnyValue;
 
 typedef struct ObjConcreteYargType {

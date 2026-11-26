@@ -37,6 +37,8 @@ ObjChannelContainer* newChannel(ObjRoutine* routine, size_t capacity) {
     RS_ENTRY;
     TR_ENTRY;
     ObjChannelContainer* channel = ALLOCATE_OBJ(ObjChannelContainer, OBJ_CHANNELCONTAINER);
+    push(routine, IMPL_OBJ_VAL(channel));
+    tempRootPop();
     channel->overflow = false;
 
     channel->buffer = ALLOCATE(Value, capacity);
@@ -50,16 +52,14 @@ ObjChannelContainer* newChannel(ObjRoutine* routine, size_t capacity) {
 #ifdef CYARG_PTHREADS_SYNC
     channel->access = sem_open("/semaphore", O_CREAT, S_IRUSR | S_IWUSR, 0);
     if (channel->access == SEM_FAILED) {
-        pop(routine);
         runtimeError(routine, "Semaphore open failed.");
         TR_EXIT(0);
         RS_EXIT(0);
         return NULL;
     }
 #endif
-    pop(routine);
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     return channel;
 }
 

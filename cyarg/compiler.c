@@ -474,6 +474,9 @@ static void generateGetNamedVariable(ObjString* name) {
 }
 
 static void generateExprNamedVariable(ObjExprNamedVariable* var) {
+    if (strncmp(var->name->chars, "getRawHostArgument", var->name->length) == 0) {
+        var==var;
+    }
 
     ObjString* this_ = copyString("this", 4);
     if (identifiersEqual(this_, var->name) && currentClass == NULL) {
@@ -497,7 +500,7 @@ static void generateExprNamedVariable(ObjExprNamedVariable* var) {
         arg = identifierConstant(var->name);
         getOp = OP_GET_GLOBAL;
         setOp = OP_SET_GLOBAL;
-        printf("%s %d %s:%s\n", (var->assignment ? "S" : "G"), arg, (current->function->fName ? current->function->fName->chars : ""), var->name->chars);
+        printf("G%s %d %s:%s\n", (var->assignment ? "S" : "G"), arg, (current->function->fName ? current->function->fName->chars : ""), var->name->chars);
     }
     
     if (var->assignment) {
@@ -1250,9 +1253,10 @@ static ObjFunction* endCompiler() {
     return function;
 }
 
-Value compile(ObjRoutine* routine) {
-    RS_ENTRY; // 2
-    TR_ENTRY; // 1
+Value
+compile(ObjRoutine* routine) {
+    RS_ENTRY;
+    TR_ENTRY;
     Value source = peek(routine, 0);
 
     ObjScanner* scanner = newScanner(AS_STRING(source));
@@ -1284,7 +1288,7 @@ Value compile(ObjRoutine* routine) {
 
     Value result = allocValueStructPair("errors", "result");
     push(routine, result);
-    assert(tempRootPop().as.obj == result.as.obj);
+    tempRootPop();
 
     if (!IS_NIL(parseErrors)) {
         setStructField(result, 0, parseErrors);
@@ -1297,15 +1301,10 @@ Value compile(ObjRoutine* routine) {
         setStructField(result, 1, FUNCTION_VAL(function));
     }
 
-    pop(routine); // result
-    pop(routine); // function
-    pop(routine); // errors
-    pop(routine); // parser
-    pop(routine); // ast
-    pop(routine); // scanner
+    popNBehindTop(routine, 5); // function, errors, parser, ast, scanner
 
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     return result;
 }
 

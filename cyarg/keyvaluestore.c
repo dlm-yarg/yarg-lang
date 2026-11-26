@@ -143,7 +143,7 @@ bool keyValueStorePlace(KeyValueStore const *kvs, ObjString const *key, ValueCel
 }
 
 bool keyValueStoreSet(KeyValueStore *kvs, ObjString const *key, ValueCell const *v) {
-    if (strcmp(key->chars, "reps") == 0) {
+    if (strcmp(key->chars, "getRawHostArgument") == 0) {
         v = v;
     }
     ValueCellStoreNode *newN = ALLOCATE(ValueCellStoreNode, 1);

@@ -26,11 +26,11 @@
 #include <stdlib.h>
 #include <time.h>
 
-static bool setBuiltin(ObjRoutine *, int, Value *);
-static bool readBuiltin(ObjRoutine *, int, Value *);
-static bool writeBuiltin(ObjRoutine *, int, Value *);
-static bool interruptBuiltin(ObjRoutine *, int, Value *);
-static bool syncBuiltin(ObjRoutine *, int, Value *);
+static bool setBuiltin(ObjRoutine *, int);
+static bool readBuiltin(ObjRoutine *, int);
+static bool writeBuiltin(ObjRoutine *, int);
+static bool interruptBuiltin(ObjRoutine *, int);
+static bool syncBuiltin(ObjRoutine *, int);
 
 BuiltinFun getTestSystemBuiltin(uint8_t builtin)
 {
@@ -44,7 +44,7 @@ BuiltinFun getTestSystemBuiltin(uint8_t builtin)
     }
 }
 
-bool setBuiltin(ObjRoutine *routine, int argCount, Value* result)
+bool setBuiltin(ObjRoutine *routine, int argCount)
 {
     RS_ENTRY;
     bool ok = false;
@@ -65,11 +65,11 @@ bool setBuiltin(ObjRoutine *routine, int argCount, Value* result)
     {
         runtimeError(routine, "Expected an address and a value.");
     }
-    RS_EXIT(0);
+    RS_EXIT(ok != false);
     return ok;
 }
 
-bool readBuiltin(ObjRoutine *routine, int argCount, Value *result) {
+bool readBuiltin(ObjRoutine *routine, int argCount) {
     RS_ENTRY;
     bool ok = false;
     if (argCount == 1 && IS_ADDRESS(peek(routine, 0)))
@@ -93,11 +93,11 @@ bool readBuiltin(ObjRoutine *routine, int argCount, Value *result) {
     {
         runtimeError(routine, "Expected an address to peek or and address and a value.");
     }
-    RS_EXIT(0);
+    RS_EXIT(1);
     return ok;
 }
 
-bool writeBuiltin(ObjRoutine *routine, int argCount, Value *result) {
+bool writeBuiltin(ObjRoutine *routine, int argCount) {
     RS_ENTRY;
     bool ok = false;
     if (argCount == 1 && IS_ADDRESS(peek(routine, 0)))
@@ -121,11 +121,11 @@ bool writeBuiltin(ObjRoutine *routine, int argCount, Value *result) {
     {
         runtimeError(routine, "Expected an address to poke or and address and a value.");
     }
-    RS_EXIT(0);
+    RS_EXIT(ok != false);
     return ok;
 }
 
-bool interruptBuiltin(ObjRoutine *routine, int argCount, Value *result) {
+bool interruptBuiltin(ObjRoutine *routine, int argCount) {
     RS_ENTRY;
     bool ok = false;
     if (argCount == 1)
@@ -149,10 +149,15 @@ bool interruptBuiltin(ObjRoutine *routine, int argCount, Value *result) {
     {
         runtimeError(routine, "Expected an interrupt name or number.");
     }
+    else
+    {
+        push(routine, NIL_VAL);
+    }
+    RS_EXIT(ok != false);
     return ok;
 }
 
-bool syncBuiltin(ObjRoutine *routine, int argCount, Value *result)
+bool syncBuiltin(ObjRoutine *routine, int argCount)
 {
     RS_ENTRY;
     TsLog *log = testIntrinsicsSync();
@@ -170,9 +175,10 @@ bool syncBuiltin(ObjRoutine *routine, int argCount, Value *result)
     log->i_ = NULL;
     log->n_ = 0;
     log->e_ = 0;
-    tempRootPop(); // array
-    *result = resultArrayVal;
 
-    RS_EXIT(0);
+    push(routine, resultArrayVal);
+    tempRootPop(); // resultArrayVal
+
+    RS_EXIT(1);
     return true;
 }

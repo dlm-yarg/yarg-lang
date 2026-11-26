@@ -37,7 +37,7 @@
 //  - yarg binary files (returned as uint8[])
 //  - text files (returned as string)
 // Both are suitable input to load().
-bool readYargSourceBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool readYargSourceBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount != 1) {
@@ -57,12 +57,7 @@ bool readYargSourceBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         Value byteBuffer = allocByteArray(file_size);
         push(routine, byteBuffer);
 
-        
         readFileIntoBuffer(filename, AS_PACKEDCONTAINER(byteBuffer)->loc, file_size);
-
-        *result = byteBuffer;
-
-        pop(routine); // byteBuffer
     }
     else {
         // assume a text file
@@ -75,10 +70,11 @@ bool readYargSourceBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         ObjString* sourceString = copyString(source, (int)strlen(source));
         vm_free(source);
 
-        *result = STRING_VAL(sourceString);
+        push(routine, STRING_VAL(sourceString));
+        tempRootPop();
     }
-    TR_EXIT(1);
-    RS_EXIT(0);
+    TR_EXIT(0);
+    RS_EXIT(1);
     return true;
 }
 
@@ -90,7 +86,7 @@ bool readYargSourceBuiltin(ObjRoutine* routine, int argCount, Value* result) {
 //  - yarg binary files (returned as uint8[])
 //  - text files (returned as string)
 // Both are suitable input to load().
-bool readYargROMSourceBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool readYargROMSourceBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount != 2) {
@@ -123,23 +119,24 @@ bool readYargROMSourceBuiltin(ObjRoutine* routine, int argCount, Value* result) 
 
     if (format_requested == 1) {
         Value byteArrayValue = createByteArrayAt((uint8_t*)data, length);
-        *result = byteArrayValue;
+        push(routine, byteArrayValue);
+        tempRootPop();
     }
     else if (format_requested == 2) {
         const char* string = (const char*) data;
         ObjString* sourceString = copyString(string, (int)length);
-        *result = STRING_VAL(sourceString);
+        push(routine, STRING_VAL(sourceString));
     }
     else {
         runtimeError(routine, "Unsupported format requested: %d.", format_requested);
         return false;
     }
-    TR_EXIT(1);
-    RS_EXIT(0);
+    TR_EXIT(0);
+    RS_EXIT(1);
    return true;
 }
 
-bool compileBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool compileBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount != 1) {
@@ -152,7 +149,6 @@ bool compileBuiltin(ObjRoutine* routine, int argCount, Value* result) {
     }
 
     Value compileResult = compile(routine);
-    push(routine, compileResult);
     Value compileError = structField(compileResult, 0);
     Value compileFunction = structField(compileResult, 1);
 
@@ -161,13 +157,12 @@ bool compileBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         setStructField(compileResult, 1, CLOSURE_VAL(closure));
         tempRootPop();
     }
-    tempRootPop();
-    tempRootPop();
-    pop(routine);
-    *result = compileResult;
+
+    tempRootPop(); // compileFunction
+    tempRootPop(); // compileError
 
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1); // compileResult
     return true;
 }
 
@@ -180,7 +175,7 @@ static Value resultPair(Value error, Value result) {
     TR_EXIT(1);
 }
 
-bool loadBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+bool loadBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount != 1) {
@@ -197,30 +192,28 @@ bool loadBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         Value functionVal = function ? FUNCTION_VAL(function) : NIL_VAL;
         Value loadResult = resultPair(NIL_VAL, functionVal);
         push(routine, loadResult);
-        tempRootPop();
+        assert(tempRootPop().as.obj == loadResult.as.obj);
         if (function != 0) {
-            tempRootPop();
+            popNBehindTop(routine, 1); // function
         }
 
         setStructField(loadResult, 1, functionVal);
     } else if (IS_STRING(arg)) {
         Value compileResult = compile(routine);
-        push(routine, compileResult);
 
         Value compileError = structField(compileResult, 0);
-        Value loadResult = resultPair(compileError, NIL_VAL);
+        Value loadResult = resultPair(compileError, peek(routine, 0));
         push(routine, loadResult);
         assert(tempRootPop().as.obj == loadResult.as.obj);
         tempRootPop(); // compileError
+        popNBehindTop(routine, 1); // compileResult
 
         if (IS_NIL(compileError)) {
             Value compileFunction = structField(compileResult, 1);
             setStructField(loadResult, 1, compileFunction);
             tempRootPop(); // compileFunction
         }
-        pop(routine);
-        pop(routine);
-        push(routine, loadResult);
+
     } else {
         runtimeError(routine, "Argument to load must be a byte array or a string.");
         TR_EXIT(0);
@@ -233,17 +226,17 @@ bool loadBuiltin(ObjRoutine* routine, int argCount, Value* result) {
 
     if (!IS_NIL(functionVal)) {
         ObjClosure* closure = newClosure(AS_FUNCTION(functionVal));
+        tempRootPop(); // functionVal
         setStructField(loadResult, 1, CLOSURE_VAL(closure));
         tempRootPop(); // closure
     }
 
-    *result = loadResult;
-    TR_EXIT(1);
+    TR_EXIT(0);
     RS_EXIT(1);
     return true;
 }
 
-bool makeChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool makeChannelBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount >= 2) {
@@ -257,8 +250,6 @@ bool makeChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         Value arg1 = peek(routine, 0);
         if (!is_positive_integer(arg1)) {
             runtimeError(routine, "Expected a positive integer");
-            TR_EXIT(0);
-            RS_EXIT(0);
             return false;
         }
         valCapacity = arg1;
@@ -267,17 +258,18 @@ bool makeChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
     size_t capacity = as_positive_integer(valCapacity);
 
     ObjChannelContainer* channel = newChannel(routine, capacity);
+
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     if (channel == NULL) {
         return false;
     } else {
-        *result = CHANNEL_VAL((Obj*)channel);
+        push(routine, CHANNEL_VAL((Obj*)channel));
         return true;
     }
 }
 
-bool sendChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool sendChannelBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount != 2) {
@@ -290,20 +282,19 @@ bool sendChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
 
     if (!IS_CHANNEL(channelVal)) {
         runtimeError(routine, "Argument must be a channel.");
-        TR_EXIT(0);
-        RS_EXIT(0);
         return false;
     }
 
     ObjChannelContainer* channel = AS_CHANNEL(channelVal);
     sendChannel(channel, dataVal);
+    push(routine, NIL_VAL);
 
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     return true;
 }
 
-bool shareChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool shareChannelBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount != 2) {
@@ -316,21 +307,19 @@ bool shareChannelBuiltin(ObjRoutine* routine, int argCount, Value* result) {
     
     if (!IS_CHANNEL(channelVal)) {
         runtimeError(routine, "Argument must be a channel.");
-        TR_EXIT(0);
-        RS_EXIT(0);
         return false;
     }
 
     ObjChannelContainer* channel = AS_CHANNEL(channelVal);
     bool overflow = shareChannel(channel, dataVal);
-    *result = BOOL_VAL(overflow);
+    push(routine, BOOL_VAL(overflow));
 
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     return true;
 }
 
-bool cpeekBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool cpeekBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount != 1) {
@@ -342,20 +331,18 @@ bool cpeekBuiltin(ObjRoutine* routine, int argCount, Value* result) {
 
     if (!IS_CHANNEL(channelVal)) {
         runtimeError(routine, "Argument must be a channel.");
-        TR_EXIT(0);
-        RS_EXIT(0);
         return false;
     }
 
     ObjChannelContainer* channel = AS_CHANNEL(channelVal);
-    *result = peekChannel(channel);
+    push(routine, peekChannel(channel));
 
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     return true;
 }
 
-bool makeSyncGroupBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool makeSyncGroupBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount != 1) {
@@ -384,52 +371,45 @@ bool makeSyncGroupBuiltin(ObjRoutine* routine, int argCount, Value* result) {
 
     ObjSyncGroup* group = newSyncGroup(routine, items);
 
-    *result = SYNCGROUP_VAL((Obj*)group);
+    push(routine, SYNCGROUP_VAL((Obj*)group));
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     return true;
 }
 
-bool makeRoutineBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool makeRoutineBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount != 1) {
         runtimeError(routine, "Expected 1 argument but got %d.", argCount);
-        TR_EXIT(0);
-        RS_EXIT(0);
         return false;
     }
     if (!IS_CLOSURE(peek(routine, 0))) {
         runtimeError(routine, "Argument to make_routine must be a function.");
-        TR_EXIT(0);
-        RS_EXIT(0);
         return false;
     }
 
     ObjClosure* closure = AS_CLOSURE(peek(routine, 0));
     ObjRoutine* newR = newRoutine();
 
-    if (bindEntryFn(routine, closure)) {
-        *result = ROUTINE_VAL(newR);
+    if (bindEntryFn(newR, closure)) {
+        push(routine, ROUTINE_VAL(newR));
+        tempRootPop(); // newR
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     }
     else {
         runtimeError(routine, "Function must take 0 or 1 arguments.");
-        TR_EXIT(0);
-        RS_EXIT(0);
         return false;
     }
 }
 
-bool resumeBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool resumeBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount < 1 || argCount > 2) {
         runtimeError(routine, "Expected one or two arguments to resume.");
-        TR_EXIT(0);
-        RS_EXIT(0);
         return false;
     }
 
@@ -444,31 +424,29 @@ bool resumeBuiltin(ObjRoutine* routine, int argCount, Value* result) {
 
     if (!IS_ROUTINE(routineVal)) {
         runtimeError(routine, "Argument to resume must be a routine.");
-        TR_EXIT(0);
-        RS_EXIT(0);
         return false;
     }
 
     ObjRoutine* target = AS_ROUTINE(routineVal);
 
     if (!routineSuspendedOrUnbound(target)) {
-        TR_EXIT(0);
-        RS_EXIT(0);
         return false;
     }
 
+    Value v;
+    bool ok = resumeRoutine(routine, target, argCount == 2 ? 1 : 0, argVal, &v);
+    push(routine, v);
+
     TR_EXIT(0);
-    RS_EXIT(0);
-    return resumeRoutine(routine, target, argCount == 2 ? 1 : 0, argVal, result);
+    RS_EXIT(1);
+    return ok;
 }
 
-bool startBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool startBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount < 1 || argCount > 2) {
         runtimeError(routine, "Expected one or two arguments to start.");
-        TR_EXIT(0);
-        RS_EXIT(0);
         return false;
     }
 
@@ -483,19 +461,20 @@ bool startBuiltin(ObjRoutine* routine, int argCount, Value* result) {
 
     if (!IS_ROUTINE(targetRoutineVal)) {
         runtimeError(routine, "Argument to start must be a routine.");
-        TR_EXIT(0);
-        RS_EXIT(0);
         return false;
     }
 
     ObjRoutine* target = AS_ROUTINE(targetRoutineVal);
 
+    bool ok = startRoutine(routine, target, argCount == 2 ? 1 : 0, argVal);
+    push(routine, NIL_VAL);
+
     TR_EXIT(0);
-    RS_EXIT(0);
-    return startRoutine(routine, target, argCount == 2 ? 1 : 0, argVal);
+    RS_EXIT(1);
+    return ok;
 }
 
-bool receiveBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool receiveBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount != 1) {
@@ -507,30 +486,33 @@ bool receiveBuiltin(ObjRoutine* routine, int argCount, Value* result) {
 
     if (!IS_CHANNEL(targetVal) && !IS_ROUTINE(targetVal) && !IS_SYNCGROUP(targetVal)) {
         runtimeError(routine, "Argument must be a channel, a routine or a sync group.");
-        TR_EXIT(0);
-        RS_EXIT(0);
         return false;
     }
 
+    bool ok;
+    Value v;
     if (IS_CHANNEL(targetVal)) {
-        *result = receiveChannel(AS_CHANNEL(targetVal));
-    } 
-    else if (IS_ROUTINE(targetVal)) {
-        TR_EXIT(0);
-        RS_EXIT(0);
-        return receiveFromRoutine(AS_ROUTINE(targetVal), result);
-    } else if (IS_SYNCGROUP(targetVal)) {
-        *result = receiveSyncGroup(AS_SYNCGROUP(targetVal));
-        TR_EXIT(0);
-        RS_EXIT(0);
-        return true;
+        v = receiveChannel(AS_CHANNEL(targetVal));
+        ok = true;
     }
+    else if (IS_ROUTINE(targetVal)) {
+        ok = receiveFromRoutine(AS_ROUTINE(targetVal), &v);
+    }
+    else if (IS_SYNCGROUP(targetVal)) {
+        v = receiveSyncGroup(AS_SYNCGROUP(targetVal));
+        ok = true;
+    }
+    else {
+        v = NIL_VAL;
+        ok = true;
+    }
+    push(routine, v);
     TR_EXIT(0);
-    RS_EXIT(0);
-    return true;
+    RS_EXIT(1);
+    return ok;
 }
 
-bool peekBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool peekBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
 
@@ -538,8 +520,6 @@ bool peekBuiltin(ObjRoutine* routine, int argCount, Value* result) {
 
     if (!(isAddressValue(address) || isUint32Pointer(address))) {
         runtimeError(routine, "Expected an address or pointer.");
-        TR_EXIT(0);
-        RS_EXIT(0);
         return false;
     }
 
@@ -553,21 +533,21 @@ bool peekBuiltin(ObjRoutine* routine, int argCount, Value* result) {
 #if defined(CYARG_SELF_HOSTED)
     volatile uint32_t* reg = (volatile uint32_t*) nominal_address;
     uint32_t res = *reg;
-    *result = UI32_VAL(res);
+    push(routine, UI32_VAL(res));
 #elif defined(CYARG_OS_HOSTED)
 #ifdef CYARG_FEATURE_TEST_SYSTEM
-    *result = SIZE_T_UI_VAL(tsRead(nominal_address));
+    push(routine, SIZE_T_UI_VAL(tsRead(nominal_address)));
 #else
-    *result = SIZE_T_UI_VAL(0);
+         push(routine, SIZE_T_UI_VAL(0));
 #endif
-    printf("peek(%p) -> %x\n", (void*)nominal_address, AS_UI32(*result));
+    printf("peek(%p) -> %x\n", (void*)nominal_address, AS_UI32(peek(routine, 0)));
 #endif
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     return true;
 }
 
-bool lenBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool lenBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount != 1) {
@@ -577,16 +557,20 @@ bool lenBuiltin(ObjRoutine* routine, int argCount, Value* result) {
 
     Value res = op_len(routine);
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     if (!IS_NIL(res)) {
-        *result = res;
+        push(routine, res);
+        TR_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else {
+        TR_EXIT(0);
+        RS_EXIT(0);
         return false;
     }
 }
 
-bool pinBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool pinBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     if (argCount != 1) {
@@ -603,35 +587,31 @@ bool pinBuiltin(ObjRoutine* routine, int argCount, Value* result) {
 
         uintptr_t addr;
         if (pinRoutine(isrRoutine, &addr)) {
-            *result = ADDRESS_VAL(addr);
+            push(routine, ADDRESS_VAL(addr));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         } else {
-            TR_EXIT(0);
-            RS_EXIT(0);
             runtimeError(routine, "No more pinned routines available.");
             return false;
         }
     } else if (IS_UNIFORMARRAY(arg)) {
-        *result = pinPackedValueContainer(arg);
+        push(routine, pinPackedValueContainer(arg));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_ADDRESS(arg)) {
-        *result = arg;
+        push(routine, arg);
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_POINTER(arg)) {
-        *result = pinPackedValueContainer(arg);
+        push(routine, pinPackedValueContainer(arg));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else {
         runtimeError(routine, "Expected a routine, uniform array, pointer or address.");
-        TR_EXIT(0);
-        RS_EXIT(0);
         return false;
     }
 }
@@ -647,13 +627,15 @@ Value createPointerAndTarget(ObjRoutine* routine, const ObjConcreteYargType* tar
     ObjPackedContainer* targetContainer = AS_PACKEDCONTAINER(targetVal);
 
     Value pointerVal = createPackedContainerFor(targetContainer, 0, pointerType);
-    pop(routine);
+    push(routine, pointerVal);
+    popNBehindTop(routine, 1); // pointerType
+    tempRootPop(); // targetVal
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     return pointerVal;
 }
 
-bool new_Builtin(ObjRoutine* routine, int argCount, Value* result) {
+static bool new_Builtin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
 
@@ -671,7 +653,9 @@ bool new_Builtin(ObjRoutine* routine, int argCount, Value* result) {
 
     if (IS_NIL(typeToCreate)) {
         // make an 'any' cell, ie a heap allocated Value.
-        *result = createPointerAndTarget(routine, NULL);
+        createPointerAndTarget(routine, NULL);
+        TR_EXIT(0);
+        RS_EXIT(1);
         return true;
     }
 
@@ -688,32 +672,37 @@ bool new_Builtin(ObjRoutine* routine, int argCount, Value* result) {
         case TypeInt64:
         case TypeUint64:
         case TypeStruct: {
-            *result = createPointerAndTarget(routine, AS_YARGTYPE(typeToCreate));
+            push(routine, createPointerAndTarget(routine, AS_YARGTYPE(typeToCreate)));
+            tempRootPop(); // defaultValue
+            TR_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
         case TypeArray:
             // TODO: revisit when arrays become value types.
-            *result = defaultValue(typeToCreate);
+            push(routine, defaultValue(typeToCreate));
+            tempRootPop(); // defaultValue
+            TR_EXIT(0);
+            RS_EXIT(1);
             return true;
 
         case TypeMap: {
             // TODO: revisit if maps become value types.
             if (isSupportedMapKeyType(AS_YARGTYPE(typeToCreate))) {
                 ObjMap *map = newMap((ObjConcreteYargTypeMap*)AS_YARGTYPE(typeToCreate));
-                *result = MAP_VAL(map);
+                push(routine, MAP_VAL(map));
+                tempRootPop(); // map
                 TR_EXIT(0);
-                RS_EXIT(0);
+                RS_EXIT(1);
                 return true;
             } else {
                 runtimeError(routine, "Unsupported map key type.");
-                TR_EXIT(0);
-                RS_EXIT(0);
                 return false;
             }
         }
         case TypeInt:
         case TypeAddress:
-            return false; // both a bug!
+            break; // both a bug!
 
         case TypeString:
         case TypeClass:
@@ -725,64 +714,64 @@ bool new_Builtin(ObjRoutine* routine, int argCount, Value* result) {
         case TypePointer: 
         case TypeYargType:
         case TypeImplementationObj:
-            return false; // unsupported (meaningless for types that can be nil)
+            break; // unsupported (meaningless for types that can be nil)
     }
     TR_EXIT(0);
     RS_EXIT(0);
     return false;
 }
 
-bool uint64Builtin(ObjRoutine* routine, int argCount, Value* result) {
+static bool uint64Builtin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     Value arg = peek(routine, 0);
     if (IS_I8(arg)) {
-        *result = UI64_VAL(AS_I8(arg));
+        push(routine, UI64_VAL(AS_I8(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI8(arg)) {
-        *result = UI64_VAL(AS_UI8(arg));
+        push(routine, UI64_VAL(AS_UI8(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I16(arg)) {
-        *result = UI64_VAL(AS_I16(arg));
+        push(routine, UI64_VAL(AS_I16(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI16(arg)) {
-        *result = UI64_VAL(AS_UI16(arg));
+        push(routine, UI64_VAL(AS_UI16(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I32(arg)) {
-        *result = UI64_VAL(AS_I32(arg));
+        push(routine, UI64_VAL(AS_I32(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI32(arg)) {
-        *result = UI64_VAL(AS_UI32(arg));
+        push(routine, UI64_VAL(AS_UI32(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI64(arg)) {
-        *result = arg;
+        push(routine, arg);
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I64(arg) && AS_I64(arg) >= 0) {
-        *result = UI64_VAL(AS_I64(arg));
+        push(routine, UI64_VAL(AS_I64(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_INT(arg)) {
         Int *i = AS_INT(arg);
         if (int_is_range(i, 0, UINT64_MAX) == INT_WITHIN)
         {
-            *result = UI64_VAL(int_to_u64(i));
+            push(routine, UI64_VAL(int_to_u64(i)));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     } else if (IS_STRING(arg)) {
@@ -790,9 +779,9 @@ bool uint64Builtin(ObjRoutine* routine, int argCount, Value* result) {
         uint64_t i = strtoull(AS_CSTRING(arg), &end, 10);
         if (*end == 0)
         {
-            *result = UI64_VAL(i);
+            push(routine, UI64_VAL(i));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     }
@@ -801,57 +790,57 @@ bool uint64Builtin(ObjRoutine* routine, int argCount, Value* result) {
     return false;
 }
 
-bool int64Builtin(ObjRoutine* routine, int argCount, Value* result) {
+static bool int64Builtin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     Value arg = peek(routine, 0);
     if (IS_I8(arg)) {
-        *result = I64_VAL(AS_I8(arg));
+        push(routine, I64_VAL(AS_I8(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I16(arg)) {
-        *result = I64_VAL(AS_I16(arg));
+        push(routine, I64_VAL(AS_I16(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I32(arg)) {
-        *result = I64_VAL(AS_I32(arg));
+        push(routine, I64_VAL(AS_I32(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I64(arg)) {
-        *result = arg;
+        push(routine, arg);
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI8(arg)) {
+        push(routine, I64_VAL(AS_UI8(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
-        *result = I64_VAL(AS_UI8(arg));
+        RS_EXIT(1);
         return true;
     } else if (IS_UI16(arg)) {
-        *result = I64_VAL(AS_UI16(arg));
+        push(routine, I64_VAL(AS_UI16(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI32(arg)) {
-        *result = I64_VAL(AS_UI32(arg));
+        push(routine, I64_VAL(AS_UI32(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI64(arg) && AS_UI64(arg) <= INT64_MAX) {
-        *result = I64_VAL(AS_UI64(arg));
+        push(routine, I64_VAL(AS_UI64(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_INT(arg)) {
         Int *i = AS_INT(arg);
         if (int_is_range(i, INT64_MIN, INT64_MAX) == INT_WITHIN)
         {
-            *result = I64_VAL(int_to_i64(i));
+            push(routine, I64_VAL(int_to_i64(i)));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     } else if (IS_STRING(arg)) {
@@ -859,9 +848,9 @@ bool int64Builtin(ObjRoutine* routine, int argCount, Value* result) {
         int64_t i = strtoll(AS_CSTRING(arg), &end, 10);
         if (*end == 0)
         {
-            *result = I64_VAL(i);
+            push(routine, I64_VAL(i));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     }
@@ -870,57 +859,57 @@ bool int64Builtin(ObjRoutine* routine, int argCount, Value* result) {
     return false;
 }
 
-bool uint32Builtin(ObjRoutine* routine, int argCount, Value* result) {
+static bool uint32Builtin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     Value arg = peek(routine, 0);
     if (IS_I8(arg) && AS_I8(arg) >= 0) {
-        *result = UI32_VAL(AS_I8(arg));
+        push(routine, UI32_VAL(AS_I8(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I16(arg) && AS_I16(arg) >= 0) {
-        *result = UI32_VAL(AS_I16(arg));
+        push(routine, UI32_VAL(AS_I16(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I32(arg) && AS_I32(arg) >= 0) {
-        *result = UI32_VAL(AS_I32(arg));
+        push(routine, UI32_VAL(AS_I32(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I64(arg) && AS_I64(arg) >= 0 && AS_I64(arg) < UINT32_MAX) {
-        *result = UI32_VAL((uint32_t)AS_I64(arg));
+        push(routine, UI32_VAL((uint32_t)AS_I64(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI8(arg)) {
-        *result = UI32_VAL(AS_UI8(arg));
+        push(routine, UI32_VAL(AS_UI8(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI16(arg)) {
-        *result = UI32_VAL(AS_UI16(arg));
+        push(routine, UI32_VAL(AS_UI16(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI32(arg)) {
-        *result = arg;
+        push(routine, arg);
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI64(arg) && AS_UI64(arg) <= UINT32_MAX) {
-        *result = UI32_VAL((uint32_t)AS_UI64(arg));
+        push(routine, UI32_VAL((uint32_t)AS_UI64(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_INT(arg)) {
         Int *i = AS_INT(arg);
         if (int_is_range(i, 0, UINT32_MAX) == INT_WITHIN)
         {
-            *result = UI32_VAL(int_to_u32(i));
+            push(routine, UI32_VAL(int_to_u32(i)));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     } else if (IS_STRING(arg)) {
@@ -928,68 +917,68 @@ bool uint32Builtin(ObjRoutine* routine, int argCount, Value* result) {
         uint64_t i = strtoull(AS_CSTRING(arg), &end, 10);
         if (*end == 0 && i <= UINT32_MAX)
         {
-            *result = UI32_VAL((uint32_t) i);
+            push(routine, UI32_VAL((uint32_t) i));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     }
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     return false;
 }
 
-bool int32Builtin(ObjRoutine* routine, int argCount, Value* result) {
+static bool int32Builtin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     Value arg = peek(routine, 0);
     if (IS_I8(arg)) {
-        *result = I32_VAL(AS_I8(arg));
+        push(routine, I32_VAL(AS_I8(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I16(arg)) {
-        *result = I32_VAL(AS_I16(arg));
+        push(routine, I32_VAL(AS_I16(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I32(arg)) {
-        *result = arg;
+        push(routine, arg);
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I64(arg) && AS_I64(arg) >= INT32_MIN && AS_I64(arg) <= INT32_MAX) {
-        *result = I32_VAL((int32_t)AS_I64(arg));
+        push(routine, I32_VAL((int32_t)AS_I64(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI8(arg)) {
-        *result = I32_VAL(AS_UI8(arg));
+        push(routine, I32_VAL(AS_UI8(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI16(arg)) {
-        *result = I32_VAL(AS_UI16(arg));
+        push(routine, I32_VAL(AS_UI16(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI32(arg) && AS_UI32(arg) <= INT32_MAX) {
-        *result = I32_VAL(AS_UI32(arg));
+        push(routine, I32_VAL(AS_UI32(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI64(arg) && AS_UI64(arg) <= INT32_MAX) {
-        *result = I32_VAL((int32_t)AS_UI64(arg));
+        push(routine, I32_VAL((int32_t)AS_UI64(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_INT(arg)) {
         Int *i = AS_INT(arg);
         if (int_is_range(i, INT32_MIN, INT32_MAX) == INT_WITHIN)
         {
-            *result = I32_VAL(int_to_i32(i));
+            push(routine, I32_VAL(int_to_i32(i)));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     } else if (IS_STRING(arg)) {
@@ -997,9 +986,9 @@ bool int32Builtin(ObjRoutine* routine, int argCount, Value* result) {
         int64_t i = strtoll(AS_CSTRING(arg), &end, 10);
         if (*end == 0 && i >= INT32_MIN && i <= INT32_MAX)
         {
-            *result = I32_VAL((int32_t) i);
+            push(routine, I32_VAL((int32_t) i));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     }
@@ -1008,57 +997,57 @@ bool int32Builtin(ObjRoutine* routine, int argCount, Value* result) {
     return false;
 }
 
-bool uint16Builtin(ObjRoutine* routine, int argCount, Value* result) {
+static bool uint16Builtin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     Value arg = peek(routine, 0);
     if (IS_I8(arg) && AS_I8(arg) >= 0) {
-        *result = UI16_VAL(AS_I8(arg));
+        push(routine, UI16_VAL(AS_I8(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I16(arg) && AS_I16(arg) >= 0) {
-        *result = UI16_VAL(AS_I16(arg));
+        push(routine, UI16_VAL(AS_I16(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I32(arg) && AS_I32(arg) >= 0 && AS_I32(arg) <= UINT16_MAX) {
-        *result = UI16_VAL(AS_I32(arg));
+        push(routine, UI16_VAL(AS_I32(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I64(arg) && AS_I64(arg) >= 0 && AS_I64(arg) <= UINT16_MAX) {
-        *result = UI16_VAL(AS_I64(arg));
+        push(routine, UI16_VAL(AS_I64(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI8(arg)) {
-        *result = UI16_VAL(AS_UI8(arg));
+        push(routine, UI16_VAL(AS_UI8(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI16(arg)) {
-        *result = arg;
+        push(routine, arg);
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI32(arg) && AS_UI32(arg) <= UINT16_MAX) {
-        *result = UI16_VAL(AS_UI32(arg));
+        push(routine, UI16_VAL(AS_UI32(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI64(arg) && AS_UI64(arg) <= UINT16_MAX) {
-        *result = UI16_VAL(AS_UI64(arg));
+        push(routine, UI16_VAL(AS_UI64(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_INT(arg)) {
         Int *i = AS_INT(arg);
         if (int_is_range(i, 0, UINT16_MAX) == INT_WITHIN)
         {
-            *result = UI16_VAL((uint16_t) int_to_u32(i));
+            push(routine, UI16_VAL((uint16_t) int_to_u32(i)));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     } else if (IS_STRING(arg)) {
@@ -1066,9 +1055,9 @@ bool uint16Builtin(ObjRoutine* routine, int argCount, Value* result) {
         uint64_t i = strtoull(AS_CSTRING(arg), &end, 10);
         if (*end == 0 && i <= UINT16_MAX)
         {
-            *result = UI16_VAL((uint16_t) i);
+            push(routine, UI16_VAL((uint16_t) i));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     }
@@ -1077,57 +1066,57 @@ bool uint16Builtin(ObjRoutine* routine, int argCount, Value* result) {
     return false;
 }
 
-bool int16Builtin(ObjRoutine* routine, int argCount, Value* result) {
+static bool int16Builtin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     Value arg = peek(routine, 0);
     if (IS_I8(arg)) {
-        *result = I16_VAL(AS_I8(arg));
+        push(routine, I16_VAL(AS_I8(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I16(arg)) {
-        *result = arg;
+        push(routine, arg);
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I32(arg) && AS_I32(arg) >= INT16_MIN && AS_I32(arg) <= INT16_MAX) {
-        *result = I16_VAL(AS_I32(arg));
+        push(routine, I16_VAL(AS_I32(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I64(arg) && AS_I64(arg) >= INT16_MIN && AS_I64(arg) <= INT16_MAX) {
-        *result = I16_VAL(AS_I64(arg));
+        push(routine, I16_VAL(AS_I64(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI8(arg)) {
-        *result = I16_VAL(AS_UI8(arg));
+        push(routine, I16_VAL(AS_UI8(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI16(arg) && AS_UI16(arg) <= INT16_MAX) {
-        *result = I16_VAL(AS_UI16(arg));
+        push(routine, I16_VAL(AS_UI16(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI32(arg) && AS_UI32(arg) <= INT16_MAX) {
-        *result = I16_VAL(AS_UI32(arg));
+        push(routine, I16_VAL(AS_UI32(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI64(arg) && AS_UI64(arg) <= INT16_MAX) {
-        *result = I16_VAL(AS_UI64(arg));
+        push(routine, I16_VAL(AS_UI64(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_INT(arg)) {
         Int *i = AS_INT(arg);
         if (int_is_range(i, INT16_MIN, INT16_MAX) == INT_WITHIN)
         {
-            *result = I16_VAL((int16_t) int_to_i32(i));
+            push(routine, I16_VAL((int16_t) int_to_i32(i)));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     } else if (IS_STRING(arg)) {
@@ -1135,9 +1124,9 @@ bool int16Builtin(ObjRoutine* routine, int argCount, Value* result) {
         int64_t i = strtoll(AS_CSTRING(arg), &end, 10);
         if (*end == 0 && i >= INT16_MIN && i <= INT16_MAX)
         {
-            *result = I16_VAL((int16_t) i);
+            push(routine, I16_VAL((int16_t) i));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     }
@@ -1146,57 +1135,57 @@ bool int16Builtin(ObjRoutine* routine, int argCount, Value* result) {
     return false;
 }
 
-bool uint8Builtin(ObjRoutine* routine, int argCount, Value* result) {
+static bool uint8Builtin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     Value arg = peek(routine, 0);
     if (IS_I8(arg) && AS_I8(arg) >= 0) {
-        *result = UI8_VAL(AS_I8(arg));
+        push(routine, UI8_VAL(AS_I8(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I16(arg) && AS_I16(arg) >= 0 && AS_I16(arg) <= UINT8_MAX) {
-        *result = UI8_VAL(AS_I16(arg));
+        push(routine, UI8_VAL(AS_I16(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I32(arg) && AS_I32(arg) >= 0 && AS_I32(arg) <= UINT8_MAX) {
-        *result = UI8_VAL(AS_I32(arg));
+        push(routine, UI8_VAL(AS_I32(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I64(arg) && AS_I64(arg) >= 0 && AS_I64(arg) <= UINT8_MAX) {
-        *result = UI8_VAL(AS_I64(arg));
+        push(routine, UI8_VAL(AS_I64(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI8(arg)) {
-        *result = arg;
+        push(routine, arg);
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI32(arg) && AS_UI32(arg) <= UINT8_MAX) {
-        *result = UI8_VAL(AS_UI32(arg));
+        push(routine, UI8_VAL(AS_UI32(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI16(arg) && AS_UI16(arg) <= UINT8_MAX) {
-        *result = UI8_VAL(AS_UI16(arg));
+        push(routine, UI8_VAL(AS_UI16(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI64(arg) && AS_UI64(arg) <= UINT8_MAX) {
-        *result = UI8_VAL(AS_UI64(arg));
+        push(routine, UI8_VAL(AS_UI64(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_INT(arg)) {
         Int *i = AS_INT(arg);
         if (int_is_range(i, 0, UINT8_MAX) == INT_WITHIN)
         {
-            *result = UI8_VAL((uint8_t) int_to_u32(i));
+            push(routine, UI8_VAL((uint8_t) int_to_u32(i)));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     } else if (IS_STRING(arg)) {
@@ -1205,8 +1194,8 @@ bool uint8Builtin(ObjRoutine* routine, int argCount, Value* result) {
         if (*end == 0 && i <= UINT8_MAX)
         {
             TR_EXIT(0);
-            RS_EXIT(0);
-            *result = UI8_VAL((uint8_t) i);
+            RS_EXIT(1);
+            push(routine, UI8_VAL((uint8_t) i));
             return true;
         }
     }
@@ -1215,57 +1204,57 @@ bool uint8Builtin(ObjRoutine* routine, int argCount, Value* result) {
     return false;
 }
 
-bool int8Builtin(ObjRoutine* routine, int argCount, Value* result) {
+static bool int8Builtin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     Value arg = peek(routine, 0);
     if (IS_I8(arg)) {
-        *result = arg;
+        push(routine, arg);
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I16(arg) && AS_I16(arg) >= INT8_MIN && AS_I16(arg) <= INT8_MAX) {
-        *result = I8_VAL(AS_I16(arg));
+        push(routine, I8_VAL(AS_I16(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I32(arg) && AS_I32(arg) >= INT8_MIN && AS_I32(arg) <= INT8_MAX) {
-        *result = I8_VAL(AS_I32(arg));
+        push(routine, I8_VAL(AS_I32(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_I64(arg) && AS_I64(arg) >= INT8_MIN && AS_I64(arg) <= INT8_MAX) {
-        *result = I8_VAL(AS_I64(arg));
+        push(routine, I8_VAL(AS_I64(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI8(arg) && AS_UI8(arg) <= INT8_MAX) {
-        *result = I8_VAL(AS_UI8(arg));
+        push(routine, I8_VAL(AS_UI8(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI16(arg) && AS_UI16(arg) <= INT8_MAX) {
-        *result = I8_VAL(AS_UI16(arg));
+        push(routine, I8_VAL(AS_UI16(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI32(arg) && AS_UI32(arg) <= INT8_MAX) {
-        *result = I8_VAL(AS_UI32(arg));
+        push(routine, I8_VAL(AS_UI32(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_UI64(arg) && AS_UI64(arg) <= INT8_MAX) {
-        *result = I8_VAL(AS_UI64(arg));
+        push(routine, I8_VAL(AS_UI64(arg)));
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_INT(arg)) {
         Int *i = AS_INT(arg);
         if (int_is_range(i, INT8_MIN, INT8_MAX) == INT_WITHIN)
         {
-            *result = I8_VAL((int8_t) int_to_i32(i));
+            push(routine, I8_VAL((int8_t) int_to_i32(i)));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     } else if (IS_STRING(arg)) {
@@ -1273,9 +1262,9 @@ bool int8Builtin(ObjRoutine* routine, int argCount, Value* result) {
         int64_t i = strtoll(AS_CSTRING(arg), &end, 10);
         if (*end == 0 && i >= INT8_MIN && i <= INT8_MAX)
         {
-            *result = I8_VAL((int8_t) i);
+            push(routine, I8_VAL((int8_t) i));
             TR_EXIT(0);
-            RS_EXIT(0);
+            RS_EXIT(1);
             return true;
         }
     }
@@ -1284,7 +1273,7 @@ bool int8Builtin(ObjRoutine* routine, int argCount, Value* result) {
     return false;
 }
 
-bool intBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool intBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     Value arg = peek(routine, 0);
@@ -1313,26 +1302,35 @@ bool intBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         s = 2;
     } else if (IS_UI64(arg)) {
         uint64_t u = AS_UI64(arg);
-        allocateIntValue(result, 4);
-        int_set_u(u, AS_INT(*result));
+        Value v;
+        allocateIntValue(&v, 4);
+        int_set_u(u, AS_INT(v));
+        push(routine, v);
+        tempRootPop();
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_STRING(arg)) {
         char *s = AS_CSTRING(arg);
         int il = INT_DIGITS_FOR_S(strlen(s));
-        allocateIntValue(result, il);
-        int_set_s(s, AS_INT(*result));
+        Value v;
+        allocateIntValue(&v, il);
+        int_set_s(s, AS_INT(v));
+        push(routine, v);
+        tempRootPop();
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else if (IS_INT(arg)) {
         Int *from = AS_INT(arg);
         int il = from->d_;
-        allocateIntValue(result, il);
-        int_set_t(from, AS_INT(*result));
+        Value v;
+        allocateIntValue(&v, il);
+        int_set_t(from, AS_INT(v));
+        push(routine, v);
+        tempRootPop();
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     } else {
         TR_EXIT(0);
@@ -1340,14 +1338,17 @@ bool intBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         return false;
     }
 
-    allocateIntValue(result, s);
-    int_set_i(i, AS_INT(*result)); // todo: optimise as only IS_I64 has obj_
+    Value v;
+    allocateIntValue(&v, s);
+    int_set_i(i, AS_INT(v)); // todo: optimise as only IS_I64 has obj_
+    push(routine, v);
+    tempRootPop();
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     return true;
 }
 
-bool floatBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool floatBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     Value arg = peek(routine, 0);
@@ -1396,20 +1397,20 @@ bool floatBuiltin(ObjRoutine* routine, int argCount, Value* result) {
         RS_EXIT(0);
         return false;
     }
-    *result = DOUBLE_VAL(f);
+    push(routine, DOUBLE_VAL(f));
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     return true;
 }
 
-bool stringBuiltin(ObjRoutine* routine, int argCount, Value* result) {
+static bool stringBuiltin(ObjRoutine* routine, int argCount) {
     RS_ENTRY;
     TR_ENTRY;
     Value arg = peek(routine, 0);
     ObjString* representation = valueToString(arg);
-    *result = STRING_VAL(representation);
+    push(routine, STRING_VAL(representation));
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     return true;
 }
 

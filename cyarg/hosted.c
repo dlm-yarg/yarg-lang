@@ -47,7 +47,6 @@ int bootstrapHostedFile(const char* path) {
     vmHost.exitCode = EX_OK;
 
     ObjString* pathString = copyString(path, (int) strlen(path));
-
     InterpretResult result = bootScript(pathString);
     assert(tempRootPop().as.obj == &pathString->obj);
 

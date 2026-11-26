@@ -140,6 +140,9 @@ static void defineGlobal(ObjRoutine* context, const char* name, Value value) {
     push(context, STRING_VAL(nameString));
     assert(valuesEqual(tempRootPop(), IMPL_OBJ_VAL(nameString)));
 
+    if (strcmp("getRawHostArgument", name)==0){
+        name==name;
+    }
     keyValueStoreSetValue(&vm.globals, nameString, &value);
     pop(context);
 }
@@ -287,22 +290,20 @@ static InterpretResult callValue(ObjRoutine* routine, Value callee, int argCount
         return callfn(routine, AS_CLOSURE(callee), argCount) ? INTERPRET_OK : INTERPRET_RUNTIME_ERROR;
     } else if (IS_NATIVE(callee)) {
         NativeFn native = AS_NATIVE(callee);
-        Value result = NIL_VAL;
-        if (native(routine, argCount, &result)) {
-            popN(routine, argCount + 1);
-            push(routine, result);
+        if (native(routine, argCount)) {
+            popNBehindTop(routine, argCount + 1);
             return INTERPRET_OK;
         } else {
+            popN(routine, argCount);
             return INTERPRET_RUNTIME_ERROR;
         }
     } else if (IS_BUILTIN(callee)) {
         BuiltinFun builtin = AS_BUILTIN(callee);
-        Value result = NIL_VAL;
-        if (builtin(routine, argCount, &result)) {
-            popN(routine, argCount + 1);
-            push(routine, result);
+        if (builtin(routine, argCount)) {
+            popNBehindTop(routine, argCount);
             return INTERPRET_OK;
         } else {
+            popN(routine, argCount);
             return INTERPRET_RUNTIME_ERROR;
         }
     }
@@ -384,6 +385,7 @@ static void defineMethod(ObjRoutine* routine, ObjString* name) {
 }
 
 static bool derefArrayElement(ObjRoutine* routine) {
+    TR_ENTRY;
     if (!is_positive_integer(peek(routine, 0))) {
         runtimeError(routine, "Expected an array and a positive or unsigned integer.");
         return false;
@@ -407,13 +409,14 @@ static bool derefArrayElement(ObjRoutine* routine) {
             return false;
         }
         result = arrayElementPointer(arrayVal, index);
-        assert(valuesEqual(tempRootPopBelow(1), arrayVal));
+        assert(tempRootPopBelow(1).as.obj == arrayVal.as.obj);
     }
 
     pop(routine);
     pop(routine);
     push(routine, result);
-    assert(valuesEqual(tempRootPop(), result));
+    tempRootPop(); // arrayVal
+    TR_EXIT(0);
     return true;
 }
 
@@ -549,6 +552,7 @@ static void concatenate(ObjRoutine* routine) {
     pop(routine);
     pop(routine);
     push(routine, STRING_VAL(result));
+    tempRootPop();
 }
 
 static void promote(Value *left, Value *right)
@@ -674,6 +678,7 @@ Value op_len(ObjRoutine* context) {
 }
 
 InterpretResult run(ObjRoutine* routine) {
+    TR_ENTRY;
     CallFrame* frame = routineCurrentFrame(routine);
     routineSetStateRunning(routine);
 
@@ -809,11 +814,14 @@ InterpretResult run(ObjRoutine* routine) {
 
     for (;;) {
         if (routineErrorState(routine)) {
+            TR_EXIT(0);
             return INTERPRET_RUNTIME_ERROR;
         }
         traceExecutionIfEnabled(routine);
 
         uint8_t instruction = READ_BYTE();
+        static int ssi = 0
+        ;ssi++;
         switch (instruction) {
             case OP_CONSTANT: {
                 Value constant = READ_CONSTANT();
@@ -852,6 +860,7 @@ InterpretResult run(ObjRoutine* routine) {
                 BuiltinFun builtinFn = getBuiltinFunction(builtin);
                 if (builtinFn == NULL) {
                     runtimeError(routine, "Undefined builtin function (OP_GET_BUILTIN) '%d'.", builtin);
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 ObjBuiltin* builtinObj = newBuiltin(builtinFn);
@@ -867,6 +876,7 @@ InterpretResult run(ObjRoutine* routine) {
 
                 if (!assignToValueCellTarget(lhsTrg, rhs->value)) {
                     runtimeError(routine, "Cannot set local variable to incompatible type.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -879,10 +889,14 @@ InterpretResult run(ObjRoutine* routine) {
             case OP_GET_GLOBAL: {
                 vm_mutex_enter_blocking(&vm.env);
                 ObjString* name = READ_STRING();
+                if (strcmp("getRawHostArgument", name->chars) ==0) {
+                    name=name;
+                }
                 ValueCell cell;
                 if (!keyValueStoreGet(&vm.globals, name, &cell)) {
                     runtimeError(routine, "Undefined variable (OP_GET_GLOBAL) '%s'.", name->chars);
                     vm_mutex_exit(&vm.env);
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 push(routine, cell.value);
@@ -908,11 +922,13 @@ InterpretResult run(ObjRoutine* routine) {
                     if (!assignToValueCellTarget(lhsTrg, rhs->value)) {
                         runtimeError(routine, "Cannot set global variable to incompatible type.");
                         vm_mutex_exit(&vm.env);
+                        TR_EXIT(0);
                         return INTERPRET_RUNTIME_ERROR;
                     }
                 } else {
                     runtimeError(routine, "Undefined variable (OP_SET_GLOBAL) '%s'.", name->chars);
                     vm_mutex_exit(&vm.env);
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 vm_mutex_exit(&vm.env);
@@ -924,6 +940,7 @@ InterpretResult run(ObjRoutine* routine) {
                 Value result;
                 if (!canInitialiseType(targetType, rhs->value, &result)) {
                     runtimeError(routine, "Cannot initialise variable with this value.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 pop(routine);
@@ -936,6 +953,7 @@ InterpretResult run(ObjRoutine* routine) {
                 Value result = defaultValue(targetType);
                 pop(routine);
                 pushTyped(routine, result, targetType);
+                tempRootPop(); // result
                 break;
             }
             case OP_DUPLICATE: {
@@ -961,6 +979,7 @@ InterpretResult run(ObjRoutine* routine) {
 
                 if (!assignToValueCellTarget(lhsTrg, rhs->value)) {
                     runtimeError(routine, "Cannot set local variable to incompatible type.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -969,6 +988,7 @@ InterpretResult run(ObjRoutine* routine) {
                 if (!IS_INSTANCE(peek(routine, 0)) && !IS_STRUCT(peek(routine, 0)) && !isStructPointer(peek(routine, 0)) && !IS_INT(peek(routine, 0))) {
                     // int is a very special case, so we'll document the general case for ease of understanding.
                     runtimeError(routine, "Only instances, structs, pointers to structs have properties.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 if (IS_INSTANCE(peek(routine, 0))) {
@@ -990,12 +1010,13 @@ InterpretResult run(ObjRoutine* routine) {
                     const ObjConcreteYargTypeStruct* structType = (const ObjConcreteYargTypeStruct*)structVal.type;
                     if (!structFieldIndex(structType, name, &index)) {
                         runtimeError(routine, "field not present in struct.");
+                        TR_EXIT(0);
                         return INTERPRET_RUNTIME_ERROR;
                     }
                     Value result = structField(structVal, index);
                     pop(routine);
                     push(routine, result);
-                    assert(valuesEqual(tempRootPop(), result));
+                    tempRootPop(); // result
                 } else if (isStructPointer(peek(routine, 0))) {
                     Value pointerVal = peek(routine, 0);
                     ObjString* name = READ_STRING();
@@ -1004,15 +1025,15 @@ InterpretResult run(ObjRoutine* routine) {
                     size_t index;
                     if (!structFieldIndex((const ObjConcreteYargTypeStruct*)structVal.type, name, &index)) {
                         runtimeError(routine, "field not present in struct.");
+                        TR_EXIT(0);
                         return INTERPRET_RUNTIME_ERROR;
                     }
                     Value result = structFieldPointer(structVal, index);
 
-                    tempRootPop();
                     pop(routine);
                     push(routine, result);
-                    assert(valuesEqual(tempRootPop(), result));
-                    assert(valuesEqual(tempRootPop(), structVal));
+                    assert(tempRootPop().as.obj == result.as.obj);
+                    assert(tempRootPop().as.obj == structVal.as.obj);
                 } else if (IS_INT(peek(routine, 0))) {
                     Value i = pop(routine);
                     Int *b = AS_INT(i);
@@ -1024,6 +1045,7 @@ InterpretResult run(ObjRoutine* routine) {
                     else
                     {
                         runtimeError(routine, "Undefined property '%s' on int. Only 'overflow' is available.", name->chars);
+                        TR_EXIT(0);
                         return INTERPRET_RUNTIME_ERROR;
                     }
                 }
@@ -1032,6 +1054,7 @@ InterpretResult run(ObjRoutine* routine) {
             case OP_SET_PROPERTY: {
                 if (!IS_INSTANCE(peek(routine, 1)) && !IS_STRUCT(peek(routine, 1))) {
                     runtimeError(routine, "Only instances and structs have fields.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 if (IS_INSTANCE(peek(routine, 1))) {
@@ -1047,10 +1070,12 @@ InterpretResult run(ObjRoutine* routine) {
                     size_t index;
                     if (!structFieldIndex((const ObjConcreteYargTypeStruct*)structVal.type, name, &index)) {
                         runtimeError(routine, "field not present in struct.");
+                        TR_EXIT(0);
                         return INTERPRET_RUNTIME_ERROR;
                     }
                     if (!setStructField(structVal, index, peek(routine, 0))) {
                         runtimeError(routine, "cannot assign to field type.");
+                        TR_EXIT(0);
                         return INTERPRET_RUNTIME_ERROR;
                     }
                     Value result = pop(routine);                 
@@ -1162,6 +1187,7 @@ InterpretResult run(ObjRoutine* routine) {
                     binaryIntOp(routine, "+");
                 } else {
                     runtimeError(routine, "Operands must be two numbers or two strings.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -1221,6 +1247,7 @@ InterpretResult run(ObjRoutine* routine) {
                     binaryIntOp(routine, "%");
                 } else {
                     runtimeError(routine, "Operands must integers or unsigned integers of same type.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -1246,6 +1273,7 @@ InterpretResult run(ObjRoutine* routine) {
                     unaryIntOp(routine, OP_NEGATE);
                 } else {
                     runtimeError(routine, "Operand must be a number or integer.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -1257,10 +1285,12 @@ InterpretResult run(ObjRoutine* routine) {
                 } else if (IS_UNIFORMARRAY(errorValue)) {
                     // for now special case an array of errors
                     resetRoutine(routine, errorValue);
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 } else {
                     runtimeError(routine, "Error: %s", valueToString(errorValue)->chars);
                 }
+                TR_EXIT(0);
                 return INTERPRET_RUNTIME_ERROR;
             }
             case OP_PRINT: {
@@ -1276,10 +1306,12 @@ InterpretResult run(ObjRoutine* routine) {
                 Value assignment = peek(routine, 1);
                 if (!(isAddressValue(location) || isUint32Pointer(location))) {
                     runtimeError(routine, "Location must be a pointer to an uint32 or address.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 if (!(is_positive_integer(assignment) || isAddressValue(assignment))) {
                     runtimeError(routine, "Value must be a positive integer or an address.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
 
@@ -1338,10 +1370,12 @@ InterpretResult run(ObjRoutine* routine) {
             case OP_LEN: {
                 Value result = op_len(routine);
                 if (IS_NIL(result)) {
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 popN(routine, 1);
                 push(routine, result);
+                tempRootPop(); // result
                 break;
             }
             case OP_CALL_BUILTIN: {
@@ -1350,14 +1384,14 @@ InterpretResult run(ObjRoutine* routine) {
                 BuiltinFun builtinFn = getBuiltinFunction(builtin);
                 if (builtinFn == NULL) {
                     runtimeError(routine, "Undefined builtin function (OP_CALL_BUILTIN) '%d'.", builtin);
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
-                Value result = NIL_VAL;
-                if (builtinFn(routine, argCount, &result)) {
-                    popN(routine, argCount);
-                    push(routine, result);
-                    tempRootPop();
+                if (builtinFn(routine, argCount)) {
+                    popNBehindTop(routine, argCount);
                 } else {
+                    popN(routine, argCount);
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -1367,6 +1401,7 @@ InterpretResult run(ObjRoutine* routine) {
                 Value closure = peek(routine, argCount);
                 InterpretResult result = callValue(routine, closure, argCount);
                 if (result != INTERPRET_OK) {
+                    TR_EXIT(0);
                     return result;
                 }
                 frame = routineCurrentFrame(routine);
@@ -1377,6 +1412,7 @@ InterpretResult run(ObjRoutine* routine) {
                 int argCount = READ_BYTE();
                 InterpretResult result = invoke(routine, method, argCount);
                 if (result != INTERPRET_OK) {
+                    TR_EXIT(0);
                     return result;
                 }
                 frame = routineCurrentFrame(routine);
@@ -1388,6 +1424,7 @@ InterpretResult run(ObjRoutine* routine) {
                 ObjClass* superclass = AS_CLASS(pop(routine));
                 InterpretResult result = invokeFromClass(routine, superclass, method, argCount);
                 if (result != INTERPRET_OK) {
+                    TR_EXIT(0);
                     return result;
                 }
                 frame = routineCurrentFrame(routine);
@@ -1401,20 +1438,25 @@ InterpretResult run(ObjRoutine* routine) {
                     uint8_t index = READ_BYTE();
                     routineCaptureUpvalue(routine, closure, i, isLocal, frame, index);
                 }
+                push(routine, CLOSURE_VAL(closure));
+                tempRootPop(); // closure
                 break;
             }
             case OP_CLOSE_UPVALUE: op_close_upvalues(routine); break;
             case OP_YIELD: {
                 if (routine == &vm.core0) {
                     runtimeError(routine, "Cannot yield from initial routine.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 yieldFromRoutine(routine);
+                TR_EXIT(0);
                 return INTERPRET_OK;
             }
             case OP_RETURN: {
                 int remainingFrames = op_return(routine, frame);
                 if (remainingFrames == 0) {
+                    TR_EXIT(0);
                     return INTERPRET_OK;
                 }
                 frame = routineCurrentFrame(routine);
@@ -1428,7 +1470,8 @@ InterpretResult run(ObjRoutine* routine) {
                 Value superclass = peek(routine, 1);
                 if (!IS_CLASS(superclass)) {
                     runtimeError(routine, "Superclass must be a class.");
-                    return INTERPRET_RUNTIME_ERROR;
+                    TR_EXIT(0);
+                   return INTERPRET_RUNTIME_ERROR;
                 }
 
                 ObjClass* subclass = AS_CLASS(peek(routine, 0));
@@ -1446,6 +1489,7 @@ InterpretResult run(ObjRoutine* routine) {
                 const ObjConcreteYargType* typeObj = newYargTypeFromTypeCode(typeCode);
                 if (typeObj == NULL) {
                     runtimeError(routine, "Unknown type literal.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 push(routine, YARGTYPE_VAL(typeObj));
@@ -1454,7 +1498,6 @@ InterpretResult run(ObjRoutine* routine) {
             case OP_TYPE_STRUCT: {
                 uint8_t fieldCount = READ_BYTE();
                 ObjConcreteYargTypeStruct* st = (ObjConcreteYargTypeStruct*) newYargStructType(fieldCount);
-                tempObjRootPush((Obj*)st);
                 for (uint8_t i = 0; i < fieldCount; i++) {
                     // field type can be nil (any) or a concrete Yarg type
                     Value fieldTypeVal = peek(routine, 2);
@@ -1468,6 +1511,7 @@ InterpretResult run(ObjRoutine* routine) {
                     bool fieldExists = structFieldIndex(st, fieldName, &existing_index);
                     if (fieldExists) {
                         runtimeError(routine, "Field already exists in struct.");
+                        TR_EXIT(0);
                         return INTERPRET_RUNTIME_ERROR;
                     }
 
@@ -1484,7 +1528,7 @@ InterpretResult run(ObjRoutine* routine) {
                     pop(routine);
                 }
                 push(routine, YARGTYPE_VAL(st));
-                tempRootPop();
+                tempRootPop(); // st
                 break;
             }
             case OP_TYPE_INDEXED_COLLECTION: {
@@ -1500,6 +1544,7 @@ InterpretResult run(ObjRoutine* routine) {
                     if (!isSupportedMapKeyType((ObjConcreteYargType*) mapType)) {
                         runtimeError(routine, "Unsupported map key type.");
                         tempRootPop();
+                        TR_EXIT(0);
                         return INTERPRET_RUNTIME_ERROR;
                     }
                     typeObject = (ObjConcreteYargType*) mapType;
@@ -1507,6 +1552,7 @@ InterpretResult run(ObjRoutine* routine) {
                     size_t cardinality = as_positive_integer(indexer);
                     if (cardinality == 0) {
                         runtimeError(routine, "Array cardinality must be non zero.");
+                        TR_EXIT(0);
                         return INTERPRET_RUNTIME_ERROR;
                     }
                     ObjConcreteYargType* elementType = AS_YARGTYPE(peek(routine, 1));
@@ -1514,6 +1560,7 @@ InterpretResult run(ObjRoutine* routine) {
                     typeObject = (ObjConcreteYargType*) array;
                 } else {
                     runtimeError(routine, "Collection must be array or map.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
 
@@ -1537,6 +1584,7 @@ InterpretResult run(ObjRoutine* routine) {
                     push(routine, rhs);
                 } else {
                     runtimeError(routine, "Cannot set pointer target to incompatible type.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 break;
@@ -1546,16 +1594,18 @@ InterpretResult run(ObjRoutine* routine) {
                 Value type = peek(routine, 1);
                 if (!is_placeable_type(AS_YARGTYPE(type))) {
                     runtimeError(routine, "Cannot place this type.");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 if (!IS_ADDRESS(location)) {
                     runtimeError(routine, "Value must be an address");
+                    TR_EXIT(0);
                     return INTERPRET_RUNTIME_ERROR;
                 }
                 uintptr_t address = AS_ADDRESS(location);
                 const ObjConcreteYargType* pointerType = newYargPointerType(AS_YARGTYPE(type));
                 push(routine, YARGTYPE_VAL(pointerType));
-
+                tempRootPop(); // pointerType
                 Value result = createPackedValueContainerAt((void*)address, pointerType);
 
                 pop(routine);
@@ -1567,7 +1617,9 @@ InterpretResult run(ObjRoutine* routine) {
                 break;
             }
         }
+        TR_EXIT(0);
     }
+    TR_EXIT(0);
 
 #undef READ_BYTE
 #undef READ_SHORT
@@ -1632,6 +1684,7 @@ uint8_t xip_bootstrap[] = {
 };
 
 InterpretResult bootstrapVM(Value* bootstrapResult, ObjString* script) {
+    TR_ENTRY;
     ObjClosure* closure = newClosure(&vm.bootFunction);
 
     bindEntryFn(&vm.core0, closure);
@@ -1646,15 +1699,18 @@ InterpretResult bootstrapVM(Value* bootstrapResult, ObjString* script) {
     } else {
         *bootstrapResult = NIL_VAL;
     }
+    TR_EXIT(0);
     return result;
 }
 
 InterpretResult bootScript(ObjString* filename) {
+    TR_ENTRY;
     bindBootstrapScript("script-boot", 11, bootstrap, sizeof(bootstrap), filename, bootstrap_parameter_offset);
 
     // Yarg scripts do not return values, so the bootstrap result is discarded.
     Value discardedResult;
     InterpretResult runResult = bootstrapVM(&discardedResult, filename);
+    TR_EXIT(0);
     return runResult;
 }
 

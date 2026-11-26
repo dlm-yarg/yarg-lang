@@ -336,12 +336,12 @@ static ObjString* arrayToString(Value arrayVal) {
 }
 
 static ObjString* pointerToString(Value ptrVal) {
+    TR_ENTRY;
     const ObjConcreteYargTypePointer* ptrType = (const ObjConcreteYargTypePointer*)ptrVal.type;
     const ObjPackedContainer* ptr = AS_PACKEDCONTAINER(ptrVal);
 
     Value targetType = ptrType->target_type ? YARGTYPE_VAL(ptrType->target_type) : NIL_VAL;
     ObjString* targetTypeStr = valueToString(targetType);
-    tempRootPush(STRING_VAL(targetTypeStr));
 
     size_t string_length = targetTypeStr->length;
     string_length += DECIMAL_DIGITS_BOUND(uintptr_t) + 4; // "<*%s:%p>"
@@ -350,7 +350,8 @@ static ObjString* pointerToString(Value ptrVal) {
     snprintf(chars, string_length + 1, "<*%s:%p>", targetTypeStr->chars, ptr->loc);
 
     ObjString* result = takeString(chars, (int) strlen(chars));
-    tempRootPop();
+    tempRootPopBelow(1); // targetTypeStr
+    TR_EXIT(1);
     return result;
 }
 

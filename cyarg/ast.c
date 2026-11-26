@@ -44,8 +44,9 @@ ObjStmt* pushNewStmt(ObjRoutine* routine, ObjType type, int line) {
         default: assert(!"Unsupported statement type in pushNewStmt"); break;
     }
     push(routine, IMPL_OBJ_VAL(stmt));
+    tempRootPop(); // stmt
     stmt->line = line;
-    TR_EXIT(1);
+    TR_EXIT(0);
     RS_EXIT(1);
     return stmt;
 }
@@ -64,7 +65,7 @@ ObjStmt* pushNewStmtDeclaration(ObjRoutine* routine, ObjType type, const char* n
         default: assert(!"Unsupported statement type in pushNewStmtDeclaration"); break;
     }
     tempRootPop(); // objName
-    TR_EXIT(1);
+    TR_EXIT(0);
     RS_EXIT(1);
     return stmt;
 }
@@ -76,12 +77,12 @@ void appendPlaceAlias(ObjRoutine* routine, ObjStmtPlaceDeclaration* place, ObjEx
     push(routine, IMPL_OBJ_VAL(alias));
     tempRootPop();
     alias->name = copyString(name, nameLength);
-    tempRootPop(); // expr->name
+    tempRootPop(); // alias->name
     alias->location = location;
     appendToDynamicObjArray(&place->aliases, (Obj*)alias);
     pop(routine);
-    TR_EXIT(1);
-    RS_EXIT(1);
+    TR_EXIT(0);
+    RS_EXIT(0);
 }
 
 ObjExprOperation* newExprOperation(ObjExpr* rhs, ExprOp op) {

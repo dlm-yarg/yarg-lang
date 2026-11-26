@@ -84,7 +84,9 @@ ObjString* mapToString(const ObjMap* map) {
     ObjString* typeStr = valueToString(YARGTYPE_VAL(map->type));
     char buffer[64];
     snprintf(buffer, sizeof(buffer), "<map (%d) %s >", keyValueStoreCount(&map->entries), typeStr->chars);
-    return copyString(buffer, (int)strlen(buffer));
+    ObjString *s = copyString(buffer, (int)strlen(buffer));
+    tempRootPopBelow(1);
+    return s;
 }
 
 bool isAddressValue(Value val) {

@@ -165,7 +165,7 @@ bool pinRoutine(ObjRoutine* routine, uintptr_t* address) {
         enterEntryFunction(routine);
         routine->addSlice = NULL;
         TR_EXIT(0);
-        RS_EXIT(0);
+        RS_EXIT(1);
         return true;
     }
     TR_EXIT(0);
@@ -292,7 +292,6 @@ void op_close_upvalues(ObjRoutine* routine) {
 }
 
 int op_return(ObjRoutine* routine, CallFrame* frame) {
-    RS_ENTRY;
     TR_ENTRY;
     routine->result = pop(routine);
     closeUpvalues(routine, frame->stackEntryIndex);
@@ -305,7 +304,6 @@ int op_return(ObjRoutine* routine, CallFrame* frame) {
         routine->result = NIL_VAL;
     }
     TR_EXIT(0);
-    RS_EXIT(0);
     return routine->frameCount;
 }
 
@@ -499,7 +497,8 @@ bool routineStackOverflow(ObjRoutine* routine) {
     return overflowing;
 }
 
-void runtimeError(ObjRoutine* routine, const char* format, ...) {
+void
+runtimeError(ObjRoutine* routine, const char* format, ...) {
     RS_ENTRY;
     TR_ENTRY;
 
@@ -549,6 +548,12 @@ static ValueCell* slot(ObjRoutine* routine, size_t index) {
 void push(ObjRoutine* routine, Value value) {
     RS_ENTRY;
     TR_ENTRY;
+    if (IS_CLOSURE(value) && AS_CLOSURE(value)->function->fName != 0 && strcmp(AS_CLOSURE(value)->function->fName->chars, "getRawHostArgument")==0) {
+        routine=routine;
+    }
+    if (IS_FUNCTION(value) && AS_FUNCTION(value)->fName != 0 && strcmp(AS_FUNCTION(value)->fName->chars, "getRawHostArgument")==0) {
+        routine=routine;
+    }
     routineMutexEnter(routine);
     ValueCell* nextSlot = slot(routine, routine->stackTopIndex);
 
@@ -585,8 +590,8 @@ Value pop(ObjRoutine* routine) {
     RS_ENTRY;
     TR_ENTRY;
 
-    Value ret = peek(routine, 0);
     routineMutexEnter(routine);
+    Value ret = peek(routine, 0);
     routine->stackTopIndex--;
     routineMutexLeave(routine);
 
@@ -605,8 +610,20 @@ void popN(ObjRoutine* routine, size_t count) {
     RS_EXIT(-count);
 }
 
-void popFrame(ObjRoutine* routine, CallFrame* frame) {
+void popNBehindTop(ObjRoutine* routine, size_t count) {
     RS_ENTRY;
+    TR_ENTRY;
+    routineMutexEnter(routine);
+    ValueCell* top = slot(routine, routine->stackTopIndex - 1);
+    ValueCell* to = slot(routine, routine->stackTopIndex - 1 - count);
+    routine->stackTopIndex -= count;
+    *to = *top;
+    routineMutexLeave(routine);
+    TR_EXIT(0);
+    RS_EXIT(-count);
+}
+
+void popFrame(ObjRoutine* routine, CallFrame* frame) {
     TR_ENTRY;
     routineMutexEnter(routine);
 
@@ -614,7 +631,6 @@ void popFrame(ObjRoutine* routine, CallFrame* frame) {
 
     routineMutexLeave(routine);
     TR_EXIT(0);
-    RS_EXIT(0);
 }
 
 Value peek(ObjRoutine* routine, int distance) {
@@ -623,6 +639,13 @@ Value peek(ObjRoutine* routine, int distance) {
     ValueCell* cell = peekCell(routine, distance);
     TR_EXIT(0);
     RS_EXIT(0);
+    if (IS_CLOSURE(cell->value) && AS_CLOSURE(cell->value)->function->fName != 0 && strcmp(AS_CLOSURE(cell->value)->function->fName->chars, "getRawHostArgument")==0) {
+        routine=routine;
+    }
+    if (IS_FUNCTION(cell->value) && AS_FUNCTION(cell->value)->fName != 0 && strcmp(AS_FUNCTION(cell->value)->fName->chars, "getRawHostArgument")==0) {
+        routine=routine;
+    }
+
     return cell->value;
 }
 
@@ -805,8 +828,10 @@ static void traceValueStack(ObjRoutine* routine) {
 void traceExecutionIfEnabled(ObjRoutine* routine) {
     RS_ENTRY;
     TR_ENTRY;
+
     if (routine->traceExecution) {
         CallFrame* frame = &routine->frames[routine->frameCount - 1];
+        uint8_t i = frame->closure->function->chunk.code[frame->ip - frame->closure->function->chunk.code];
 
         traceValueStack(routine);
         char functionName[17];
