@@ -29,7 +29,6 @@ void markValueCell(ValueCell* cell) {
 }
 
 void markDynamicObjArray(DynamicObjArray* array) {
-    markObject(array->stash);
     for (int i = 0; i < array->objectCount; i++) {
         markObject(array->objects[i]);
     }

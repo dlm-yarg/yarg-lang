@@ -58,6 +58,7 @@ bool setBuiltin(ObjRoutine *routine, int argCount)
             uint32_t value = AS_UI32(arg1);
             
             testIntrinsicsSetMemory(address, value);
+            push(routine, NIL_VAL);
             ok = true;
         }
     }
@@ -77,6 +78,7 @@ bool readBuiltin(ObjRoutine *routine, int argCount) {
         Value arg0 = peek(routine, 0);
         size_t address = AS_ADDRESS(arg0);
         testIntrinsicsExpectReadAnyValue(address);
+        push(routine, NIL_VAL);
         ok = true;
     }
     else if (argCount == 2 && IS_UI32(peek(routine, 0)) && IS_ADDRESS(peek(routine, 1)))
@@ -86,6 +88,7 @@ bool readBuiltin(ObjRoutine *routine, int argCount) {
         size_t address = AS_ADDRESS(arg0);
         uint32_t value = AS_UI32(arg1);
         testIntrinsicsExpectRead(address, value);
+        push(routine, NIL_VAL);
         ok = true;
     }
 
@@ -105,6 +108,7 @@ bool writeBuiltin(ObjRoutine *routine, int argCount) {
         Value arg0 = peek(routine, 0);
         size_t address = AS_ADDRESS(arg0);
         testIntrinsicsExpectWriteAnyValue(address);
+        push(routine, NIL_VAL);
         ok = true;
     }
     else if (argCount == 2 && IS_ADDRESS(peek(routine, 1)) && IS_UI32(peek(routine, 0)))
@@ -114,6 +118,7 @@ bool writeBuiltin(ObjRoutine *routine, int argCount) {
         size_t address = AS_ADDRESS(arg0);
         uint32_t value = AS_UI32(arg1);
         testIntrinsicsExpectWrite(address, value);
+        push(routine, NIL_VAL);
         ok = true;
     }
 
@@ -159,17 +164,18 @@ bool interruptBuiltin(ObjRoutine *routine, int argCount) {
 
 bool syncBuiltin(ObjRoutine *routine, int argCount)
 {
-    RS_ENTRY;
+    TR_ENTRY;RS_ENTRY;
     TsLog *log = testIntrinsicsSync();
 
     Value resultArrayVal = allocValueArray(log->n_);
-    tempRootPush(resultArrayVal);
 
     for (size_t i = 0; i < log->n_; i++)
     {
         // log entries created with vm_(re)alloc, so we can take ownership.
         ObjString *s = takeString(log->i_[i], (int)strlen(log->i_[i]));
         setArrayElement(resultArrayVal, i, STRING_VAL(s));
+        tempRootPop(); // s
+        TR_EXIT(1);
     }
     vm_free(log->i_);
     log->i_ = NULL;
@@ -179,6 +185,7 @@ bool syncBuiltin(ObjRoutine *routine, int argCount)
     push(routine, resultArrayVal);
     tempRootPop(); // resultArrayVal
 
+    TR_EXIT(0);
     RS_EXIT(1);
     return true;
 }

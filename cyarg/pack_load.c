@@ -29,6 +29,7 @@ ObjFunction *loadPackageFromBuffer(ObjRoutine* routine, uint8_t* buffer, size_t 
 
     if (memcmp(h->magic_, packageMagic, PACKAGE_MAGIC_LEN) != 0) {
         r = PACKAGE_PROTOCOL;
+        goto exit;
     }
     if (h->version_ != packageVersion) {
         r = PACKAGE_DATAERR;
@@ -221,7 +222,6 @@ exit:
         RS_EXIT(1);
         return currentFunction;
     } else {
-        pop(routine); // currentFunction
         TR_EXIT(0);
         RS_EXIT(0);
         return 0;

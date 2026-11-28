@@ -6,11 +6,12 @@
 #include "memory.h"
 #include "object_gc_impl.h"
 
+#include <memory.h>
+
 // note that this call can be omitted for objects where
 // the DynamicObjArray is a member, and Zero filled
 void initDynamicObjArray(DynamicObjArray* array) {
     array->objects = NULL;
-    array->stash = NULL;
     array->objectCapacity = 0;
     array->objectCount = 0;
 }
@@ -20,14 +21,33 @@ void freeDynamicObjArray(DynamicObjArray* array) {
     initDynamicObjArray(array);
 }
 
+void enlargeDynamicObjArray(DynamicObjArray* array, void* newObjArray, int newCapacity) {
+    int oldCapacity = array->objectCapacity;
+    if (newCapacity > oldCapacity) {
+        array->objectCapacity = newCapacity;
+        memcpy(newObjArray, array->objects, oldCapacity * sizeof (Obj *));
+        void *oldObjArray = array->objects;
+        array->objects = newObjArray;
+        vm_free(oldObjArray);
+    } else {
+        vm_free(newObjArray);
+    }
+}
+
 void appendToDynamicObjArray(DynamicObjArray* array, Obj* obj) {
-    array->stash = obj;
     if (array->objectCapacity < array->objectCount + 1) {
-        int oldCapacity = array->objectCapacity;
-        array->objectCapacity = GROW_CAPACITY(oldCapacity);
-        array->objects = GROW_ARRAY(Obj*, array->objects, oldCapacity, array->objectCapacity);
+        int newCapacity = GROW_CAPACITY(array->objectCapacity);
+        void *newObjArray = vm_allocate(newCapacity * sizeof (Obj *));
+        enlargeDynamicObjArray(array, newObjArray, newCapacity);
     }
     array->objects[array->objectCount] = obj;
     array->objectCount++;
-    array->stash = NULL;
+}
+
+void appendToDynamicObjArrayNoAlloc(DynamicObjArray* array, Obj* obj, void* newObjArray, int newCapacity) {
+    if (newCapacity > array->objectCapacity) {
+        enlargeDynamicObjArray(array, newObjArray, newCapacity);
+    }
+    array->objects[array->objectCount] = obj;
+    array->objectCount++;
 }

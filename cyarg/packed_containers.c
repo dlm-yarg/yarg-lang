@@ -105,6 +105,8 @@ ObjPackedStorage* newPackedStorage(const ObjConcreteYargType* type) {
             storage->values[storage->value_elements++] = valueAddr;
             Value elementType = elements[i].type ? YARGTYPE_VAL(elements[i].type) : NIL_VAL;
             *valueAddr = defaultValue(elementType);
+            if (!IS_NIL(*valueAddr)) tempRootPop();
+            TR_EXIT(1);
         }
     }
 
@@ -234,15 +236,13 @@ Value duplicateStruct(Value rhsStructVal) {
     ObjOwningPackedContainer* container = ALLOCATE_OBJ(ObjOwningPackedContainer, OBJ_PACKEDCONTAINER);
     const ObjConcreteYargType* type = rhsStructVal.type;
     ObjPackedStorage* storage = newPackedStorage(type);
-    tempObjRootPush((Obj*)storage);
     ObjPackedContainer* rhsContainer = AS_PACKEDCONTAINER(rhsStructVal);
 
     memcpy(&storage->storage[0], rhsContainer->loc, storage->storage_size);
 
     container->storage = storage;
-    container->container.loc = &container->storage->storage[0];
-    tempRootPop();
-    tempRootPop();
+    container->container.loc = storage->storage;
+    assert(tempRootPop().as.obj == &storage->obj);
     TR_EXIT(1);
     return TYPED_VAL(container, type);
 }
@@ -257,10 +257,13 @@ Value newPackedValueContainer(const ObjConcreteYargType* type) {
     ObjOwningPackedContainer* container = ALLOCATE_OBJ(ObjOwningPackedContainer, OBJ_PACKEDCONTAINER);
     ObjPackedStorage* storage = newPackedStorage(type);
     container->storage = storage;
-    container->container.loc = &container->storage->storage[0];
     assert(tempRootPop().as.obj == &storage->obj);
+    container->container.loc = storage->storage;
+    Value v = TYPED_VAL(container, type);
+    tempRootPush(v);
+    tempRootPopBelow(1); // container (without type)
     TR_EXIT(1);
-    return TYPED_VAL(container, type);
+    return v;
 }
 
 Value newPackedValueContainerFor(ObjOwningPackedContainer* owningContainer, size_t offset, const ObjConcreteYargType* type) {

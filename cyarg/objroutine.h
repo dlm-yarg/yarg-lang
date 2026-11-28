@@ -19,6 +19,7 @@
 typedef struct ObjRoutine ObjRoutine;
 typedef struct ObjClosure ObjClosure;
 typedef struct ObjUpvalue ObjUpvalue;
+typedef struct ObjStackSlice ObjStackSlice;
 
 typedef enum {
     EXEC_UNBOUND,
@@ -28,7 +29,7 @@ typedef enum {
     EXEC_ERROR
 } ExecState;
 
-typedef bool (*AddSliceFn)(ObjRoutine* routine);
+typedef bool (*AddSliceFn)(ObjRoutine* routine, ObjStackSlice*);
 
 typedef struct CallFrame {
     ObjClosure* closure;
@@ -44,6 +45,7 @@ typedef struct ObjRoutine {
     Obj obj;
 
     vm_mutex lock;
+    bool locked;
 
     CallFrame frames[FRAMES_MAX];
     int frameCount;

@@ -27,6 +27,9 @@ ObjSyncGroup* newSyncGroup(ObjRoutine* routine, Value itemArray) {
     RS_ENTRY;
     TR_ENTRY;
     ObjSyncGroup* group = ALLOCATE_OBJ(ObjSyncGroup, OBJ_SYNCGROUP);
+    push(routine, SYNCGROUP_VAL(group));
+    tempRootPop(); // group
+
     vm_mutex_init(&group->group_lock);
 
     ObjConcreteYargTypeArray* channelArrayType = (ObjConcreteYargTypeArray*)itemArray.type;
@@ -34,9 +37,10 @@ ObjSyncGroup* newSyncGroup(ObjRoutine* routine, Value itemArray) {
 
     group->channel_array_val = itemArray;
     group->result_array_val = allocValueArray(group->num_channels);;
-    pop(routine);
+    tempRootPop(); // group->result_array_val
+
     TR_EXIT(0);
-    RS_EXIT(0);
+    RS_EXIT(1);
     return group;
 }
 
@@ -55,6 +59,7 @@ ObjString* syncGroupToString(const ObjSyncGroup* group) {
     size_t cursor = strlen(buffer);
     ObjString* resultsStr = valueToString(group->result_array_val);
     snprintf(buffer + cursor, sizeof(buffer) - cursor, "%s", resultsStr->chars);
+    tempRootPop(); // resultsStr
     cursor = strlen(buffer);
     snprintf(buffer + cursor, sizeof(buffer) - cursor, "}");
     return copyString(buffer, (int)strlen(buffer));
@@ -77,7 +82,7 @@ Value receiveSyncGroup(ObjSyncGroup* group) {
                     data = collectFromChannel(AS_CHANNEL(channelVal));
                 }
             }
-            assert(valuesEqual(tempRootPop(), channelVal));
+            tempRootPop(); // channelVal
             wait_complete |= !IS_NIL(data);
             setArrayElement(group->result_array_val, i, data);
         }

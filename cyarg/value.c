@@ -177,19 +177,20 @@ Value defaultValue(Value type) {
         return NIL_VAL;
     } else {
         ObjConcreteYargType* ct = AS_YARGTYPE(type);
+        Value v;
         switch (ct->yt) {
-            case TypeBool: return BOOL_VAL(false);
-            case TypeInt: return defaultIntValue();
-            case TypeDouble: return DOUBLE_VAL(0);
-            case TypeInt8: return I8_VAL(0);
-            case TypeUint8: return UI8_VAL(0);
-            case TypeInt16: return I16_VAL(0);
-            case TypeUint16: return UI16_VAL(0);
-            case TypeInt32: return I32_VAL(0);
-            case TypeUint32: return UI32_VAL(0);
-            case TypeInt64: return I64_VAL(0);
-            case TypeUint64: return UI64_VAL(0);
-            case TypeAddress: return ADDRESS_VAL(0);
+            case TypeBool: v = BOOL_VAL(false); break;
+            case TypeInt: v = defaultIntValue(); break;
+            case TypeDouble: v = DOUBLE_VAL(0); break;
+            case TypeInt8: v = I8_VAL(0); break;
+            case TypeUint8: v = UI8_VAL(0); break;
+            case TypeInt16: v = I16_VAL(0); break;
+            case TypeUint16: v = UI16_VAL(0); break;
+            case TypeInt32: v = I32_VAL(0); break;
+            case TypeUint32: v = UI32_VAL(0); break;
+            case TypeInt64: v = I64_VAL(0); break;
+            case TypeUint64: v = UI64_VAL(0); break;
+            case TypeAddress: v = ADDRESS_VAL(0); break;
             case TypeStruct: return defaultStructValue(ct);
             case TypeArray: return defaultArrayValue(ct);
             case TypePointer: return defaultPointerValue(ct);
@@ -205,6 +206,8 @@ Value defaultValue(Value type) {
             case TypeImplementationObj:
                 return NIL_VAL;
         }
+        tempRootPush(v);
+        return v;
     }
 }
 
@@ -221,7 +224,7 @@ void appendToDynamicValueArray(DynamicValueArray* array, Value value) {
     if (array->capacity < array->count + 1) {
         int oldCapacity = array->capacity;
         array->capacity = GROW_CAPACITY(oldCapacity);
-        array->values = GROW_ARRAY(Value, array->values, oldCapacity, array->capacity);
+        array->values = GROW_ARRAY(Value, array->values, array->capacity);
     }
 
     array->values[array->count] = value;

@@ -56,6 +56,7 @@ static bool readYargSourceBuiltin(ObjRoutine* routine, int argCount) {
 
         Value byteBuffer = allocByteArray(file_size);
         push(routine, byteBuffer);
+        tempRootPop();
 
         readFileIntoBuffer(filename, AS_PACKEDCONTAINER(byteBuffer)->loc, file_size);
     }
@@ -200,19 +201,24 @@ bool loadBuiltin(ObjRoutine* routine, int argCount) {
         setStructField(loadResult, 1, functionVal);
     } else if (IS_STRING(arg)) {
         Value compileResult = compile(routine);
-
         Value compileError = structField(compileResult, 0);
-        Value loadResult = resultPair(compileError, peek(routine, 0));
+        Value compileFunction = structField(compileResult, 1);
+
+        Value loadResult = resultPair(compileError, NIL_VAL);
         push(routine, loadResult);
-        assert(tempRootPop().as.obj == loadResult.as.obj);
-        tempRootPop(); // compileError
-        popNBehindTop(routine, 1); // compileResult
+        tempRootPop(); // loadResult
+        if (IS_NIL(compileError)) {
+            setStructField(loadResult, 1, compileFunction);
+        }
 
         if (IS_NIL(compileError)) {
             Value compileFunction = structField(compileResult, 1);
             setStructField(loadResult, 1, compileFunction);
             tempRootPop(); // compileFunction
         }
+        popNBehindTop(routine, 1); // compileResult
+        tempRootPop(); // compileFunction
+        tempRootPop(); // compileError
 
     } else {
         runtimeError(routine, "Argument to load must be a byte array or a string.");
@@ -226,9 +232,11 @@ bool loadBuiltin(ObjRoutine* routine, int argCount) {
 
     if (!IS_NIL(functionVal)) {
         ObjClosure* closure = newClosure(AS_FUNCTION(functionVal));
-        tempRootPop(); // functionVal
+        tempRootPopBelow(1); // functionVal
         setStructField(loadResult, 1, CLOSURE_VAL(closure));
         tempRootPop(); // closure
+    } else {
+        tempRootPop(); // functionVal(nil_val)
     }
 
     TR_EXIT(0);
@@ -259,12 +267,11 @@ static bool makeChannelBuiltin(ObjRoutine* routine, int argCount) {
 
     ObjChannelContainer* channel = newChannel(routine, capacity);
 
-    TR_EXIT(0);
-    RS_EXIT(1);
     if (channel == NULL) {
         return false;
     } else {
-        push(routine, CHANNEL_VAL((Obj*)channel));
+        TR_EXIT(0);
+        RS_EXIT(1);
         return true;
     }
 }
@@ -371,7 +378,6 @@ static bool makeSyncGroupBuiltin(ObjRoutine* routine, int argCount) {
 
     ObjSyncGroup* group = newSyncGroup(routine, items);
 
-    push(routine, SYNCGROUP_VAL((Obj*)group));
     TR_EXIT(0);
     RS_EXIT(1);
     return true;
@@ -436,7 +442,8 @@ static bool resumeBuiltin(ObjRoutine* routine, int argCount) {
     Value v;
     bool ok = resumeRoutine(routine, target, argCount == 2 ? 1 : 0, argVal, &v);
     push(routine, v);
-
+    tempRootPop();
+    
     TR_EXIT(0);
     RS_EXIT(1);
     return ok;
@@ -490,25 +497,28 @@ static bool receiveBuiltin(ObjRoutine* routine, int argCount) {
     }
 
     bool ok;
-    Value v;
     if (IS_CHANNEL(targetVal)) {
-        v = receiveChannel(AS_CHANNEL(targetVal));
+        push(routine, receiveChannel(AS_CHANNEL(targetVal)));
         ok = true;
     }
     else if (IS_ROUTINE(targetVal)) {
+        Value v;
         ok = receiveFromRoutine(AS_ROUTINE(targetVal), &v);
+        if (ok) {
+            push(routine, v);
+            tempRootPop();
+        }
     }
     else if (IS_SYNCGROUP(targetVal)) {
-        v = receiveSyncGroup(AS_SYNCGROUP(targetVal));
+        push(routine, receiveSyncGroup(AS_SYNCGROUP(targetVal)));
         ok = true;
     }
     else {
-        v = NIL_VAL;
+        push(routine, NIL_VAL);
         ok = true;
     }
-    push(routine, v);
     TR_EXIT(0);
-    RS_EXIT(1);
+    RS_EXIT(ok != false);
     return ok;
 }
 
@@ -621,15 +631,17 @@ Value createPointerAndTarget(ObjRoutine* routine, const ObjConcreteYargType* tar
     TR_ENTRY;
 
     const ObjConcreteYargType* pointerType = newYargPointerType(targetType);
-    push(routine, YARGTYPE_VAL(pointerType));
 
     Value targetVal = newPackedValueContainer(targetType);
     ObjPackedContainer* targetContainer = AS_PACKEDCONTAINER(targetVal);
+    tempObjRootPush(&targetContainer->obj); // todo - this shouldn’t be needed but targetContainer is GCd if not something to do with TYPED_VAL in newPackedValueContainer?
 
     Value pointerVal = createPackedContainerFor(targetContainer, 0, pointerType);
     push(routine, pointerVal);
-    popNBehindTop(routine, 1); // pointerType
+    tempRootPop(); // targetContainer todo
     tempRootPop(); // targetVal
+    tempRootPop(); // pointerVal
+    tempRootPop(); // pointerType
     TR_EXIT(0);
     RS_EXIT(1);
     return pointerVal;
@@ -1193,9 +1205,9 @@ static bool uint8Builtin(ObjRoutine* routine, int argCount) {
         uint64_t i = strtoull(AS_CSTRING(arg), &end, 10);
         if (*end == 0 && i <= UINT8_MAX)
         {
+            push(routine, UI8_VAL((uint8_t) i));
             TR_EXIT(0);
             RS_EXIT(1);
-            push(routine, UI8_VAL((uint8_t) i));
             return true;
         }
     }
@@ -1409,6 +1421,7 @@ static bool stringBuiltin(ObjRoutine* routine, int argCount) {
     Value arg = peek(routine, 0);
     ObjString* representation = valueToString(arg);
     push(routine, STRING_VAL(representation));
+    tempRootPop(); // representation
     TR_EXIT(0);
     RS_EXIT(1);
     return true;

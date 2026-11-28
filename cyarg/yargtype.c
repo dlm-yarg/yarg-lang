@@ -188,6 +188,7 @@ bool is_nil_assignable_type(const ObjConcreteYargType* type) {
             case TypeUint64:
             case TypeStruct:
             case TypeAddress:
+            case TypeImplementationObj:
                 return false;
             case TypeString:
             case TypeClass:

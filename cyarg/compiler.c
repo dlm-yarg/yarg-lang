@@ -126,6 +126,7 @@ static void errorAt(const char* location, const char* message) {
 
     ObjString* errorString = takeString(buffer, (int) bufferLength - 1);
     appendToDynamicObjArray(&current->errors, (Obj*)errorString);
+    tempRootPop(); // errorString
 }
 
 static void errorAtValue(Value location, const char* message) {
@@ -474,10 +475,6 @@ static void generateGetNamedVariable(ObjString* name) {
 }
 
 static void generateExprNamedVariable(ObjExprNamedVariable* var) {
-    if (strncmp(var->name->chars, "getRawHostArgument", var->name->length) == 0) {
-        var==var;
-    }
-
     ObjString* this_ = copyString("this", 4);
     if (identifiersEqual(this_, var->name) && currentClass == NULL) {
         assert(tempRootPop().as.obj == &this_->obj);
@@ -491,16 +488,16 @@ static void generateExprNamedVariable(ObjExprNamedVariable* var) {
     if (arg != -1) {
         getOp = OP_GET_LOCAL;
         setOp = OP_SET_LOCAL;
-        printf("L%s %d %s:%s\n", (var->assignment ? "S" : "G"), arg, (current->function->fName ? current->function->fName->chars : ""), var->name->chars);
+//        printf("L%s %d %s:%s\n", (var->assignment ? "S" : "G"), arg, (current->function->fName ? current->function->fName->chars : ""), var->name->chars);
     } else if ((arg = resolveUpvalue(current, var->name)) != -1) {
         getOp = OP_GET_UPVALUE;
         setOp = OP_SET_UPVALUE;
-        printf("U%s %d %s:%s\n", (var->assignment ? "S" : "G"), arg, (current->function->fName ? current->function->fName->chars : ""), var->name->chars);
+//        printf("U%s %d %s:%s\n", (var->assignment ? "S" : "G"), arg, (current->function->fName ? current->function->fName->chars : ""), var->name->chars);
     } else {
         arg = identifierConstant(var->name);
         getOp = OP_GET_GLOBAL;
         setOp = OP_SET_GLOBAL;
-        printf("G%s %d %s:%s\n", (var->assignment ? "S" : "G"), arg, (current->function->fName ? current->function->fName->chars : ""), var->name->chars);
+//        printf("G%s %d %s:%s\n", (var->assignment ? "S" : "G"), arg, (current->function->fName ? current->function->fName->chars : ""), var->name->chars);
     }
     
     if (var->assignment) {
@@ -1083,6 +1080,7 @@ static void generateStmtMethodDeclaration(ObjStmtFunDeclaration* method) {
     FunctionType type = TYPE_METHOD;
     ObjString* init = copyString("init", 4);
     push(current->context, STRING_VAL(init));
+    tempRootPop();
     if (identifiersEqual(method->name, init)) {
         type = TYPE_INITIALIZER;
     }
@@ -1149,7 +1147,7 @@ static void generateStmt(ObjStmt* stmt) {
             int capacity = current->function->chunk.lineCapacity;
             int newCapacity = capacity + 16;
             current->function->chunk.lineCapacity = newCapacity;
-            current->function->chunk.lines = GROW_ARRAY(ChunkSource, current->function->chunk.lines, capacity, newCapacity);
+            current->function->chunk.lines = GROW_ARRAY(ChunkSource, current->function->chunk.lines, newCapacity);
         }
         current->function->chunk.lines[current->function->chunk.numLines++] = (ChunkSource){current->function->chunk.count, stmt->line};
     }
@@ -1253,8 +1251,7 @@ static ObjFunction* endCompiler() {
     return function;
 }
 
-Value
-compile(ObjRoutine* routine) {
+Value compile(ObjRoutine* routine) {
     RS_ENTRY;
     TR_ENTRY;
     Value source = peek(routine, 0);
@@ -1275,14 +1272,15 @@ compile(ObjRoutine* routine) {
     initCompiler(&compiler, TYPE_SCRIPT, NULL, routine);
 
     Value parseErrors = parse(routine);
-    push(routine, parseErrors);
     if (IS_NIL(parseErrors)) {
         generate(ast->statements);
     }
-
+    
     Value errors = duplicateAsValueArray(&compiler.errors);
     push(routine, errors);
-    
+    if(!IS_NIL(errors)) tempRootPop();
+
+
     ObjFunction* function = endCompiler();
     push(routine, FUNCTION_VAL(function));
 

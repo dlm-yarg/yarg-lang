@@ -25,7 +25,7 @@ typedef struct ObjStackSlice{
 } ObjStackSlice;
 
 
-bool addSlice(ObjRoutine* routine);
+static bool addSlice(ObjRoutine* routine, ObjStackSlice*);
 
 static void routineMutexEnter(ObjRoutine* routine) {
     vm_mutex_enter_blocking(&routine->lock);
@@ -38,7 +38,7 @@ static void routineMutexLeave(ObjRoutine* routine) {
 void initRoutine(ObjRoutine* routine) {
     vm_mutex_init(&routine->lock);
 
-    StackSlice** initialStackSlices = GROW_ARRAY(StackSlice*, 0, 0, GROW_CAPACITY(0));
+    StackSlice** initialStackSlices = GROW_ARRAY(StackSlice*, 0, GROW_CAPACITY(0));
 
     routineMutexEnter(routine);
 
@@ -100,16 +100,15 @@ void freeRoutine(ObjRoutine* routine) {
     vm_mutex_deinit(&routine->lock);
 }
 
-bool addSlice(ObjRoutine* routine) {
+bool addSlice(ObjRoutine* routine, ObjStackSlice* sliceObj) {
     RS_ENTRY;
     TR_ENTRY;
 
-    ObjStackSlice* sliceObj = ALLOCATE_OBJ(ObjStackSlice, OBJ_STACKSLICE);
     if (sliceObj == NULL) return false;
 
     if (routine->stackSliceCapacity < routine->sliceCount + 1) {
         routine->stackSliceCapacity = GROW_CAPACITY(routine->stackSliceCapacity);
-        routine->stackSlices = GROW_ARRAY(StackSlice*, routine->stackSlices, oldCapacity, routine->stackSliceCapacity);
+        routine->stackSlices = GROW_ARRAY(StackSlice*, routine->stackSlices, routine->stackSliceCapacity);
     }
 
     if (routine->stackSlices) {
@@ -117,8 +116,6 @@ bool addSlice(ObjRoutine* routine) {
         routine->sliceCount++;
         appendToDynamicObjArray(&routine->additionalSlicesArray, (Obj*)sliceObj);
     }
-
-    tempRootPop();
 
     TR_EXIT(0);
     RS_EXIT(0);
@@ -221,7 +218,7 @@ static Value resultPair(Value error, Value result) {
     Value resultValue = allocValueStructPair("errors", "result");
     setStructField(resultValue, 0, error);
     setStructField(resultValue, 1, result);
-    TR_EXIT(0);
+    TR_EXIT(1);
     return resultValue;
 }
 
@@ -246,13 +243,13 @@ bool resumeRoutine(ObjRoutine* routine, ObjRoutine* target, size_t argCount, Val
         target->result = pop(target);
         Value resultValue = resultPair(NIL_VAL, target->result);
         *result = resultValue;
-        TR_EXIT(0);
+        TR_EXIT(1);
         RS_EXIT(0);
         return true;
     } else {
         Value resultValue = resultPair(target->error, NIL_VAL);
         *result = resultValue;
-        TR_EXIT(0);
+        TR_EXIT(1);
         RS_EXIT(0);
         return true;
     }
@@ -346,12 +343,14 @@ bool receiveFromRoutine(ObjRoutine* routine, Value* result) {
         
     if (routine->state == EXEC_CLOSED || routine->state == EXEC_SUSPENDED) {
         Value resultValue = resultPair(NIL_VAL, routine->result);
+        TR_EXIT(1);
+        RS_EXIT(0);
         *result = resultValue;
         return true;
     } else if (routine->state == EXEC_ERROR) {
         Value resultValue = resultPair(routine->error, NIL_VAL);
         *result = resultValue;
-        TR_EXIT(0);
+        TR_EXIT(1);
         RS_EXIT(0);
         return true;
     } else {
@@ -380,8 +379,6 @@ static size_t stackOffsetOf(CallFrame* frame, size_t frameIndex) {
 }
 
 void markRoutine(ObjRoutine* routine) {
-    RS_ENTRY;
-    TR_ENTRY;
     routineMutexEnter(routine);
 
     size_t stackSize = routine->stackTopIndex;
@@ -408,8 +405,6 @@ void markRoutine(ObjRoutine* routine) {
     markValue(routine->error);
 
     routineMutexLeave(routine);
-    TR_EXIT(0);
-    RS_EXIT(0);
 }
 
 void routineNewFrame(ObjRoutine* routine, ObjClosure* closure, int argCount) {
@@ -554,6 +549,7 @@ void push(ObjRoutine* routine, Value value) {
     if (IS_FUNCTION(value) && AS_FUNCTION(value)->fName != 0 && strcmp(AS_FUNCTION(value)->fName->chars, "getRawHostArgument")==0) {
         routine=routine;
     }
+    bool addStack = false;
     routineMutexEnter(routine);
     ValueCell* nextSlot = slot(routine, routine->stackTopIndex);
 
@@ -561,17 +557,47 @@ void push(ObjRoutine* routine, Value value) {
     nextSlot->cellType = NULL;
     routine->stackTopIndex++;
 
-    if (routine->stackTopIndex / SLICE_MAX + 1 > routine->sliceCount) {
-        if (routine->addSlice) {
-            if (!routine->addSlice(routine)) {
-                runtimeError(routine, "Value stack size exceeded.");
-            }
-        } else {
+    if ((routine->stackTopIndex + 1) / SLICE_MAX + 1 > routine->sliceCount) {
+        addStack = routine->addSlice != 0;
+        if (!addStack) {
             runtimeError(routine, "Fixed Value stack size exceeded.");
         }
     }
-
     routineMutexLeave(routine);
+
+    void *newObjArray = 0;
+    int newCapacity;
+    ObjStackSlice* newSlice;
+    if (addStack) {
+        newSlice = ALLOCATE_OBJ(ObjStackSlice, OBJ_STACKSLICE);
+
+        bool grow = false;
+        routineMutexEnter(routine);
+        DynamicObjArray* array = &routine->additionalSlicesArray;
+        grow = array->objectCapacity < array->objectCount + 1;
+        newCapacity = GROW_CAPACITY(array->objectCapacity);
+        routineMutexLeave(routine);
+
+        if (grow) {
+            newObjArray = vm_allocate(newCapacity * sizeof (Obj *));
+        }
+    }
+
+    routineMutexEnter(routine);
+    if (newObjArray != 0) {
+        enlargeDynamicObjArray(&routine->additionalSlicesArray, newObjArray, newCapacity);
+    }
+    if (addStack && routine->addSlice) {
+        if (!routine->addSlice(routine, newSlice)) {
+            runtimeError(routine, "Value stack size exceeded.");
+        }
+    }
+    routineMutexLeave(routine);
+
+    if (addStack) {
+        tempRootPop(); // newSlice
+    }
+
     TR_EXIT(0);
     RS_EXIT(1);
 }
@@ -650,13 +676,8 @@ Value peek(ObjRoutine* routine, int distance) {
 }
 
 ValueCell* peekCell(ObjRoutine* routine, int distance) {
-    RS_ENTRY;
-    TR_ENTRY;
     assert(routine->stackTopIndex >= (1 + distance));
     ValueCell* targetCell = slot(routine, routine->stackTopIndex - 1 - distance);
-
-    TR_EXIT(0);
-    RS_EXIT(0);
     return targetCell;
 }
 
@@ -831,7 +852,7 @@ void traceExecutionIfEnabled(ObjRoutine* routine) {
 
     if (routine->traceExecution) {
         CallFrame* frame = &routine->frames[routine->frameCount - 1];
-        uint8_t i = frame->closure->function->chunk.code[frame->ip - frame->closure->function->chunk.code];
+//        uint8_t i = frame->closure->function->chunk.code[frame->ip - frame->closure->function->chunk.code];
 
         traceValueStack(routine);
         char functionName[17];

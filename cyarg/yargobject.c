@@ -100,10 +100,6 @@ bool isAddressValue(Value val) {
 }
 
 static ObjString* allocateString(char const *chars, int length) {
-    if (memcmp(chars, "/", 1) == 0)
-    {
-        chars = chars;
-    }
     ObjString *string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
     string->length = length;
     string->chars = (char *)chars;

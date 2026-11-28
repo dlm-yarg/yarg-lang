@@ -108,6 +108,7 @@ bool irq_remove_handlerNative(ObjRoutine* routine, int argCount) {
 #endif
 
     removePinnedRoutine(isrRoutine);
+    push(routine, NIL_VAL);
     TR_EXIT(0);
     RS_EXIT(1);
     return true;
@@ -164,8 +165,6 @@ bool stdin_getsNative(ObjRoutine* routine, int argCount) {
 
     char buffer[4096];
     while (fgets(buffer, sizeof(buffer), stdin) == NULL) {
-        push(routine, NIL_VAL);
-//        return true;
     }
     size_t length = strlen(buffer);
     if (length > 0 && buffer[length - 1] == '\n') {
@@ -173,6 +172,7 @@ bool stdin_getsNative(ObjRoutine* routine, int argCount) {
         length--;
     }
     push(routine, STRING_VAL(copyString(buffer, (int) length)));
+    tempRootPop();
     TR_EXIT(0);
     RS_EXIT(1);
     return true;

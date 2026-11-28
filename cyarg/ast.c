@@ -137,15 +137,14 @@ ObjExprNumber* newExprNumberFromCint(int constant) {
 }
 
 ObjExprNamedVariable* newExprNamedVariable(ObjRoutine* routine, const char* name, int nameLength) {
-    RS_ENTRY;
-    TR_ENTRY;
+    TR_ENTRY;RS_ENTRY;
     ObjExprNamedVariable* var = ALLOCATE_OBJ(ObjExprNamedVariable, OBJ_EXPR_NAMEDVARIABLE);
     push(routine, IMPL_OBJ_VAL(var));
+    tempRootPop(); // var
     var->name = copyString(name, nameLength);
     tempRootPop(); // var->name
-    pop(routine);
-    TR_EXIT(1);
-    RS_EXIT(0);
+    TR_EXIT(0);
+    RS_EXIT(1);
     return var;
 }
 
@@ -171,9 +170,11 @@ ObjExprString* newExprString(ObjRoutine* routine, const char* str, int strLength
     TR_ENTRY;
     ObjExprString* string = ALLOCATE_OBJ(ObjExprString, OBJ_EXPR_STRING);
     string->string = copyStringWithEscapes(str, strLength);
+    push(routine, STRING_VAL(string));
     assert(tempRootPop().as.obj == &string->string->obj);
-    TR_EXIT(1);
-    RS_EXIT(0);
+    assert(tempRootPop().as.obj == &string->expr.obj);
+    TR_EXIT(0);
+    RS_EXIT(1);
     return string;
 }
 
@@ -238,11 +239,11 @@ ObjExprDot* newExprDot(ObjRoutine* routine, const char* name, int nameLength) {
     TR_ENTRY;
     ObjExprDot* expr = ALLOCATE_OBJ(ObjExprDot, OBJ_EXPR_DOT);
     push(routine, IMPL_OBJ_VAL(expr));
+    tempRootPop(); // expr
     expr->name = copyString(name, nameLength);
     tempRootPop(); // expr->name
-    pop(routine);
-    TR_EXIT(1);
-    RS_EXIT(0);
+    TR_EXIT(0);
+    RS_EXIT(1);
     return expr;
 }
 
@@ -251,10 +252,11 @@ ObjExprSuper* newExprSuper(ObjRoutine* routine, const char* name, int nameLength
     TR_ENTRY;
     ObjExprSuper* expr = ALLOCATE_OBJ(ObjExprSuper, OBJ_EXPR_SUPER);
     push(routine, IMPL_OBJ_VAL(expr));
+    tempRootPop(); // expr
     expr->name = copyString(name, nameLength);
     tempRootPop(); // expr->name
     pop(routine);
-    TR_EXIT(1);
+    TR_EXIT(0);
     RS_EXIT(1);
     return expr;
 }

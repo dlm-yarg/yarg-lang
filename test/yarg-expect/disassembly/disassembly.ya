@@ -5,7 +5,7 @@ fun do(cheese) {
     var n = 1;
     var an = [1, 5, nil, "j"];
     fun do2() {
-            print 167772160;
+        print 167772160;
         var m = verb + " " + string(n) + " " + *cheese;
         print m;
         *cheese = nil;

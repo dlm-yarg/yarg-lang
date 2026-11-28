@@ -6,6 +6,8 @@
 
 #define TR_ENTRY        size_t _tr_entry_ = tempRootDebugSize()
 #define TR_EXIT(EX)     do { assert(tempRootDebugSize() - _tr_entry_ - (EX) == 0); } while (0)
+//#define TR_ENTRY
+//#define TR_EXIT(EX)
 
 typedef struct Obj Obj;
 

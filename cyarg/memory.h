@@ -26,7 +26,7 @@ void vm_free(void* pointer);
 #define GROW_CAPACITY(capacity) \
     ((capacity) < 8 ? 8 : (capacity) * 2)
 
-#define GROW_ARRAY(type, pointer, oldCount, newCount) \
+#define GROW_ARRAY(type, pointer, newCount) \
     (type*)vm_reallocate(pointer, sizeof(type) * (newCount))
 
 #endif

@@ -140,9 +140,6 @@ static void defineGlobal(ObjRoutine* context, const char* name, Value value) {
     push(context, STRING_VAL(nameString));
     assert(valuesEqual(tempRootPop(), IMPL_OBJ_VAL(nameString)));
 
-    if (strcmp("getRawHostArgument", name)==0){
-        name==name;
-    }
     keyValueStoreSetValue(&vm.globals, nameString, &value);
     pop(context);
 }
@@ -854,7 +851,7 @@ InterpretResult run(ObjRoutine* routine) {
             case OP_NIL: push(routine, NIL_VAL); break;
             case OP_TRUE: push(routine, BOOL_VAL(true)); break;
             case OP_FALSE: push(routine, BOOL_VAL(false)); break;
-            case OP_POP: pop(routine); break;
+            case OP_POP: popN(routine, 1); break;
             case OP_GET_BUILTIN: {
                 uint8_t builtin = READ_BYTE();
                 BuiltinFun builtinFn = getBuiltinFunction(builtin);
@@ -951,9 +948,9 @@ InterpretResult run(ObjRoutine* routine) {
             case OP_INITIALISE_DEFAULT: {
                 Value targetType = peek(routine, 0);
                 Value result = defaultValue(targetType);
-                pop(routine);
+                popN(routine, 1);
                 pushTyped(routine, result, targetType);
-                tempRootPop(); // result
+                tempRootPop();
                 break;
             }
             case OP_DUPLICATE: {
@@ -1297,6 +1294,7 @@ InterpretResult run(ObjRoutine* routine) {
                 ObjString* string = valueToString(peek(routine, 0));
                 push(routine, STRING_VAL(string));
                 printf("%s\n", string->chars);
+                if (string != 0) tempRootPop();
                 pop(routine);
                 pop(routine);
                 break;
@@ -1523,9 +1521,7 @@ InterpretResult run(ObjRoutine* routine) {
                         size_t offset = as_positive_integer(offsetValue);
                         appendFieldTypeAtOffset(st, fieldType, offset, fieldName);
                     }
-                    pop(routine);
-                    pop(routine);
-                    pop(routine);
+                    popN(routine, 3);
                 }
                 push(routine, YARGTYPE_VAL(st));
                 tempRootPop(); // st
@@ -1741,7 +1737,7 @@ void unaryIntOp(ObjRoutine* routine, int op) {
     pop(routine);
     push(routine, negI);
     tempRootPop();
-    TR_EXIT(1);
+    TR_EXIT(0);
 }
 
 void binaryIntOp(ObjRoutine* routine, char const *c)

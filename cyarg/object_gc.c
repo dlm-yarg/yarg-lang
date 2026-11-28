@@ -36,7 +36,7 @@ typedef struct objects {
     Obj** grayStack;
 } objects;
 
-objects vm_objects;
+objects vm_objects; 
 
 void vm_objects_init(vm_mutex* mutex) {
     memset(&vm_objects, 0, sizeof(vm_objects));
@@ -63,7 +63,7 @@ static void tempRootPushUnlocked(Value value) {
     *vm_objects.tempRootsTop = value;
     vm_objects.tempRootsTop++;
 
-    if (vm_objects.tempRootsTop - &vm_objects.tempRoots[0] > TEMP_ROOTS_MAX) {
+    if (vm_objects.tempRootsTop - vm_objects.tempRoots > TEMP_ROOTS_MAX) {
         fatalVMError("Allocation Stash Max Exeeded.");
     }
 }
@@ -115,7 +115,10 @@ void pinObj(Obj* object) {
 }
 
 size_t tempRootDebugSize(void) {
-    return vm_objects.tempRootsTop - vm_objects.tempRoots;
+    vm_mutex_enter_blocking(vm_objects.mutex);
+    size_t size = vm_objects.tempRootsTop - vm_objects.tempRoots;
+    vm_mutex_exit(vm_objects.mutex);
+    return size;
 }
 
 void gc_objects(size_t newSize) {
